@@ -1,6 +1,7 @@
 import { chromium, expect } from '@playwright/test';
 import assert from 'node:assert/strict';
 import { browserOptions } from './browser-utils.mjs';
+import { messagePath } from '../src/utils.js';
 
 const origin = process.env.CAMPUS_BROWSER_ORIGIN || 'http://localhost:5173';
 const browser = await chromium.launch(browserOptions());
@@ -48,7 +49,7 @@ try {
   await page.locator('.resource-card').getByRole('button', { name: 'Ouvrir', exact: true }).click();
   await page.getByRole('dialog').waitFor();
   await page.getByRole('dialog').getByRole('link', { name: 'Voir la discussion' }).click();
-  await page.waitForURL(`**/app/chat/general#message-${resource.message_id}`);
+  await page.waitForURL('**' + messagePath(resource));
   assert.equal(await page.getByRole('dialog').count(), 0);
   report('resource module route, unique anchor, preview and original discussion');
 

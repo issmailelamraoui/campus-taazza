@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {chromium,expect} from '@playwright/test';
-import {browserOptions} from './browser-utils.mjs';
-import {resourcePath} from '../src/utils.js';
+import {browserOptions,selectLanguage} from './browser-utils.mjs';
+import {resourcePath,messagePath} from '../src/utils.js';
 const origin=process.env.CAMPUS_BROWSER_ORIGIN||'http://localhost:5173';
 const browser=await chromium.launch(browserOptions());
 const admin=await browser.newContext();
@@ -16,13 +16,13 @@ try{
   await page.locator('.hero-copy h1').waitFor();
   assert.equal(await page.locator('html').getAttribute('lang'),'fr');
   assert.equal(await page.locator('input[type=password]').count(),0);
-  await page.locator('.language-selector').getByRole('button',{name:'AR',exact:true}).click();
+  await selectLanguage(page,'AR');
   await expect(page.locator('html')).toHaveAttribute('dir','rtl');
   assert.ok((await page.locator('.hero-copy h1').textContent()).includes('مجتمع'));
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
-  await page.locator('.language-selector').getByRole('button',{name:'EN',exact:true}).click();
+  await selectLanguage(page,'EN');
   await expect(page.locator('html')).toHaveAttribute('dir','ltr');
-  await page.locator('.language-selector').getByRole('button',{name:'FR',exact:true}).click();
+  await selectLanguage(page,'FR');
   report('first visit welcome and complete FR/AR/EN direction switching');
 
   await page.goto(origin+'/login');
@@ -52,15 +52,22 @@ try{
   await expect(page.locator('.onboarding >button')).toBeDisabled();
   await page.locator('.faculty-confirmation input').check();
   await page.locator('.onboarding >button').click();
+  await page.waitForURL('**/onboarding/studies');
+  await expect(page.locator('.faculty-choice')).toHaveCount(0);
+  await page.locator('#setup-filiere').selectOption({label:'مسلك الدراسات الفرنسية (S1, S3, S5)'});
+  await page.locator('#setup-semester').selectOption('1');
+  await page.locator('.studies-selection-form').getByRole('button',{name:'Compléter mon compte',exact:true}).click();
   await page.waitForURL('**/app');
   await page.locator('.study-welcome h1').waitFor();
   assert.equal((await get(student,'/bootstrap')).faculty.id,'flaa');
+  assert.equal((await get(student,'/bootstrap')).user.filiere_id,'french_studies');
+  assert.equal((await get(student,'/bootstrap')).user.current_semester,1);
   assert.equal(await page.locator('.faculty-sidebar').getByText('FEG',{exact:true}).count(),0);
   await page.goto(origin+'/onboarding/faculty');await page.waitForURL('**/app');
   await page.reload();await page.locator('.study-welcome h1').waitFor();
   const cookie=(await student.cookies()).find(c=>c.name==='campus_session');assert.ok(cookie.httpOnly);assert.equal(cookie.sameSite,'Lax');
   assert.equal((await student.request.get(origin+'/api/bootstrap?faculty_id=feg')).status(),403);
-  report('confirmed faculty onboarding, permanent route guard, refresh persistence and faculty isolation');
+  report('confirmed faculty followed by own-faculty filière setup, permanent route guard, refresh persistence and faculty isolation');
 
   await page.goto(origin+'/app/chat/general');
   await page.locator('.chat-message').first().waitFor();
@@ -87,26 +94,32 @@ try{
   await page.locator('.chat-composer input[type=file]').setInputFiles(file);
   await page.getByRole('dialog').waitFor();
   assert.equal((await get(student,'/bootstrap')).resources.length,beforeUpload,'File is not sent before classification');
-  await page.locator('.upload-category-grid').getByRole('button',{name:'Exercices',exact:true}).click();
-  await page.locator('.semester-select-buttons').getByRole('button',{name:'S3',exact:true}).click();
-  await page.getByRole('dialog').getByLabel('Module (facultatif)',{exact:true}).fill('Analyse de texte');
+  await expect(page.getByRole('dialog').getByLabel('Filière',{exact:true})).toHaveValue('french_studies');
+  assert.equal(await page.getByRole('dialog').getByRole('combobox',{name:/faculté/i}).count(),0,'Upload reuses faculty without asking again');
+  await page.getByRole('dialog').getByLabel('Type de contenu',{exact:true}).selectOption('exercises');
+  await page.getByRole('dialog').getByLabel('Semestre',{exact:true}).selectOption('3');
+  await page.getByRole('dialog').getByLabel('Module',{exact:true}).fill('Analyse de texte');
   await page.getByRole('dialog').getByLabel('Titre de la ressource',{exact:true}).fill('E2E Notes classées');
   await page.getByRole('dialog').locator('form >button').click();
   await page.getByRole('dialog').waitFor({state:'hidden'});
   const bootstrap=await get(student,'/bootstrap');const resource=bootstrap.resources.find(r=>r.title==='E2E Notes classées');assert.ok(resource);assert.equal(resource.semester,3);assert.equal(resource.category,'exercises');
+  assert.equal(resource.filiere_id,'french_studies');
+  assert.equal(bootstrap.messages.find(m=>m.id===resource.message_id).semester,null,'Resource S3 classification does not split the faculty general chat');
+  assert.equal(resource.chat_semester,null,'General chat uploads do not require a chat semester');
   assert.equal(bootstrap.messages.find(m=>m.id===resource.message_id).resource_id,resource.id);
   await page.locator(`#message-${resource.message_id}`).locator('.attachment-location').click();
   await page.waitForURL(`**/app/resources/exercises/s3/analyse-de-texte#resource-${resource.id}`);
   await page.locator(`#resource-${resource.id}`).waitFor();
   await page.reload();await page.locator(`#resource-${resource.id}`).waitFor();
   await page.locator(`#resource-${resource.id}`).getByRole('link',{name:'Voir la discussion',exact:true}).click();
-  await page.waitForURL(`**/app/chat/general#message-${resource.message_id}`);
+  await page.waitForURL('**'+messagePath(resource));
   await page.locator(`#message-${resource.message_id}.deep-focus`).waitFor();
   report('file classification before upload, shared object, semester/module and bidirectional deep links');
 
   await page.locator('.chat-composer input[type=file]').setInputFiles(file);
   await page.getByRole('dialog').waitFor();
-  await page.locator('.upload-category-grid').getByRole('button',{name:'Exercices',exact:true}).click();
+  await page.getByRole('dialog').getByLabel('Type de contenu',{exact:true}).selectOption('exercises');
+  await page.getByRole('dialog').getByLabel('Module',{exact:true}).fill('Analyse de texte');
   await page.getByRole('dialog').locator('form >button').click();
   await page.getByRole('dialog').locator('.form-error').waitFor();
   await page.getByRole('dialog').getByRole('link',{name:'Voir la ressource existante'}).waitFor();
@@ -135,7 +148,7 @@ try{
   assert.ok((await get(admin,'/bootstrap')).notifications.some(n=>n.type==='important'&&n.body.includes('E2E discussion')));
   report('pinned announcement preserves author/source/attachment and important chat notifies');
 
-  const arabicUpload=await student.request.post(origin+'/api/uploads',{multipart:{file:{name:'arabic-notes.txt',mimeType:'text/plain',buffer:Buffer.from('التحليل الأدبي: مقدمة وإشكالية وخاتمة.')},title:'E2E Notes arabes',category:'courses',semester:'4',module:'التحليل الأدبي',channel:'general',content:'E2E Module en arabe.'}});
+  const arabicUpload=await student.request.post(origin+'/api/uploads',{multipart:{file:{name:'arabic-notes.txt',mimeType:'text/plain',buffer:Buffer.from('التحليل الأدبي: مقدمة وإشكالية وخاتمة.')},title:'E2E Notes arabes',category:'courses',semester:'4',module:'التحليل الأدبي',filiere_id:'french_studies',resource_type:'courses',channel:'general',content:'E2E Module en arabe.'}});
   assert.ok(arabicUpload.ok());const arabicResource=(await arabicUpload.json()).resource;
   await page.goto(origin+resourcePath(arabicResource));await page.locator(`#resource-${arabicResource.id}`).waitFor();
   await page.locator(`#resource-${arabicResource.id}`).getByRole('button',{name:'Ouvrir',exact:true}).click();
@@ -144,7 +157,7 @@ try{
   await page.setViewportSize({width:390,height:844});await page.goto(origin+'/app/chat/general');await page.locator('.chat-composer').waitFor();
   await page.locator('.mobile-menu').click();await page.locator('.navigation-columns.drawer-open').waitFor();
   await page.locator('.drawer-top').first().getByRole('button',{name:'Fermer',exact:true}).click();
-  await page.locator('.language-selector').getByRole('button',{name:'AR',exact:true}).click();
+  await selectLanguage(page,'AR');
   await expect(page.locator('html')).toHaveAttribute('dir','rtl');
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
   await page.setViewportSize({width:834,height:1112});await page.locator('.mobile-menu').click();await page.locator('.navigation-columns.drawer-open').waitFor();

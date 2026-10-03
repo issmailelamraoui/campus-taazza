@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { chromium } from '@playwright/test';
-import { browserOptions } from './browser-utils.mjs';
+import { browserOptions, selectLanguage } from './browser-utils.mjs';
 
 const baseURL = process.env.CAMPUS_BROWSER_ORIGIN || process.env.CAMPUS_BROWSER_URL || 'http://localhost:5173';
 const browser = await chromium.launch(browserOptions());
@@ -21,7 +21,7 @@ async function noOverflow(route, width, language, target = page) {
   console.log(`Layout check: ${route}, ${width}px, ${language}`);
   await target.setViewportSize({ width, height: 900 });
   await target.goto(`${baseURL}${route}`);
-  await target.locator('.language-selector').getByRole('button', { name: language, exact: true }).click();
+  await selectLanguage(target, language);
   await target.waitForFunction(({ language }) => document.documentElement.lang === language.toLowerCase(), { language });
   await target.waitForTimeout(250);
   const dimensions = await target.evaluate(() => ({ screen: innerWidth, content: document.documentElement.scrollWidth, dir: document.documentElement.dir }));

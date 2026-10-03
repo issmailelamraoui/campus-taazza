@@ -1,5 +1,40 @@
 // Translate both stable keys and the French source text used by page components.
 const entries = [
+  ['filiere','Filière','المسلك','Major'],
+  ['chooseFiliere','Choisir une filière','اختيار المسلك','Choose a major'],
+  ['selectFiliere','Sélectionner ma filière','اختيار مسلكي','Select my major'],
+  ['studiesSetup','Compléter mon parcours','إكمال المسار الدراسي','Complete my study details'],
+  ['studiesSetupDescription','Votre faculté est déjà connue. Choisissez votre filière pour compléter votre compte.','كليتك معروفة بالفعل. اختر مسلكك لإكمال حسابك.','Your faculty is already saved. Choose your major to complete your account.'],
+  ['currentSemester','Semestre actuel','الفصل الدراسي الحالي','Current semester'],
+  ['completeSetup','Compléter mon compte','إكمال حسابي','Complete my account'],
+  ['studiesSaved','Votre filière a été enregistrée.','تم حفظ مسلكك.','Your major has been saved.'],
+  ['semesterDefaultCaption','Facultatif : le groupe de ce semestre sera ouvert par défaut dans les chats de votre filière.','اختياري: ستفتح مجموعة هذا الفصل تلقائياً في دردشات مسلكك.','Optional: this semester’s group opens by default in your major chats.'],
+  ['chats','Chats','المحادثات','Chats'],
+  ['filiereChats','Chats de filière','دردشات المسلك','Major chats'],
+  ['semesterGroups','Groupes de semestres','مجموعات الفصول','Semester groups'],
+  ['chatSemesters','Semestres de la filière','فصول المسلك','Major semesters'],
+  ['chatInFiliere','Chats de ma filière','محادثات مسلكي','Chats in my major'],
+  ['module','Module','الوحدة','Module'],
+  ['selectModule','Sélectionner ou saisir un module','اختيار الوحدة أو إدخال اسمها','Select or enter a module'],
+  ['contentType','Type de contenu','نوع المحتوى','Resource type'],
+  ['selectContentType','Choisir un type de contenu','اختيار نوع المحتوى','Choose a resource type'],
+  ['resourceTD','TD','أعمال موجهة','TD'],
+  ['resourceTP','TP','أعمال تطبيقية','TP'],
+  ['resourceCorrection','Correction','تصحيح','Correction'],
+  ['resourceImage','Image','صورة','Image'],
+  ['resourcePDF','PDF','PDF','PDF'],
+  ['resourceDocument','Document','وثيقة','Document'],
+  ['resourceOther','Autre ressource','مورد آخر','Other resource'],
+  ['file','Fichier','الملف','File'],
+
+  ['openSettings','Ouvrir les paramètres','فتح الإعدادات','Open settings'],
+  ['closeNavigation','Fermer la navigation','إغلاق قائمة التنقل','Close navigation'],
+  ['closeFacultyInfo','Fermer les informations de la faculté','إغلاق معلومات الكلية','Close faculty information'],
+  ['globalSearch','Recherche globale','البحث الشامل','Global search'],
+  ['mainNavigation','Navigation principale','التنقل الرئيسي','Main navigation'],
+
+  ['activateDarkMode','Activer le mode sombre','تفعيل الوضع الداكن','Enable dark mode'],
+  ['activateLightMode','Activer le mode clair','تفعيل الوضع الفاتح','Enable light mode'],
   ['home','Accueil','الرئيسية','Home'],
   ['community','Communauté','المجتمع','Community'],
   ['calendar','Calendrier','التقويم','Calendar'],
@@ -670,6 +705,13 @@ for (const phrase of sourcePhrases) {
 }
 
 const errorPhrases = [
+  ['Choisissez votre filière avant d’accéder aux chats.','اختر مسلكك قبل الدخول إلى الدردشات.','Choose your major before opening chats.'],
+  ['Ce chat appartient à une autre filière.','هذه الدردشة تخص مسلكًا آخر.','This chat belongs to another major.'],
+  ['Cet élément appartient à une autre filière.','هذا العنصر يخص مسلكًا آخر.','This item belongs to another major.'],
+  ['Votre faculté est déjà connue.','كليتك معروفة بالفعل.','Your faculty is already saved.'],
+  ['Choisissez une filière de votre faculté.','اختر مسلكًا من كليتك.','Choose a major from your faculty.'],
+  ['La réponse doit rester dans le même semestre.','يجب أن يبقى الرد ضمن الفصل نفسه.','The reply must stay in the same semester chat.'],
+  ['La réponse doit rester dans le même groupe de semestres.','يجب أن يبقى الرد ضمن مجموعة الفصول نفسها.','The reply must stay in the same semester group.'],
   ['Une erreur est survenue. Rechargez votre espace pour continuer.','حدث خطأ. أعد تحميل مساحتك للمتابعة.','Something went wrong. Reload your space to continue.'],
   ['Recharger','إعادة التحميل','Reload'],
   ['Identifiant invalide.','المعرّف غير صالح.','Invalid identifier.'],
@@ -791,6 +833,7 @@ const aliases = {
   exam:'Examen', deadline:'Échéance', registration:'Inscription', defense:'Soutenance', event:'Événement',
   corrected:'Corrigé', popular:'Populaire',
   'channel.general':'Chat général', 'channel.important':'Discussions importantes',
+  'channel.filiere':'filiereChats',
   'channel.help':'Entraide', 'channel.life':'Vie étudiante',
 };
 for (const [alias, key] of Object.entries(aliases)) {

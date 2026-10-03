@@ -39,6 +39,7 @@ test('onboarding requires confirmation and faculty choice becomes permanently lo
   const faculties=await request('/faculties',{cookie:student});assert.equal(faculties.data.faculties.length,4);
   assert.equal((await request('/faculty',{cookie:student,method:'POST',body:{faculty_id:'flaa'}})).status,400);
   const assigned=await request('/faculty',{cookie:student,method:'POST',body:{faculty_id:'flaa',confirmed:true}});assert.equal(assigned.status,200);assert.equal(assigned.data.user.faculty_id,'flaa');
+  assert.equal((await request('/studies',{cookie:student,method:'POST',body:{filiere_id:'french_studies',current_semester:1}})).status,200);
   assert.equal((await request('/faculty',{cookie:student,method:'POST',body:{faculty_id:'feg',confirmed:true}})).status,403);
   assert.equal((await request('/faculties',{cookie:student})).status,403);
   assert.equal((await request('/profile',{cookie:student,method:'PATCH',body:{faculty_id:'feg'}})).status,403);
@@ -61,7 +62,7 @@ test('bootstrap, direct file access, save and search enforce faculty boundaries'
 
 test('general chat creates no notifications; important messages and pins notify exact destinations',async()=>{
   const before=(await request('/bootstrap',{cookie:student})).data.notifications.length;
-  const general=await request('/messages',{cookie:admin,method:'POST',body:{content:'Une discussion générale sans notification.',channel:'general'}});assert.equal(general.status,201);
+  const general=await request('/messages',{cookie:admin,method:'POST',body:{content:'Une discussion générale sans notification.',channel:'general',semester:1}});assert.equal(general.status,201);
   assert.equal((await request('/bootstrap',{cookie:student})).data.notifications.length,before);
   assert.equal((await request(`/messages/${general.data.message.id}/pin`,{cookie:student,method:'POST',body:{}})).status,403);
   const pinned=await request(`/messages/${general.data.message.id}/pin`,{cookie:moderator,method:'POST',body:{}});assert.equal(pinned.data.pinned,true);
@@ -77,6 +78,7 @@ test('upload creates one file and one resource shared by chat/library; rejects d
   const beforeFiles=readdirSync(join(directory,'files')).length;
   const pdf=makePdf('Test Linguistique',['Exercice de transcription phonetique.']);
   const form=new FormData();form.set('file',new Blob([pdf],{type:'application/pdf'}),'linguistique.pdf');form.set('title','Exercice de test');form.set('category','exercises');form.set('semester','1');form.set('module','Linguistique');form.set('channel','general');
+  form.set('filiere_id','french_studies');form.set('resource_type','exercises');form.set('chat_semester','1');
   const upload=await request('/uploads',{cookie:student,method:'POST',form});assert.equal(upload.status,201);assert.equal(upload.data.message.resource_id,upload.data.resource.id);assert.equal(upload.data.resource.message_id,upload.data.message.id);assert.equal(readdirSync(join(directory,'files')).length,beforeFiles+1);
   const duplicate=await request('/uploads',{cookie:student,method:'POST',form});assert.equal(duplicate.status,409);assert.equal(duplicate.data.resource.id,upload.data.resource.id);assert.equal(readdirSync(join(directory,'files')).length,beforeFiles+1);
   const search=await request('/search?q=Exercice%20de%20test&type=exercises&semester=1',{cookie:student});assert.equal(search.data.results.length,1);assert.match(search.data.results[0].path,/exercises\/s1\/linguistique#resource-/);
@@ -123,6 +125,7 @@ test('withdrawal and chat moderation remove files, pins and search results witho
   const replace=new FormData();replace.set('file',new Blob([makePdf('Foreign replacement',['Restricted faculty data.'])],{type:'application/pdf'}),'foreign.pdf');
   assert.equal((await request(`/admin/resources/${foreign.id}/replace`,{cookie:facultyAdmin,method:'POST',form:replace})).status,403);assert.equal(readdirSync(join(directory,'files')).length,filesBefore);
   const form=new FormData();form.set('file',new Blob([makePdf('Document retire',['Retrait et moderation.'])],{type:'application/pdf'}),'retrait.pdf');form.set('title','Document unique pour retrait');form.set('category','courses');form.set('semester','2');
+  form.set('filiere_id','french_studies');form.set('resource_type','courses');form.set('module','Méthodologie');form.set('chat_semester','2');
   const uploaded=await request('/uploads',{cookie:student,method:'POST',form});assert.equal(uploaded.status,201);
   const r=uploaded.data.resource,m=uploaded.data.message;
   await request(`/messages/${m.id}/pin`,{cookie:moderator,method:'POST'});
@@ -182,7 +185,7 @@ test('live SSE updates remain inside the faculty and stop after logout',async()=
   const readerA=a.body.getReader(),readerB=b.body.getReader();await readerA.read();await readerB.read();
   const resultA=readerA.read();const resultB=readerB.read().catch(()=>null);
   try{
-    await request('/messages',{cookie:admin,method:'POST',body:{channel:'general',content:'Mise à jour en direct de la faculté.'}});
+    await request('/messages',{cookie:admin,method:'POST',body:{channel:'general',semester:1,content:'Mise à jour en direct de la faculté.'}});
     const update=await Promise.race([resultA,new Promise((_,reject)=>setTimeout(()=>reject(Error('Missing live update')),2000))]);assert.match(Buffer.from(update.value).toString(),/event: update/);
     assert.equal(await Promise.race([resultB,new Promise(resolve=>setTimeout(()=>resolve(null),150))]),null);
     const end=readerA.read();await request('/logout',{cookie:liveCookie,method:'POST',body:{}});assert.equal((await end).done,true);

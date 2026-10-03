@@ -2,6 +2,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { scryptSync, randomBytes, timingSafeEqual, createHash } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { getChatSemester } from '../shared/studies.js';
 
 export const hashPassword = (password, salt = randomBytes(16).toString('hex')) => `${salt}:${scryptSync(password, salt, 64).toString('hex')}`;
 export function verifyPassword(password, hashed) {
@@ -77,5 +78,38 @@ export function openDatabase(dataDir) {
       name TEXT, email TEXT, subject TEXT NOT NULL, message TEXT NOT NULL, created_at TEXT NOT NULL, status TEXT DEFAULT 'open'
     );
   `);
+  // Additive migrations preserve existing accounts and content. In particular,
+  // an existing student is never assigned a major by guessing from their faculty.
+  const addColumn = (table, name, definition) => {
+    if (!db.prepare(`PRAGMA table_info(${table})`).all().some(c => c.name === name)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${definition}`);
+  };
+  addColumn('users', 'filiere_id', 'TEXT');
+  addColumn('users', 'current_semester', 'INTEGER NOT NULL DEFAULT 1');
+  addColumn('messages', 'filiere_id', 'TEXT');
+  addColumn('messages', 'semester', 'INTEGER');
+  addColumn('resources', 'filiere_id', 'TEXT');
+  addColumn('resources', 'resource_type', "TEXT NOT NULL DEFAULT ''");
+  db.exec('CREATE INDEX IF NOT EXISTS message_studies ON messages(faculty_id,channel,filiere_id,semester)');
+  // Previously classified general messages stay private after splitting the
+  // faculty-wide channel from the major chats. Unclassified history stays in
+  // general. Updating only the channel/pair preserves every ID and attachment.
+  db.exec('BEGIN');
+  try {
+    const move=db.prepare('UPDATE messages SET channel=\'filiere\',semester=? WHERE id=?');
+    for(const row of db.prepare("SELECT id,semester FROM messages WHERE channel='general' AND filiere_id IS NOT NULL AND filiere_id<>''").all())move.run(getChatSemester(row.semester)??row.semester,row.id);
+    const normalize=db.prepare('UPDATE messages SET semester=? WHERE id=?');
+    for(const row of db.prepare("SELECT id,semester FROM messages WHERE channel='filiere'").all()) {
+      const semester=getChatSemester(row.semester);
+      if(semester!==null&&semester!==row.semester)normalize.run(semester,row.id);
+    }
+    db.exec("UPDATE resources SET channel='filiere' WHERE message_id IN (SELECT id FROM messages WHERE channel='filiere'); UPDATE announcements SET channel='filiere' WHERE message_id IN (SELECT id FROM messages WHERE channel='filiere');");
+    const pathUpdate=db.prepare('UPDATE notifications SET path=? WHERE id=?');
+    for(const notification of db.prepare("SELECT id,path FROM notifications WHERE path LIKE '/app/chat/%#message-%'").all()) {
+      const match=notification.path.match(/#message-(\d+)$/);
+      const source=match?db.prepare('SELECT id,channel,semester FROM messages WHERE id=?').get(Number(match[1])):null;
+      if(source)pathUpdate.run(`/app/chat/${source.channel}${source.channel==='filiere'?`?semester=${source.semester}`:''}#message-${source.id}`,notification.id);
+    }
+    db.exec('COMMIT');
+  } catch(error) {db.exec('ROLLBACK');throw error;}
   return db;
 }

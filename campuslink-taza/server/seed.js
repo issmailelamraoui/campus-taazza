@@ -1,6 +1,7 @@
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { hashPassword, digest } from './db.js';
+import { getFilieres, getChatSemester } from '../shared/studies.js';
 
 export const FACULTIES = [
   { id: 'flaa', code: 'FLAA', name: 'Faculté des Langues, des Lettres et des Arts', arabic: 'كلية اللغات والآداب والفنون تازة', description: 'Un espace privé pour les lettres, les langues et la création. Ensemble, étudions, partageons et préparons notre avenir.', icon: 'book', color: 'gold', members: 1248 },
@@ -36,7 +37,7 @@ export function seedDatabase(db, dataDir, config = {}) {
   try {
     const addFaculty = db.prepare('INSERT INTO faculties (id,code,name,arabic,description,icon,color,members) VALUES (?,?,?,?,?,?,?,?)');
     FACULTIES.forEach(f => addFaculty.run(f.id, f.code, f.name, f.arabic, f.description, f.icon, f.color, f.members));
-    const addUser = db.prepare('INSERT INTO users (id,username,name,password_hash,role,faculty_id,last_seen) VALUES (?,?,?,?,?,?,?)');
+    const addUser = db.prepare('INSERT INTO users (id,username,name,password_hash,role,faculty_id,last_seen,filiere_id,current_semester) VALUES (?,?,?,?,?,?,?,?,?)');
     const studentPass = config.studentPassword || process.env.CAMPUS_STUDENT_PASSWORD || 'Campus2026!';
     const adminPass = config.adminPassword || process.env.CAMPUS_ADMIN_PASSWORD || 'Admin2026!';
     const people = [
@@ -54,11 +55,12 @@ export function seedDatabase(db, dataDir, config = {}) {
       [12, 'meryem', 'Meryem', studentPass, 'student', 'fsa'],
     ];
     people.forEach(([id, username, name, password, role, faculty]) => {
-      addUser.run(id, username, name, hashPassword(password), role, faculty, faculty === 'flaa' ? '2026-10-02T10:15:00.000Z' : '2026-10-01T08:00:00.000Z');
+      const filiere=faculty?(username==='nour'?'arabic_studies':getFilieres(faculty)[0].id):null;
+      addUser.run(id, username, name, hashPassword(password), role, faculty, faculty === 'flaa' ? '2026-10-02T10:15:00.000Z' : '2026-10-01T08:00:00.000Z',filiere,username==='nour'?3:1);
       if (['ismail', 'yassine', 'sara', 'omar', 'admin'].includes(username)) db.prepare('UPDATE users SET avatar=? WHERE id=?').run(`/avatars/${username}.jpg`, id);
     });
-    const insertMessage = db.prepare('INSERT INTO messages (faculty_id,channel,content,author_id,created_at,reply_to,pinned) VALUES (?,?,?,?,?,?,?)');
-    const msg = (faculty, channel, content, author, date, reply = null, pinned = 0) => Number(insertMessage.run(faculty, channel, content, author, date, reply, pinned).lastInsertRowid);
+    const insertMessage = db.prepare('INSERT INTO messages (faculty_id,channel,content,author_id,created_at,reply_to,pinned,filiere_id,semester) VALUES (?,?,?,?,?,?,?,?,?)');
+    const msg = (faculty, channel, content, author, date, reply = null, pinned = 0,semester=1) => Number(insertMessage.run(faculty, channel, content, author, date, reply, pinned,channel==='filiere'?db.prepare('SELECT filiere_id FROM users WHERE id=?').get(author).filiere_id:null,channel==='filiere'?getChatSemester(semester):null).lastInsertRowid);
     const welcome = msg('flaa', 'general', 'Bienvenue dans l’espace de la Faculté des Langues, des Lettres et des Arts ! Cet espace est réservé aux étudiants de la FLAA. Pour toute question, contactez l’administration.', 2, '2026-10-02T08:12:00.000Z', null, 1);
     const yassine = msg('flaa', 'general', 'Salut tout le monde ! Est-ce que quelqu’un peut m’expliquer comment construire le plan d’une analyse littéraire ? Je ne comprends pas bien la différence entre thème et problématique.', 3, '2026-10-02T09:24:00.000Z');
     const sara = msg('flaa', 'general', 'Je partage ici un résumé du chapitre sur le mouvement romantique. Bon courage à tous !', 4, '2026-10-02T10:03:00.000Z');
@@ -91,17 +93,20 @@ export function seedDatabase(db, dataDir, config = {}) {
       ['fsjp', 'Introduction au droit', 'courses', 1, 'Droit constitutionnel', 11, null, ['La regle de droit et ses caracteres.', 'Sources du droit et hierarchie des normes.', 'Document de demonstration pour cette faculte uniquement.']],
       ['fsa', 'Analyse numérique · introduction', 'courses', 3, 'Analyse numérique', 12, null, ['Approximation et erreurs numeriques.', 'La methode de dichotomie pour chercher une racine.', 'Document de demonstration pour cette faculte uniquement.']],
     ];
-    const addResource = db.prepare('INSERT INTO resources (faculty_id,title,filename,stored_name,sha256,category,semester,module,author_id,created_at,size,mime,downloads,views,message_id,channel,status) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
+    const addResource = db.prepare('INSERT INTO resources (faculty_id,title,filename,stored_name,sha256,category,semester,module,author_id,created_at,size,mime,downloads,views,message_id,channel,status,filiere_id,resource_type) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
     entries.forEach(([faculty, title, category, semester, module, author, existingMessage, lines], i) => {
       const date = existingMessage===sara ? '2026-10-02T10:03:00.000Z' : `2026-09-${String(21 + i % 10).padStart(2, '0')}T${String(8 + i % 7).padStart(2, '0')}:00:00.000Z`;
-      const messageId = existingMessage || msg(faculty, 'general', `Je partage « ${title} » pour les révisions. Vous le retrouverez aussi dans les ressources de S${semester}.`, author, date);
+      const messageId = existingMessage || msg(faculty, 'general', `Je partage « ${title} » pour les révisions. Vous le retrouverez aussi dans les ressources de S${semester}.`, author, date,null,0,semester);
       const filename = title.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-zA-Z0-9]+/g, '_') + '.pdf';
       const stored = `seed-${faculty}-${i + 1}.pdf`;
       const pdf = makePdf(title, lines);
       writeFileSync(join(dataDir, 'files', stored), pdf);
-      const id = Number(addResource.run(faculty, title, filename, stored, digest(pdf), category, semester, module, author, date, pdf.length, 'application/pdf', 8 + i * 3, 22 + i * 4, messageId, 'general', i === 8 ? 'corrected' : i < 3 ? 'new' : 'popular').lastInsertRowid);
+      const id = Number(addResource.run(faculty, title, filename, stored, digest(pdf), category, semester, module, author, date, pdf.length, 'application/pdf', 8 + i * 3, 22 + i * 4, messageId, 'general', i === 8 ? 'corrected' : i < 3 ? 'new' : 'popular',getFilieres(faculty)[0].id,category).lastInsertRowid);
       db.prepare('UPDATE messages SET resource_id=? WHERE id=?').run(id, messageId);
     });
+    msg('flaa','filiere','Bienvenue dans les échanges de votre filière pour S1 / S2. Partageons nos questions et nos méthodes de révision.',3,'2026-10-02T09:00:00.000Z',null,0,1);
+    msg('flaa','filiere','Qui souhaite comparer ses notes de lecture dans le groupe S3 / S4 ?',4,'2026-10-02T09:30:00.000Z',null,0,3);
+    msg('flaa','filiere','Le groupe S5 / S6 permet de discuter des projets et de préparer la fin du parcours.',2,'2026-10-02T10:00:00.000Z',null,0,5);
     const addAnnouncement = db.prepare('INSERT INTO announcements (faculty_id,content,message_id,channel,author_id,created_at,resource_id,pinned) VALUES (?,?,?,?,?,?,?,?)');
     [welcome, reminder, 6].forEach(id => {
       const row = db.prepare('SELECT * FROM messages WHERE id=?').get(id);
