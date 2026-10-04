@@ -5,9 +5,9 @@
   --faculty-panel-width: 340px;
 }
 .app-shell.responsive-shell .app-header {
-  height: var(--shell-header-height);
-  grid-template-columns: 44px auto minmax(120px, 1fr) auto;
-  gap: 18px;
+  height: 62px;
+  grid-template-columns: 32px auto minmax(120px, 1fr) auto;
+  gap: 22px;
   padding-inline: 22px;
 }
 .app-shell.responsive-shell .app-header .brand {
@@ -20,8 +20,8 @@
 .app-shell.responsive-shell .mobile-menu,
 .app-shell.responsive-shell .mobile-info {
   display: inline-flex;
-  width: 44px;
-  height: 44px;
+  width: 36px;
+  height: 38px;
   flex-shrink: 0;
   color: var(--text);
   border: 1px solid var(--border);
@@ -170,12 +170,12 @@
 .public-settings-drawer { position: absolute; inset-block: 0; inset-inline-end: 0; width: 360px; max-width: calc(100vw - 28px); background: var(--panel); color: var(--text); overflow: auto; padding: 20px; padding-bottom: calc(20px + env(safe-area-inset-bottom)); box-shadow: 0 0 40px #0003; }
 .public-settings-drawer .public-settings-heading { display: flex; align-items: center; justify-content: space-between; gap: 15px; border-bottom: 1px solid var(--border); padding-bottom: 15px; }
 .public-settings-drawer .public-settings-heading h2 { margin: 0; font-size: 26px; }
-.public-settings-drawer .icon-button { width: 44px; height: 44px; }
+.public-settings-drawer .icon-button { display: inline-flex; width: 44px; height: 44px; }
 .public-settings-drawer .public-drawer-links { display: grid; gap: 6px; margin: 18px 0; }
 .public-settings-drawer .public-drawer-links a { display: flex; justify-content: space-between; align-items: center; padding: 12px 10px; border-radius: 8px; font-size: 16px; min-height: 48px; }
 .public-settings-drawer .public-drawer-links a:hover { background: var(--panel-2); }
 .public-settings-drawer .public-setting-row { display: flex; align-items: center; flex-wrap: wrap; justify-content: space-between; gap: 15px; padding-block: 18px; border-top: 1px solid var(--border); font-size: 16px; }
-.public-settings-drawer .language-selector { padding: 4px; }
+.public-settings-drawer .language-selector { display: flex; padding: 4px; }
 .public-settings-drawer .language-selector button { font-size: 15px; min-height: 40px; min-width: 43px; }
 
 @media (max-width: 1550px) {

@@ -37,7 +37,10 @@ export const SEMESTER_CHAT_GROUPS = [
   { id: 3, label: 'S3 / S4', semesters: [3, 4] },
   { id: 5, label: 'S5 / S6', semesters: [5, 6] },
 ];
+// Academic resources retain their exact semester. Only chat scopes use the
+// first semester of the academic year, including links created before grouping.
 export function getChatSemester(value) {
   const semester=Number(String(value??'').replace(/^s/i,''));
-  return Number.isInteger(semester)&&semester>=1&&semester<=6 ? semester-((semester-1)%2) : null;
+  return Number.isInteger(semester)&&semester>=1&&semester<=6 ? semester-(semester%2===0?1:0) : null;
 }
+export const getChatSemesterLabel = value => SEMESTER_CHAT_GROUPS.find(group=>group.id===getChatSemester(value))?.label || '';

@@ -1,38 +1,57 @@
 # CampusLink API
 
-Run from the project root with Node 22.13 or later. `npm run dev` starts the API on port 3001 and Vite on port 5173. `npm run build && npm start` serves the compiled application and API from port 3001. `npm test` runs isolated integration tests against temporary databases; it does not change the application data.
+The Express 5 backend uses asynchronous PostgreSQL, Neon Auth and a private Cloudflare R2 bucket. Run commands from the project root with Node 22.13+.
 
-SQLite, sessions and documents persist under `data/`. The first start generates the sample faculties, accounts, discussions, academic events and real PDF demonstration documents. The PDFs contain short educational examples and are clearly labelled as demonstration materials; they are not official USMBA examination papers. Sample identities illustrate the design. Faculty member counts reflect the actual active assigned accounts.
+```sh
+npm run db:migrate
+npm run db:seed
+npm run dev
+```
 
-The initial local development student account is `ismail` / `Campus2026!`. Its faculty is unassigned so the first login demonstrates permanent onboarding. The initial local development global administrator account is `admin` / `Admin2026!`, associated with FLAA. Additional illustrative participants exist for testing permissions. All accounts are password hashed with unique salts. Credentials are documented here for local development and are never displayed in the application UI.
+`npm run build` then `npm start` serves the production SPA/API on port 3001. Startup also applies migrations and exact reference seeding. No local authentication or disk-upload fallback runs in production.
 
-Set `CAMPUS_STUDENT_PASSWORD` and `CAMPUS_ADMIN_PASSWORD` before the first start to override the initial sample credentials. These variables do not overwrite existing passwords. Administrators can provision new private accounts through `POST /api/admin/users`; no public signup route exists. Remove demonstration accounts and change the initial passwords before using the system with real students.
+## Server configuration
 
-Configuration:
+[.env.example](../.env.example) lists names without credentials. [env.js](env.js) loads the existing ignored `.env.local`.
 
+- `DATABASE_URL`: Neon PostgreSQL connection.
+- `NEON_AUTH_BASE_URL`, `NEON_AUTH_JWKS_URL`: managed authentication service.
+- `R2_ENDPOINT`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET_NAME`, `R2_REGION`: private R2 client only. Bucket must be `uploads`.
 - `PORT`: API port, default 3001.
-- `CAMPUS_DATA_DIR`: persistent data directory, default `./data`.
-- `APP_ORIGIN`: exact additional allowed browser origin for requests that change data. Configure the deployed HTTPS origin or any preview origin explicitly.
-- `COOKIE_SECURE=true`: require secure cookies when TLS terminates at a reverse proxy. Direct HTTPS requests also receive secure cookies automatically.
+- `APP_ORIGIN`: public origin trusted by the authentication provider and allowed for browser mutations. The auth proxy defaults to `http://localhost:5173` for local development, including when the frontend is opened through a LAN IP. Configure the deployed HTTPS origin separately. Express still checks the browser's actual origin; cookies follow the browser's HTTP/HTTPS connection.
+- `COOKIE_SECURE=true`: secure cookies behind deployed HTTPS.
+- `CAMPUS_DATA_DIR`: source directory for the explicit legacy importer only.
 
-Session tokens are random, stored as SHA-256 hashes in SQLite, and sent using HttpOnly, SameSite=Lax cookies with 30-day expiration. Logout revokes the session. Password changes require the current password and revoke all previous sessions. Faculty, role and disable changes also revoke affected sessions. SSE updates are restricted by faculty and session and close on logout; private `filiere` updates additionally require the same major. General updates reach all majors of that faculty.
+Neon-generated Object Storage `AWS_*` variables are ignored. Credentials never enter React or browser URLs. Provider/DB/storage errors are sanitized.
 
-Each protected content query reads the faculty from the authenticated server-side user. Student faculty selection requires explicit confirmation and cannot be changed by a student. Resource download, search, replies, reactions, bookmarks and reports all enforce faculty isolation. Account completion uses `GET /api/studies` and `POST /api/studies` with `filiere_id` and optional `current_semester` (1–6), validating the exact catalog in `shared/studies.js` against the account’s existing faculty. General chat is faculty-wide and needs no major or semester. The separate `filiere` channel has private S1 / S2, S3 / S4 and S5 / S6 conversations; semester inputs normalize to 1, 3 and 5. Students can switch among pairs within their own major, and linked messages, pins, search and actions enforce that scope. Other discussions and the academic library retain faculty scope. The global administrator can manage accounts, reports, contacts and resources across faculties. Faculty administrators can only manage their own faculty and student/moderator accounts. Moderators can process reports, remove chat messages and pin messages into announcements.
+## Authentication
 
-Uploads accept valid PDFs, PNG/JPG/WebP/GIF images, text, DOCX/PPTX/XLSX and ODT, up to 20 MB. Executable content and SVG/HTML uploads are rejected. File types are checked against bytes, not the supplied MIME type. SHA-256 detects exact duplicates within the faculty. One upload creates one resource, one physical file and one linked chat message. Upload classification requires `filiere_id`, `semester`, `module`, `resource_type`, `title` and `file`, with an internal library `category`. Filière options come from the account faculty. Only private `filiere` uploads require `chat_semester`, normalized to the source pair; the resource's individual academic semester stays independent. General uploads need no chat semester or account major. Source-discussion IDs are null when the viewer cannot access that chat. Protected file routes never expose disk paths. Admin replacement retains the resource ID and its chat references, stores real version history, and marks the document updated.
+Neon Auth owns credentials and sessions. The backend proxies login, remote session validation, JWKS verification, logout and password changes. A host-only HttpOnly SameSite=Lax cookie carries only the opaque provider session; production HTTPS uses Secure.
 
-The API in `../ARCHITECTURE.md` is implemented. Additional administration endpoints are:
+The linked PostgreSQL profile owns existing permissions. Provider role claims cannot grant application roles. Session authorization cutoffs persist across restarts and prevent old sessions from continuing after suspension, role or faculty changes, even if provider admin revocation is unavailable.
 
-- `POST /api/admin/users` with `username`, `name`, `password`, optional `role` and `faculty_id` (global administrator only).
-- `PATCH /api/admin/channels/:id` with `name`, `description`, `read_only` and optional `faculty_id` (global or faculty administrator). Stable channel keys are `general`, `filiere`, `important`, `help` and `life`; a read-only channel accepts publications from moderators and administrators only.
-- `PATCH /api/admin/contacts/:id` with `status: open|resolved` and optional `reply`; authenticated contacts receive a notification.
-- `POST /api/admin/messages/:id/remove` for chat moderation.
-- `PATCH /api/admin/resources/:id` for title/category/semester/module/status correction.
-- `POST /api/admin/resources/:id/replace` with one `file` in multipart FormData.
-- `DELETE /api/admin/resources/:id` to withdraw a document and its attachment references.
+Existing accounts with no real email remain unlinked. Use `npm run auth:link -- --username EXISTING_USERNAME --email REAL_EMAIL --confirm-role EXISTING_ROLE [--create]`, with private password entry. Administrator-created accounts remain approved. Public `POST /api/register` creates only a pending student with name, username, email, password, faculty, Filière and current semester. The faculty catalog is available through `GET /api/registration-options`. Pending/rejected sessions can inspect their status and log out, but cannot access protected endpoints.
 
-Global announcement and calendar publication accepts optional `faculty_id` as a faculty ID or `all`. Other roles are restricted to their own faculty. Normal general-chat messages do not generate notifications. Academic uploads, important discussions, pinned announcements and calendar publications do, subject to each student's preferences. Contact forms are stored for administrator review; they do not send email or perform automatic credential resets.
+The global administrator reviews `GET /api/admin/registrations` through `PATCH /api/admin/users/:id/admission` with `status: approved` or `rejected`. Admission cannot be bypassed through profile or ordinary user edits. `DELETE /api/admin/users/:id` accepts only student targets, atomically revokes/unlinks the profile, closes live sessions and anonymizes attribution while preserving shared academic files and foreign-key references. The application retains an anonymous tombstone; this operation does not claim deletion of an existing Neon provider identity. Registration notifications and authorized live updates reach global administrators across faculties, including when notifications are muted.
 
-The integration suite covers faculty isolation, private-major/semester-pair scope, shared general access, permissions, onboarding, real file streaming, duplicate detection, notifications, pin provenance, preferences, bookmarks, resource versioning, password/session revocation, live SSE boundaries and full application restart persistence.
+## Resources and access
 
-Additive migrations preserve existing accounts and content without guessing a student’s Filière. Unclassified legacy history remains visible in faculty-wide general chat. Previously tagged general messages move to private `filiere` pairs while retaining IDs, files, replies, pins and linked announcement/resource channels; direct notification links are updated. Tagged malformed semesters remain private and hidden. Reopening the database repeats no changes to already normalized rows. Existing library resources remain available.
+Uploads require Filière, semester, module, type, title and file; faculty comes only from the account. The server validates the faculty/Filière mapping, semester1–6, nonempty module, supported content type, file signature and 20 MB limit. SHA-256 identifies duplicate faculty resources.
+
+Private R2 holds all new upload/replacement/avatar bytes. PostgreSQL holds metadata, UUID object keys, module references and version history. Existing local resource files are transferred only by the explicit importer, preserving their original names as metadata.
+
+Protected `/api/files/:id` previews/downloads enforce the current faculty resource permission before R2 retrieval. Source-chat access remains separately restricted to the account's major. The server supports safe byte ranges and private cache headers; no permanent public object URL or storage key appears in DTOs. New avatars stream through protected `/api/avatars/:id`.
+
+Uploads/replacements run metadata changes in transactions and delete attempted objects on failure. Withdrawals remove attachment references and deny further file access, while preserving existing moderation behavior and history. Cleanup errors log generic operation information, never credentials.
+
+## Existing features
+
+Faculty selection remains confirmed and permanent for students. Major setup never repeats faculty selection. Three private study-year chats (S1/S2, S3/S4, S5/S6) coexist with faculty-wide general chat. Permissions apply to reads, replies, reactions, pins, announcements, search, saves, reports and live SSE. Academic resource semesters remain S1–S6.
+
+`POST /api/messages` accepts an optional UUID `client_id`. An identical retry by the same author returns the existing message (200); a new send returns 201. Changed payloads and removed/inaccessible prior messages return 409. Creation and important notifications commit together, preventing duplicates after an interrupted response. Pin responses include the canonical announcement so immediate client updates can reconcile its ID. SSE authorization and notification inserts are batched while retaining their existing scope and preferences.
+
+Scoped administration, contacts, calendar, notifications and profile preferences keep their current behavior. Contact forms persist review requests; they do not send email or perform automatic password resets.
+
+Reports and contact requests insert administrative notifications transactionally with the request. Global administrators receive them across faculties; faculty administrators receive their own faculty's requests, and moderators receive only their own faculty's reports. Anonymous contacts reach global administrators. Notices use the recipient's faculty so cross-faculty global requests remain visible in bootstrap. Administrative notification preferences are respected. Authorized SSE updates refresh the inbox even when notifications are muted; connected clients display only new unread administrative arrivals, with links to the appropriate tab.
+
+See [ARCHITECTURE.md](../ARCHITECTURE.md) for routes/schema and [tests/README.md](../tests/README.md) for regression and live checks.

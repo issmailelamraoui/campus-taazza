@@ -1,54 +1,99 @@
-# CampusLink Taza
+# CampusLink Taza architecture
 
-React + React Router + Vite. Express API on port 3001. Node 22 SQLite, cryptographic password hashing, opaque persistent cookie sessions. Frontend development on port 5173; production API serves the built SPA. General chat uses the authenticated account's faculty. The separate private Filière channel uses the account's major plus one of three semester pairs. Local persistent storage in data/ (ignored).
+## Application
 
-## Shared frontend contract
+React 19, React Router and Vite serve the existing SPA. Express 5 serves JSON APIs, private file streams and SSE on port 3001; development Vite proxies same-origin `/api` requests. No ORM was present or added. The existing prepared-query interface now wraps asynchronous `pg` queries.
 
-`useApp()` from `src/context.jsx`: `{ user, data, loading, error, refresh, login, logout, t, lang, setLang, theme, toggleTheme, toast, openModal, closeModal, saved, toggleSave }`.
-`data`: `{ user, faculty, filieres, messages, resources, announcements, notifications, members, events, saved, history }` from GET /api/bootstrap.
-`api(path, options)` from `src/api.js`: JSON request with same-origin cookies; throws an Error with server message. Path is relative to /api. For FormData omit content-type.
-`ResourceCard`, `EmptyState`, `Avatar`, `PageHeading`, `CategoryIcon`, `Badge` from `src/components/ui.jsx`.
-`resourcePath(resource)` and `messagePath(message)` from `src/utils.js`.
-`useApp.openModal(type,payload)` supports contact, upload, report, preview, search.
+PostgreSQL stores all application records in the isolated `campuslink` schema. The managed `neon_auth` schema remains provider-owned. R2 stores document/image bytes; localStorage only keeps non-sensitive language, theme and panel preferences. SSE clients and rate counters are process-local; persisted content is independent of them.
 
-`shared/studies.js` exports the exact requested Filière labels mapped to the existing faculty IDs: `FILIERES_BY_FACULTY`, `getFilieres(facultyId)`, `getFiliere(id)` and `filiereBelongsToFaculty(facultyId,id)`. Both account completion and uploads use this catalog; neither asks for an already assigned faculty. `SEMESTER_CHAT_GROUPS` defines S1 / S2, S3 / S4 and S5 / S6. `getChatSemester(value)` normalizes 1–6 to pair starts 1, 3 or 5 and returns null for invalid input.
+## PostgreSQL
 
-## API contract
+[server/db.js](server/db.js) binds all values as parameters, qualifies application tables for Neon transaction pooling, and retains `prepare().get/all/run` as async operations. `run` returns inserted IDs and affected counts. Transactions use AsyncLocalStorage and a dedicated pool client, with queued queries and nested savepoints.
 
-GET /api/session -> `{ user }` (null allowed). POST /api/login `{ username,password }` -> `{ user }`. POST /api/logout.
-GET /api/faculties -> `{ faculties }` only before faculty assignment (global admins also allowed). POST /api/faculty `{ faculty_id, confirmed:true }` -> `{ user }`, assignment once only.
-GET /api/studies -> `{ filieres,user }` for the existing account faculty. POST /api/studies `{ filiere_id,current_semester?:1..6 }` -> `{ user }`; validates against that faculty and defaults the current semester to 1.
-GET /api/bootstrap -> faculty data, including saved personal IDs and history; private Filière messages and linked announcements are filtered to the account's major. General history is faculty-wide. The client displays the three accessible private pairs separately.
-GET /api/events/stream SSE broadcasts `update` (frontend refreshes); general changes reach the faculty, while private Filière changes target the same major.
-GET /api/messages -> faculty-wide general chat without a major or semester requirement. GET /api/messages?channel=filiere&semester=2 -> the account's private S1 / S2 chat. GET /api/messages/:id applies the source channel's scope.
-POST /api/messages `{ content, channel:'general'|'filiere'|'important'|'help'|'life', semester?:1..6, reply_to? }`. Only `filiere` requires a major and semester: major comes from the account and semester normalizes to 1, 3 or 5. General messages store null Filière/semester. Replies stay in the same channel and, for private Filière chats, the same pair. Other channels retain faculty scope.
-POST /api/messages/:id/reaction `{ reaction:'like'|'heart' }` toggles current user's reaction. POST /api/messages/:id/pin authorized roles only, creates linked announcement.
-POST /api/uploads FormData: required `file,title,filiere_id,semester:1..6,module,resource_type,category:'courses'|'exercises'|'exams'|'rattrapage'|'general'`; optional `channel,content,reply_to`. Private `filiere` uploads also require `chat_semester:1..6`, normalized to a pair start. Ordinary general uploads need no chat semester or account major. Resource Filière options must belong to the account faculty; private messages use the author's own major. Resource `semester` remains individual and independent of the source pair. Canonical UI resource types are `courses,exercises,exams,rattrapage,td,tp,correction,image,pdf,document,other`. The file is stored once and the message references the resource. Duplicate returns 409 with the existing resource.
-GET /api/files/:resourceId?download=1 auth-scoped file streaming; records counts/history.
-POST /api/saved `{ type:'resource'|'message'|'announcement', id }` toggles. POST /api/notifications/read `{ ids?:[] }` (omitting ids marks all).
-POST /api/reports `{ target_type,target_id,reason,details }`. POST /api/contact `{ name?,email?,subject,message }` allows credential recovery unauthenticated and faculty-bound contact authenticated.
-PATCH /api/profile `{ username?,avatar?,language?,preferences?,current_password?,password? }` never accepts faculty or role. Avatar data URL permitted with limits.
-GET /api/search?q=...&type=...&semester=...&module=...&author=...&date=... -> `{ results:[{ id,type,title,context,path,author,semester,module,date }] }` scopes by faculty and additionally filters private messages/linked announcements by the account Filière. Semester filters normalize private message pairs; resource semesters remain individual.
-GET /api/admin -> roles scoped reports/users/contacts. PATCH /api/admin/users/:id `{faculty_id?,role?,disabled?}` role gated. PATCH /api/admin/reports/:id `{ status }`. POST /api/admin/announcements `{content}`. POST /api/admin/events `{title,date,time,type}`.
+The versioned SQL migration [001_application_schema.sql](server/migrations/001_application_schema.sql) creates:
 
-## Entity shapes
+| Tables | Purpose |
+| --- | --- |
+| faculties, filieres, semesters | Existing reference catalog and exact mappings |
+| users | Linked provider subject/email, existing numeric ID, role, faculty, major, current semester, settings |
+| modules | Existing/imported or user-submitted module names scoped to faculty, major and semester |
+| messages, reactions | Faculty discussions and private major/semester chats |
+| resources, resource_versions | Metadata, owner, module reference, original filename, MIME/size/hash, private object key and revisions |
+| announcements, notifications, events | Existing communication and calendar records |
+| channels | Existing channel settings/read-only controls |
+| saved, history, reports, contacts | Existing personal and administration workflows |
+| schema_migrations, legacy_imports | Migration checksums and idempotent import markers |
 
-User: `{id,username,name,avatar,role,faculty_id,filiere_id,current_semester,language,preferences}`. Roles `global_admin,faculty_admin,moderator,student`.
-Faculty: `{id,code,name,arabic,description,icon,color,members,online,chat_online}`. `chat_online` counts online users of the viewer's Filière across all semesters; ordinary faculty member counts are unchanged. Use reference's four identities, with clear illustrative seed content.
-Message: `{id,faculty_id,filiere_id,semester,channel,content,author:{id,name,username,avatar,role},created_at,resource_id,reply_to,pinned,reactions:{like:number,heart:number},my_reactions:[]}`. General identity is faculty-only; private `filiere` identity is the account's major plus pair start 1, 3 or 5.
-Resource: `{id,faculty_id,filiere_id,title,filename,category,resource_type,semester,module,author:{...},created_at,size,mime,downloads,views,message_id,chat_semester,channel,status,version}`. Library visibility stays faculty-scoped. For a source chat the viewer cannot access, `message_id` and `chat_semester` are null.
-Announcement: `{id,content,message_id,channel,filiere_id,semester,author:{...},created_at,resource_id,pinned}`. Source Filière/semester are derived from the original message.
-Notification: `{id,type,title,body,path,created_at,read}` type resources/announcements/important/admin/calendar.
-Event: `{id,title,date,time,type}`. Saved `{type,id}`. History `{resource_id,opened_at}`.
+There is no application sessions table and no active local password verifier. Imported legacy password hashes are inactive archival fields and are removed on identity linking. Resources retain existing field names: `author_id` is the owner, `filename` is the original filename, `mime` is the MIME type and `size` is byte size. New resources reference a persisted `module_id`.
 
-## Routes
+## Identity and authorization
 
-/ landing; /login; /onboarding/faculty; /onboarding/studies; /app home; /app/chat/:channel; /app/announcements; /app/resources/:category?/:semester?/:module?; /app/calendar; /app/notifications; /app/saved; /app/members; /app/about; /app/profile; /app/settings; /app/search; /app/admin. General chat uses `/app/chat/general`. Private chats use `/app/chat/filiere?semester=1`, `3` or `5` and default to the pair containing the user's current semester. Anchors resource-ID, message-ID, announcement-ID. Account completion uses an already assigned faculty to show the correct Filières; administrative users can continue to administration before choosing their personal chat Filière. API guards enforce the actual faculty and chat permissions.
+[server/auth.js](server/auth.js) calls the configured Neon Auth Better Auth REST service. Login submits email/password to that provider; a username first resolves its linked email from PostgreSQL. The backend verifies the remote session and JWKS-signed JWT subject, issuer, audience and expiry. Provider claims never assign application roles.
 
-## Migration
+The browser receives a host-only HttpOnly SameSite=Lax cookie containing the opaque provider token. Localhost uses the same proxy flow without a Secure-only provider cookie name. The backend translates it when calling Neon Auth; it issues no competing local session. Logout and password changes use provider APIs.
 
-Additive SQLite migrations introduce nullable `filiere_id` on users/messages/resources, `current_semester` on users, `semester` on messages and `resource_type` on resources. They do not guess a major for existing students. The paired-chat migration moves every general message with a nonempty major to `filiere`, normalizes valid semesters, and preserves IDs, attachment files, replies and pins. Linked resource/announcement channels and message notification paths follow the moved source. Malformed tagged messages stay private and hidden. Unclassified legacy history stays in the faculty-wide general chat. The migration is idempotent. Reassigning a faculty resets an incompatible account Filière and revokes sessions as before.
+Trusted PostgreSQL profiles determine faculty, major and role on every request. Disabled, unlinked, mismatched and revoked profiles are denied. If the managed provider does not allow cross-user admin session revocation, the persisted application authorization cutoff still denies prior sessions. The configured branch disables self-deletion; failed fresh provisioning cleanup is guarded to the exact new, unlinked subject/email/recent creation time. Arbitrary identity removal uses provider admin APIs.
 
-## Visual tokens
+[server/link-auth.js](server/link-auth.js) is a trusted operator command with private stdin password entry, provider ownership proof, and explicit confirmation of the already stored role. It does not create roles from browser/provider data or automatically link legacy usernames.
 
-USMBA/FPT Taza inspired light palette: warm neutral background #f6f4ef; panels #fffefa / #eeece6; text #282721; muted #68645d; primary #2e529a, deep blue #174579 and action blue #16608b; border #dcd8cf; display Cormorant Garamond, sans DM Sans, Arabic Noto Sans Arabic. Adaptive 72–80px header; the main workspace expands to the viewport by default. At >=1280px optional 420px navigation and faculty panels toggle inline with per-browser persistence; below that width the hamburger and faculty toggle open accessible modal drawers. Phones place language and appearance in Settings. Shared body text is 16–18px, metadata 14px. Restrained violet/green/blue/rose category accents. Dark appearance uses warm charcoal #151412 / #1d1b18, with the same blue actions and faculty/category accents.
+## Frontend contract
+
+`useApp()` continues to supply user, bootstrap data, login/logout, refresh, translations, theme, modals and saved items. `api()` calls same-origin `/api` with cookies. JSON/FormData contracts remain compatible, apart from actual email required for new Neon account provisioning.
+
+Bootstrap contains user, faculty, filieres, channels, messages, resources, announcements, notifications, members, events, saved and history. Storage keys, legacy hashes and private provider session data are excluded from DTOs.
+
+Migration 006 adds `account_status` with approved, pending, rejected and deleted states; existing profiles default to approved. Public registration uses Neon Auth and creates a pending student with their full academic selection. Pending/rejected sessions expose only account status and public metadata, and are rejected by the API gate before private reads or writes. Global administrators review requests independently of their own faculty; notification and SSE recipients remain restricted to approved global administrators. Student account deletion revokes and unlinks the profile in a transaction, preserves an anonymous row for academic references, and closes its live streams. Client registration revisions refresh the admin queue even with muted notifications; pending deletion overlays survive concurrent queue updates.
+
+`AdminNotificationFeed` establishes a baseline for each administrator identity/faculty/role and emits only subsequent unread administrative requests. Seen IDs suppress repeated refreshes and reconnects; account changes clear transient alerts. Report/contact notifications and authorized `adminInbox` SSE events support global cross-faculty review while keeping faculty-admin/moderator permissions scoped. Reading a notice also dismisses its open popup.
+
+The installable frontend uses a manifest, application icons and an early browser-install listener. Settings provides installation or browser-specific home-screen instructions. A secure-context service worker caches only explicitly allowed public assets; navigation uses the network and falls back to a generic public offline page. Application HTML, API responses, messages, uploads, avatars and academic documents are never stored in its cache. Local HTTP phone access provides home-screen shortcuts; full installation uses HTTPS or localhost.
+
+## Important routes
+
+| Route | Behavior |
+| --- | --- |
+| POST /api/login; GET /api/session; POST /api/logout | Provider authentication through the backend |
+| GET /api/faculties; POST /api/faculty | Confirmed first faculty selection |
+| GET/POST /api/studies | Major/current semester for the existing faculty |
+| GET /api/modules | Persisted module options by own faculty, major and semester |
+| GET /api/bootstrap | Scoped existing application content |
+| GET/POST /api/messages | Faculty channel or own-major study-year chat; optional author-scoped client_id for safe send retries |
+| GET /api/messages/:id; POST reaction/pin | Scope-aware message actions |
+| POST /api/uploads | Validated classification, private R2 object and transactional metadata/message |
+| GET /api/files/:id | Authorized resource preview/download with optional byte range |
+| GET /api/avatars/:id | Protected uploaded avatar |
+| GET /api/events/stream | Authorized live refresh events |
+| GET /api/search; POST /api/saved; POST /api/notifications/read | Existing scoped search/personal workflows |
+| PATCH /api/profile | Profile/settings/avatar and provider password change |
+| GET /api/admin; POST /api/admin/users | Existing administration and account provisioning |
+| PATCH /api/admin/users/:id; channels/reports/contacts | Existing role-gated management |
+| PATCH /api/admin/resources/:id; POST replace; DELETE resource | Existing correction/versioning/withdrawal |
+| POST /api/admin/announcements; events | Scoped announcements and calendar publication |
+
+Existing SPA routes and resource/message/announcement anchors are preserved.
+
+## Chats
+
+`shared/studies.js` remains the faculty/Filière source of truth. Academic semesters stay independent; private chat groups are S1/S2, S3/S4 and S5/S6, stored as 1, 3 and 5. General chat stores null major/semester and stays faculty-wide. Private `filiere` messages use the account's major, with replies constrained to that study-year group. Students can visit any group within their own major. Migration 004 folds previous even-semester conversations while retaining message IDs and academic selections.
+
+The frontend keeps authoritative bootstrap data separate from pending action overlays. Sending, deleting, pinning, reacting, saving and reading notifications update immediately; a failed action removes only its own overlay. Sends retain their client UUID for manual retry, with server uniqueness on `(author_id, client_id)` and transactional notifications. SSE and mutation refreshes are coalesced, and older in-flight snapshots cannot overwrite a confirmed action. Toggle endpoints are not retried automatically after ambiguous network failures.
+
+`createClientId` uses native `crypto.randomUUID` when available and otherwise constructs a cryptographic UUID v4 from `crypto.getRandomValues`. This supports the phone's HTTP LAN origin without changing the backend UUID contract or requiring HTTPS to send. Toasts use the same helper so failed-send feedback remains functional. Optimistic messages appear before the asynchronous request completes; retry retains the original message UUID.
+
+Live signals use `RefreshQueue`: the first signal schedules a snapshot without waiting for the entire event burst to end, and signals received during a slow refresh queue one following snapshot. SSE opening/reconnection and browser foreground/network recovery also synchronize the current account. Visible, online accounts reconcile every ten seconds if a stream silently misses an event; polling pauses when hidden/offline and ends on logout or expiry. Chat blocking closes its stream while authorized bootstrap polling can observe restored access. Bootstrap requests have a twenty-second deadline so a stalled request cannot hold the queue forever. Existing account epochs, optimistic overlays and backend faculty/major permissions still apply.
+
+The PostgreSQL pool handles idle-client error events with a fixed sanitized log message. Failed idle clients are removed by pg, and subsequent requests can reconnect without terminating Express and every live chat stream.
+
+Private message permissions apply to direct reads, replies, reactions, saves, reports, pins, search, linked announcements, notification filtering and SSE. The existing faculty-wide library is preserved; source discussion IDs are omitted for an inaccessible private chat.
+
+## Private storage and consistency
+
+[server/storage.js](server/storage.js) uses only explicit `R2_*` configuration with the minimal S3 SDK. New resource keys contain major/semester/module/UUID. Legacy unclassified files and replacements retain classification and use safe UUID legacy/version prefixes. Original names are never object identifiers.
+
+The server validates supported signatures/extensions, fields, faculty catalog and size before PUT. Transactional metadata links one resource to its chat message. Attempted UUID objects are deleted on failed PUT/DB commit where possible; cleanup failures have sanitized diagnostics. Files stream through protected backend routes with private caching, nosniff and sandboxed previews, without public URLs or client credentials.
+
+## Import and startup
+
+Migration and reference seed commands are reproducible and idempotent. The importer opens SQLite read-only, checks source file integrity, preserves all existing IDs/relationships/selections, transfers bytes to R2, and stores an import checksum inside the transaction. Repeated identical import does not duplicate data. Legacy canonical semester values are preserved; lost historical even-semester origins are not guessed.
+
+Fresh startup applies migrations and exact reference data. Demo content is optional through the existing seed system. Existing dark/light/RTL/responsive design tokens and components remain in place.

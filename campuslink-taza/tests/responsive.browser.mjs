@@ -119,6 +119,7 @@ try {
   await trigger.click();
   await expect(trigger).toHaveAttribute('aria-expanded', 'false');
   await page.reload();
+  await page.locator('.app-shell').waitFor();
   await expect(trigger).toHaveAttribute('aria-expanded', 'false');
   report('desktop hamburger releases substantial chat space and remembers collapsed navigation');
 
@@ -163,6 +164,45 @@ try {
   await assertHeader(1024);
   await selectLanguage(page, 'FR');
   report('phone settings contain language and appearance; preferences persist and Arabic RTL remains clear');
+
+  // A short last message leaves little room below its menu. Its actions must
+  // remain reachable above the composer, including on short and RTL screens.
+  const created = await context.request.post(`${origin}/api/messages`, {
+    data: { channel: 'general', content: 'Une courte réponse pour vérifier les actions du chat.' },
+  });
+  assert.ok(created.ok());
+  const { message } = await created.json();
+  await page.goto(`${origin}/app/chat/general`);
+  const lastMessage = page.locator(`#message-${message.id}`);
+  await lastMessage.waitFor();
+  for (const language of ['FR', 'AR']) {
+    await page.setViewportSize({ width: 1024, height: 1000 });
+    await selectLanguage(page, language);
+    await lastMessage.waitFor();
+    for (const [width, height] of [[360, 640], [390, 460], [768, 1024], [1440, 1000]]) {
+      await page.setViewportSize({ width, height });
+      const more = lastMessage.locator('.message-hover-actions > button').last();
+      await more.scrollIntoViewIfNeeded();
+      await more.click();
+      const menu = lastMessage.locator('.message-menu');
+      await expect(menu).toBeVisible();
+      const bounds = await menu.evaluate(element => {
+        const m = element.getBoundingClientRect(), s = element.closest('.chat-scroll').getBoundingClientRect();
+        return { left: m.left, right: m.right, top: m.top, bottom: m.bottom, scrollTop: s.top, scrollBottom: s.bottom };
+      });
+      assert.ok(bounds.left >= 0 && bounds.right <= width, `${language}/${width}px message menu fits horizontally`);
+      assert.ok(bounds.top >= bounds.scrollTop && bounds.bottom <= bounds.scrollBottom, `${language}/${width}px message menu stays inside the chat`);
+      for (const action of await menu.getByRole('button').all()) {
+        await action.scrollIntoViewIfNeeded();
+        assert.equal(await action.evaluate(element => {
+          const r = element.getBoundingClientRect();
+          return element.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2));
+        }), true, `${language}/${width}px menu action is reachable`);
+      }
+      await more.click();
+    }
+  }
+  report('last-message actions remain reachable on phones, tablets and desktop, including short screens and Arabic RTL');
   assert.deepEqual(errors, [], 'Browser runtime errors');
 } catch (error) {
   console.error('FAILED RESPONSIVE PAGE', page.url(), error.message);

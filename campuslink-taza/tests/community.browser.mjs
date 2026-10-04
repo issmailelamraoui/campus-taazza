@@ -65,7 +65,7 @@ try{
   assert.equal(await page.locator('.faculty-sidebar').getByText('FEG',{exact:true}).count(),0);
   await page.goto(origin+'/onboarding/faculty');await page.waitForURL('**/app');
   await page.reload();await page.locator('.study-welcome h1').waitFor();
-  const cookie=(await student.cookies()).find(c=>c.name==='campus_session');assert.ok(cookie.httpOnly);assert.equal(cookie.sameSite,'Lax');
+  const cookie=(await student.cookies()).find(c=>c.name==='campus_neon_test_session');assert.ok(cookie?.httpOnly);assert.equal(cookie.sameSite,'Lax');
   assert.equal((await student.request.get(origin+'/api/bootstrap?faculty_id=feg')).status(),403);
   report('confirmed faculty followed by own-faculty filière setup, permanent route guard, refresh persistence and faculty isolation');
 

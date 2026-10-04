@@ -3,5 +3,8 @@ import {createRoot} from 'react-dom/client';
 import {BrowserRouter} from 'react-router-dom';
 import {AppProvider} from './context';
 import App from './App';
+import {initializePwa} from './pwa';
 import './styles.css';
+import './pages/chat.css';
+initializePwa();
 createRoot(document.getElementById('root')).render(<React.StrictMode><BrowserRouter><AppProvider><App/></AppProvider></BrowserRouter></React.StrictMode>);

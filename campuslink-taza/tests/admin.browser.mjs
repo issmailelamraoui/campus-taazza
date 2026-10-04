@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { chromium } from '@playwright/test';
+import { chromium, expect } from '@playwright/test';
 import { browserOptions, selectLanguage } from './browser-utils.mjs';
 
 const baseURL = process.env.CAMPUS_BROWSER_ORIGIN || process.env.CAMPUS_BROWSER_URL || 'http://localhost:5173';
@@ -69,6 +69,7 @@ try {
   assert.equal(await accountDialog.getByLabel('Mot de passe initial').getAttribute('minlength'), '10');
   await accountDialog.getByLabel('Nom', { exact: true }).fill('Browser test');
   await accountDialog.getByLabel(/Nom d.utilisateur/).fill('browser_test');
+  await accountDialog.getByLabel('Adresse e-mail', { exact: true }).fill('browser_test@campuslink.test');
   await accountDialog.getByLabel('Mot de passe initial').fill('too_short');
   assert.equal(await accountDialog.evaluate(form => form.checkValidity()), false);
   await page.keyboard.press('Escape');
@@ -87,6 +88,44 @@ try {
   await resourceDialog.getByRole('button', { name: 'Annuler', exact: true }).click();
   await page.keyboard.press('Escape');
   await resourceDialog.waitFor({ state: 'hidden' });
+
+  const documentTitle = 'Browser admin classified document S6';
+  const createdDocument = await context.request.post(`${baseURL}/api/uploads`, { multipart: {
+    file: { name: 'admin-classified.txt', mimeType: 'text/plain', buffer: Buffer.from('A bounded browser regression document for administrator metadata correction. 46890') },
+    title: documentTitle, filiere_id: 'french_studies', semester: '6', module: 'Projet de fin d’études', resource_type: 'document', category: 'general', channel: 'general',
+  } });
+  assert.ok(createdDocument.ok(), 'Administrator creates a classified document without a chat semester');
+  const document = (await createdDocument.json()).resource;
+  await page.reload();
+  await page.locator('.admin-loading').waitFor({ state: 'hidden' });
+  await clickTab('Ressources');
+  await page.locator('.admin-resource-row').filter({ hasText: documentTitle }).getByRole('button', { name: /Gérer/ }).click();
+  const metadataDialog = page.getByRole('dialog');
+  await expect(metadataDialog.getByLabel('Semestre', { exact: true })).toBeEnabled();
+  await expect(metadataDialog.getByLabel('Semestre', { exact: true })).toHaveValue('6');
+  await metadataDialog.getByLabel('Catégorie', { exact: true }).selectOption('courses');
+  await metadataDialog.getByLabel('Catégorie', { exact: true }).selectOption('general');
+  await expect(metadataDialog.getByLabel('Semestre', { exact: true })).toHaveValue('6');
+  const correctedTitle = documentTitle + ' corrigé';
+  await metadataDialog.getByLabel('Titre', { exact: true }).fill(correctedTitle);
+  await metadataDialog.getByRole('button', { name: 'Enregistrer les modifications', exact: true }).click();
+  await metadataDialog.waitFor({ state: 'hidden' });
+  const titleOnly = (await (await context.request.get(`${baseURL}/api/bootstrap`)).json()).resources.find(resource => resource.id === document.id);
+  assert.equal(titleOnly.semester, 6, 'Title correction preserves the document semester');
+  assert.equal(titleOnly.module, 'Projet de fin d’études');
+  assert.equal(titleOnly.module_id, document.module_id);
+  await page.locator('.admin-resource-row').filter({ hasText: correctedTitle }).getByRole('button', { name: /Gérer/ }).click();
+  await metadataDialog.getByLabel('Semestre', { exact: true }).selectOption('5');
+  await metadataDialog.getByLabel('Module', { exact: true }).fill('Critique littéraire');
+  await metadataDialog.getByRole('button', { name: 'Enregistrer les modifications', exact: true }).click();
+  await metadataDialog.waitFor({ state: 'hidden' });
+  const correctedDocument = (await (await context.request.get(`${baseURL}/api/bootstrap`)).json()).resources.find(resource => resource.id === document.id);
+  assert.equal(correctedDocument.title, correctedTitle);
+  assert.equal(correctedDocument.semester, 5);
+  assert.equal(correctedDocument.module, 'Critique littéraire');
+  const loadedModules = await (await context.request.get(`${baseURL}/api/modules?filiere_id=french_studies&semester=5`)).json();
+  assert.ok(loadedModules.modules.some(module => module.id === correctedDocument.module_id && module.name === 'Critique littéraire'));
+  console.log('PASS administrator title correction preserves a general document semester/module; explicit semester/module changes persist');
 
   await clickTab('Canaux');
   await page.locator('.admin-channel-card').first().waitFor();

@@ -7,15 +7,25 @@
     "dev": "concurrently -k \"node --watch server/index.js\" \"vite --host 0.0.0.0\"",
     "build": "vite build",
     "start": "node server/index.js",
+    "db:migrate": "node server/migrate.js",
+    "db:seed": "node server/seed.js",
+    "db:import-local": "node server/import-local.js",
+    "auth:link": "node server/link-auth.js",
+    "test:r2": "node server/check-storage.js",
+    "test:infrastructure": "node tests/infrastructure.mjs",
     "test": "node --test tests/*.test.js",
-    "test:browser": "npm run build && node tests/run-browser.mjs"
+    "test:browser": "npm run build && node tests/run-browser.mjs",
+    "test:chat": "npm run build && node tests/chat-moderation.browser.mjs"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1146.0",
     "@neon/config": "^1.8.3",
     "@neon/env": "^1.5.0",
     "express": "^5.1.0",
+    "jose": "^6.2.12",
     "lucide-react": "^0.468.0",
     "multer": "^2.0.2",
+    "pg": "^8.23.1",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "react-router-dom": "^7.9.1"

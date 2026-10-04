@@ -72,8 +72,8 @@ a:focus-visible,
 input:focus-visible,
 textarea:focus-visible,
 select:focus-visible {
-  outline: 2px solid var(--primary);
-  outline-offset: 4px;
+  outline: none;
+  border: none;
 }
 img {
   display: block;
@@ -122,7 +122,7 @@ small {
   font-size: 14px;
 }
 .panel {
-  background: var(--panel);
+  background: #4d4e6b3b;
   border: 1px solid var(--border);
   border-radius: var(--radius);
 }
@@ -170,7 +170,7 @@ small {
 .icon-button {
   width: 31px;
   height: 31px;
-  display: inline-flex;
+  display: none;
   align-items: center;
   justify-content: center;
   border-radius: 5px;
@@ -207,7 +207,7 @@ small {
   display: inline-block;
   width: 6px;
   height: 6px;
-  background: var(--primary);
+  background: rgb(205, 26, 26);
   border-radius: 50%;
   flex-shrink: 0;
 }
@@ -215,7 +215,7 @@ small {
   background: color-mix(in srgb, var(--rose) 10%, var(--panel));
 }
 .green-dot {
-  background: color-mix(in srgb, var(--green) 10%, var(--panel));
+  color: rgb(206, 44, 44);
 }
 .badge {
   padding: 3px 7px;
@@ -324,9 +324,8 @@ select.input {
 .field input:focus,
 .field select:focus,
 .field textarea:focus {
-  border-color: var(--primary-dim);
-  outline: 2px solid color-mix(in srgb, var(--border-accent) 8.2%, transparent);
-  outline-offset: 0;
+  border: none;
+  outline:none;
 }
 .field input::placeholder,
 .field textarea::placeholder {
@@ -510,7 +509,7 @@ select {
 @keyframes focusGlow {
   0%,
   25% {
-    outline: 1px solid var(--primary);
+    outline: none;
     box-shadow: 0 0 0 4px #201b1520;
   }
   100% {
@@ -577,6 +576,9 @@ select {
   display: block;
   font-weight: 600;
 }
+em {
+  color: var(--primary-dim);
+}
 .brand strong em {
   font-style: normal;
 }
@@ -601,7 +603,7 @@ select {
   gap: 19px;
 }
 .language-selector {
-  display: flex;
+  display: none;
   gap: 2px;
   background: var(--panel);
   border: 1px solid var(--border);
@@ -628,7 +630,7 @@ select {
 .public-header {
   max-width: 1320px;
   margin: auto;
-  height: 100px;
+  height: 60px;
   padding: 0 35px;
   display: flex;
   align-items: center;
@@ -926,13 +928,21 @@ select {
   margin-inline-start: auto;
   color: var(--soft);
 }
+:root[data-theme="dark"] .faculty-sidebar {
+  padding: 22px 15px 15px;
+  border-inline-end: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  background: #03002b4d;
+}
 .faculty-sidebar {
   padding: 22px 15px 15px;
   border-inline-end: 1px solid var(--border);
   display: flex;
   flex-direction: column;
   overflow-y: auto;
-  background: var(--panel);
+  background: #ffffff4d;
 }
 .faculty-sidebar-heading {
   display: flex;
@@ -2408,6 +2418,7 @@ select {
 .chat-page {
   height: 100%;
   display: flex;
+  gap: 25px;
   flex-direction: column;
   min-height: 0;
 }
@@ -2457,7 +2468,7 @@ select {
   padding: 6px 9px;
   border-radius: 6px;
   font-size: 14px;
-  color: var(--primary);
+  color: rgba(127, 124, 124, 0.84);
 }
 .online-count .green-dot {
   width: 4px;
@@ -2531,7 +2542,7 @@ select {
   align-items: flex-start;
   gap: 11px;
   position: relative;
-  padding: 0 0 24px;
+  padding: 24px;
   scroll-margin-top: 25px;
   min-height: 90px;
 }
@@ -2573,14 +2584,8 @@ select {
   border-radius: 5px;
   padding: 3px;
   opacity: 0;
-  transform: translateY(3px);
   transition: 0.15s;
   z-index: 3;
-}
-.chat-message:hover .message-hover-actions,
-.chat-message:focus-within .message-hover-actions {
-  opacity: 1;
-  transform: none;
 }
 .message-hover-actions .icon-button {
   width: 26px;
@@ -3294,7 +3299,7 @@ select {
   border: 1px solid var(--border);
   padding: 3px 4px;
   border-radius: 3px;
-  color: var(--primary);
+  color: rgb(197, 22, 22);
 }
 .command-filters {
   display: flex;
@@ -4878,7 +4883,9 @@ select {
 }
 .app-header,
 .public-header {
-  background: var(--panel);
+  background: rgba(0, 0, 0, 0.05);
+  box-shadow: 0 1px 5px rgba(0, 0, 0, 0.1);
+  backdrop-filter: blur(16px);
 }
 .public-page {
   background: linear-gradient(135deg, var(--panel) 15%, var(--bg) 85%);
@@ -4968,8 +4975,8 @@ select {
   --border-accent: #b0a48f;
 }
 :root[data-theme="dark"] {
-  --bg: #151412;
-  --panel: #1d1b18;
+  --bg: #000000;
+  --panel: #060505;
   --panel-2: #27241f;
   --panel-hover: #312d27;
   --border: #3c3730;
@@ -5034,7 +5041,7 @@ select {
   background: #ff889a;
 }
 :root[data-theme="dark"] .green-dot {
-  background: #8ad0a6;
+  background: #da1515;
 }
 @media (max-width: 480px) {
   .public-header .header-actions {
@@ -5195,7 +5202,7 @@ body{line-height:1.6}
   .chat-page .chat-header-actions{gap:4px;flex-shrink:0}
   .chat-page .chat-header-actions .online-count{padding:4px 6px;gap:4px;min-height:36px}
   .chat-page .chat-scroll{padding:12px 12px 4px}
-  .chat-page .chat-message{min-height:0;padding-bottom:18px;gap:8px}
+  .chat-page .chat-message{min-height:0;padding-bottom:30px;gap:8px}
   .chat-page .message-meta{margin-bottom:3px;gap:3px 8px}
   .chat-page .message-text{font-size:17px;line-height:1.65}
   .chat-page .admin-message .message-content{padding:9px 10px}

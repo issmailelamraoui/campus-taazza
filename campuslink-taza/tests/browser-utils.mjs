@@ -23,4 +23,7 @@ export async function selectLanguage(page, language) {
     await page.keyboard.press('Escape');
   }
   await page.waitForFunction(expected => document.documentElement.lang === expected, value);
+  if (new URL(page.url()).pathname.startsWith('/app')) {
+    await page.locator('.app-shell').waitFor({ state: 'visible' });
+  }
 }

@@ -1,115 +1,151 @@
-import { DatabaseSync } from 'node:sqlite';
-import { scryptSync, randomBytes, timingSafeEqual, createHash } from 'node:crypto';
-import { mkdirSync } from 'node:fs';
-import { join } from 'node:path';
-import { getChatSemester } from '../shared/studies.js';
+import './env.js';
+import pg from 'pg';
+import { AsyncLocalStorage } from 'node:async_hooks';
+import { createHash } from 'node:crypto';
+import { readdir, readFile } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
 
-export const hashPassword = (password, salt = randomBytes(16).toString('hex')) => `${salt}:${scryptSync(password, salt, 64).toString('hex')}`;
-export function verifyPassword(password, hashed) {
-  try {
-    const [salt, hash] = hashed.split(':');
-    const actual = scryptSync(password, salt, 64);
-    const expected = Buffer.from(hash, 'hex');
-    return actual.length === expected.length && timingSafeEqual(actual, expected);
-  } catch { return false; }
-}
 export const digest = value => createHash('sha256').update(value).digest('hex');
+const identityTables = new Set(['users', 'modules', 'messages', 'resources', 'resource_versions', 'announcements', 'notifications', 'events', 'reports', 'contacts']);
+const applicationTables = new Set([...identityTables, 'faculties', 'filieres', 'semesters', 'reactions', 'channels', 'chat_bans', 'saved', 'history', 'schema_migrations', 'legacy_imports']);
+const migrationDirectory = new URL('./migrations/', import.meta.url);
 
-export function openDatabase(dataDir) {
-  mkdirSync(join(dataDir, 'files'), { recursive: true });
-  const db = new DatabaseSync(join(dataDir, 'campuslink.sqlite'));
-  db.exec(`
-    PRAGMA journal_mode=WAL;
-    PRAGMA foreign_keys=ON;
-    PRAGMA busy_timeout=5000;
-    CREATE TABLE IF NOT EXISTS faculties (
-      id TEXT PRIMARY KEY, code TEXT NOT NULL, name TEXT NOT NULL, arabic TEXT NOT NULL,
-      description TEXT NOT NULL, icon TEXT NOT NULL, color TEXT NOT NULL, members INTEGER DEFAULT 0
-    );
-    CREATE TABLE IF NOT EXISTS users (
-      id INTEGER PRIMARY KEY, username TEXT UNIQUE COLLATE NOCASE NOT NULL, name TEXT NOT NULL,
-      password_hash TEXT NOT NULL, avatar TEXT DEFAULT '', role TEXT NOT NULL DEFAULT 'student',
-      faculty_id TEXT REFERENCES faculties(id), language TEXT DEFAULT 'fr',
-      preferences TEXT DEFAULT '{"resources":true,"announcements":true,"important":true,"admin":true,"calendar":true}',
-      disabled INTEGER DEFAULT 0, last_seen TEXT
-    );
-    CREATE TABLE IF NOT EXISTS sessions (token_hash TEXT PRIMARY KEY, user_id INTEGER REFERENCES users(id) ON DELETE CASCADE, expires_at INTEGER NOT NULL);
-    CREATE TABLE IF NOT EXISTS messages (
-      id INTEGER PRIMARY KEY AUTOINCREMENT, faculty_id TEXT REFERENCES faculties(id), channel TEXT NOT NULL,
-      content TEXT NOT NULL, author_id INTEGER REFERENCES users(id), created_at TEXT NOT NULL,
-      resource_id INTEGER, reply_to INTEGER REFERENCES messages(id), pinned INTEGER DEFAULT 0, removed INTEGER DEFAULT 0
-    );
-    CREATE TABLE IF NOT EXISTS resources (
-      id INTEGER PRIMARY KEY AUTOINCREMENT, faculty_id TEXT REFERENCES faculties(id), title TEXT NOT NULL,
-      filename TEXT NOT NULL, stored_name TEXT NOT NULL, sha256 TEXT NOT NULL, category TEXT NOT NULL,
-      semester INTEGER, module TEXT DEFAULT '', author_id INTEGER REFERENCES users(id), created_at TEXT NOT NULL,
-      size INTEGER NOT NULL, mime TEXT NOT NULL, downloads INTEGER DEFAULT 0, views INTEGER DEFAULT 0,
-      message_id INTEGER REFERENCES messages(id), channel TEXT NOT NULL DEFAULT 'general', status TEXT DEFAULT 'new',
-      version INTEGER DEFAULT 1, removed INTEGER DEFAULT 0
-    );
-    CREATE INDEX IF NOT EXISTS resource_faculty ON resources(faculty_id);
-    CREATE INDEX IF NOT EXISTS message_faculty ON messages(faculty_id);
-    CREATE TABLE IF NOT EXISTS resource_versions (
-      id INTEGER PRIMARY KEY AUTOINCREMENT, resource_id INTEGER REFERENCES resources(id),
-      version INTEGER, filename TEXT, stored_name TEXT, sha256 TEXT, size INTEGER, mime TEXT, updated_at TEXT, editor_id INTEGER REFERENCES users(id)
-    );
-    CREATE TABLE IF NOT EXISTS reactions (message_id INTEGER REFERENCES messages(id), user_id INTEGER REFERENCES users(id), reaction TEXT, PRIMARY KEY(message_id,user_id,reaction));
-    CREATE TABLE IF NOT EXISTS announcements (
-      id INTEGER PRIMARY KEY AUTOINCREMENT, faculty_id TEXT REFERENCES faculties(id), content TEXT NOT NULL,
-      message_id INTEGER UNIQUE REFERENCES messages(id), channel TEXT DEFAULT 'general', author_id INTEGER REFERENCES users(id),
-      created_at TEXT NOT NULL, resource_id INTEGER, pinned INTEGER DEFAULT 0
-    );
-    CREATE TABLE IF NOT EXISTS notifications (
-      id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
-      faculty_id TEXT REFERENCES faculties(id), type TEXT NOT NULL, title TEXT NOT NULL, body TEXT NOT NULL,
-      path TEXT NOT NULL, created_at TEXT NOT NULL, read INTEGER DEFAULT 0
-    );
-    CREATE TABLE IF NOT EXISTS events (id INTEGER PRIMARY KEY AUTOINCREMENT, faculty_id TEXT REFERENCES faculties(id), title TEXT NOT NULL, date TEXT NOT NULL, time TEXT NOT NULL, type TEXT NOT NULL);
-    CREATE TABLE IF NOT EXISTS channels (id TEXT NOT NULL, faculty_id TEXT REFERENCES faculties(id), name TEXT NOT NULL, description TEXT DEFAULT '', read_only INTEGER DEFAULT 0, PRIMARY KEY(id,faculty_id));
-    CREATE TABLE IF NOT EXISTS saved (user_id INTEGER REFERENCES users(id), type TEXT, target_id INTEGER, PRIMARY KEY(user_id,type,target_id));
-    CREATE TABLE IF NOT EXISTS history (user_id INTEGER REFERENCES users(id), resource_id INTEGER REFERENCES resources(id), opened_at TEXT NOT NULL, PRIMARY KEY(user_id,resource_id));
-    CREATE TABLE IF NOT EXISTS reports (
-      id INTEGER PRIMARY KEY AUTOINCREMENT, faculty_id TEXT REFERENCES faculties(id), reporter_id INTEGER REFERENCES users(id),
-      target_type TEXT NOT NULL, target_id INTEGER NOT NULL, reason TEXT NOT NULL, details TEXT DEFAULT '',
-      status TEXT DEFAULT 'open', created_at TEXT NOT NULL
-    );
-    CREATE TABLE IF NOT EXISTS contacts (
-      id INTEGER PRIMARY KEY AUTOINCREMENT, faculty_id TEXT REFERENCES faculties(id), user_id INTEGER REFERENCES users(id),
-      name TEXT, email TEXT, subject TEXT NOT NULL, message TEXT NOT NULL, created_at TEXT NOT NULL, status TEXT DEFAULT 'open'
-    );
-  `);
-  // Additive migrations preserve existing accounts and content. In particular,
-  // an existing student is never assigned a major by guessing from their faculty.
-  const addColumn = (table, name, definition) => {
-    if (!db.prepare(`PRAGMA table_info(${table})`).all().some(c => c.name === name)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${definition}`);
+function number(value) {
+  const result = Number(value);
+  if (!Number.isSafeInteger(result)) throw new RangeError('Database integer exceeds the supported range.');
+  return result;
+}
+
+// Keep the existing small prepared-query API while changing its operations to
+// asynchronous PostgreSQL queries. Values remain bound parameters throughout.
+export function postgresSql(statement) {
+  let sql = statement.trim().replace(/;\s*$/, '');
+  sql = sql.replace(/([\w.]+)\s*=\s*\?\s+COLLATE\s+NOCASE\b/gi, 'lower($1)=lower(?)');
+  const ignore = /^INSERT\s+OR\s+IGNORE\s+INTO\b/i.test(sql);
+  sql = sql.replace(/^INSERT\s+OR\s+IGNORE\s+INTO\b/i, 'INSERT INTO');
+  if (ignore && !/\bON\s+CONFLICT\b/i.test(sql)) sql += ' ON CONFLICT DO NOTHING';
+  let placeholder = 0;
+  let quote = null;
+  let output = '';
+  for (let i = 0; i < sql.length; i++) {
+    const char = sql[i];
+    if (quote) {
+      output += char;
+      if (char === quote) {
+        if (sql[i + 1] === quote) output += sql[++i];
+        else quote = null;
+      }
+    } else if (char === "'" || char === '"') { quote = char; output += char; }
+    else output += char === '?' ? `$${++placeholder}` : char;
+  }
+  return output;
+}
+
+function inSchema(sql, schema) {
+  // Neon transaction pooling cannot accept search_path as a connection startup
+  // option. Qualifying application tables also prevents fallback into public.
+  return sql.replace(/\b(FROM|JOIN|UPDATE|INTO|TABLE(?:\s+IF\s+(?:NOT\s+)?EXISTS)?)\s+([a-z_][a-z0-9_]*)\b(?!\s*\.)/gi,
+    (match, keyword, table) => applicationTables.has(table.toLowerCase()) ? `${keyword} "${schema}"."${table}"` : match)
+    .replace(/pg_get_serial_sequence\('([a-z_][a-z0-9_]*)'/gi,
+      (match, table) => applicationTables.has(table) ? `pg_get_serial_sequence('${schema}.${table}'` : match);
+}
+
+export async function openDatabase({ connectionString = process.env.DATABASE_URL, schema = 'campuslink', migrate = true, max = 8 } = {}) {
+  if (!connectionString) throw new Error('DATABASE_URL is required for PostgreSQL persistence.');
+  if (!/^[a-z][a-z0-9_]{0,62}$/.test(schema)) throw new Error('Invalid application database schema.');
+  const pool = new pg.Pool({
+    connectionString,
+    max,
+    connectionTimeoutMillis: 15000,
+    types: { getTypeParser: (oid, format) => oid === 20 && format !== 'binary' ? number : pg.types.getTypeParser(oid, format) },
+  });
+  // pg removes failed idle clients itself. Handle its background error event
+  // so a dropped connection cannot terminate the API and all live chat streams.
+  pool.on('error', () => console.error('[CampusLink database] Idle connection closed; the pool will reconnect.'));
+  const context = new AsyncLocalStorage();
+  let closed = false;
+  const query = (sql, values = []) => {
+    if (closed) throw new Error('The database connection is closed.');
+    const transaction = context.getStore();
+    if (!transaction) return pool.query(sql, values);
+    // A transaction owns one client. Promise.all in the existing DTO builders
+    // must queue its statements rather than execute concurrently on that client.
+    const result = transaction.queue.then(() => transaction.client.query(sql, values));
+    transaction.queue = result.then(() => undefined, () => undefined);
+    return result;
   };
-  addColumn('users', 'filiere_id', 'TEXT');
-  addColumn('users', 'current_semester', 'INTEGER NOT NULL DEFAULT 1');
-  addColumn('messages', 'filiere_id', 'TEXT');
-  addColumn('messages', 'semester', 'INTEGER');
-  addColumn('resources', 'filiere_id', 'TEXT');
-  addColumn('resources', 'resource_type', "TEXT NOT NULL DEFAULT ''");
-  db.exec('CREATE INDEX IF NOT EXISTS message_studies ON messages(faculty_id,channel,filiere_id,semester)');
-  // Previously classified general messages stay private after splitting the
-  // faculty-wide channel from the major chats. Unclassified history stays in
-  // general. Updating only the channel/pair preserves every ID and attachment.
-  db.exec('BEGIN');
+  const db = {
+    schema,
+    query,
+    exec: sql => query(inSchema(sql, schema)),
+    prepare(statement) {
+      const sql = inSchema(postgresSql(statement), schema);
+      return {
+        async get(...values) { return (await query(sql, values)).rows[0]; },
+        async all(...values) { return (await query(sql, values)).rows; },
+        async run(...values) {
+          const table = sql.match(/^INSERT\s+INTO\s+(?:(?:"?[\w]+"?)\.)?"?([\w]+)"?/i)?.[1];
+          const returning = table && identityTables.has(table) && !/\bRETURNING\b/i.test(sql) ? `${sql} RETURNING id` : sql;
+          const result = await query(returning, values);
+          return { lastInsertRowid: result.rows[0]?.id ?? null, changes: result.rowCount ?? 0, rows: result.rows };
+        },
+      };
+    },
+    async transaction(callback) {
+      const parent = context.getStore();
+      if (parent) {
+        const savepoint = `campuslink_nested_${++parent.depth}`;
+        await query(`SAVEPOINT ${savepoint}`);
+        try {
+          const result = await callback(db);
+          await query(`RELEASE SAVEPOINT ${savepoint}`);
+          return result;
+        } catch (error) {
+          await query(`ROLLBACK TO SAVEPOINT ${savepoint}`);
+          throw error;
+        }
+      }
+      const client = await pool.connect();
+      const state = { client, depth: 0, queue: Promise.resolve() };
+      try {
+        await client.query('BEGIN');
+        await client.query(`SET LOCAL search_path TO "${schema}", public`);
+        const result = await context.run(state, () => callback(db));
+        await state.queue;
+        await client.query('COMMIT');
+        return result;
+      } catch (error) {
+        await state.queue;
+        await client.query('ROLLBACK');
+        throw error;
+      } finally { client.release(); }
+    },
+    async close() { if (!closed) { closed = true; await pool.end(); } },
+  };
   try {
-    const move=db.prepare('UPDATE messages SET channel=\'filiere\',semester=? WHERE id=?');
-    for(const row of db.prepare("SELECT id,semester FROM messages WHERE channel='general' AND filiere_id IS NOT NULL AND filiere_id<>''").all())move.run(getChatSemester(row.semester)??row.semester,row.id);
-    const normalize=db.prepare('UPDATE messages SET semester=? WHERE id=?');
-    for(const row of db.prepare("SELECT id,semester FROM messages WHERE channel='filiere'").all()) {
-      const semester=getChatSemester(row.semester);
-      if(semester!==null&&semester!==row.semester)normalize.run(semester,row.id);
+    await query(`CREATE SCHEMA IF NOT EXISTS "${schema}"`);
+    if (migrate) await migrateDatabase(db);
+    return db;
+  } catch (error) { await db.close(); throw error; }
+}
+
+export async function migrateDatabase(db) {
+  const files = (await readdir(fileURLToPath(migrationDirectory))).filter(name => /^\d+_[a-z0-9_]+\.sql$/.test(name)).sort();
+  await db.transaction(async () => {
+    // Serializes fresh starts and migration commands against the same schema.
+    await db.prepare('SELECT pg_advisory_xact_lock(hashtext(?))').get(`campuslink:migrations:${db.schema}`);
+    await db.exec('CREATE TABLE IF NOT EXISTS schema_migrations (name TEXT PRIMARY KEY, sha256 TEXT NOT NULL, applied_at TEXT NOT NULL)');
+    for (const name of files) {
+      const sql = await readFile(new URL(name, migrationDirectory), 'utf8');
+      const checksum = digest(sql);
+      const applied = await db.prepare('SELECT sha256 FROM schema_migrations WHERE name=?').get(name);
+      if (applied) {
+        if (applied.sha256 !== checksum) throw new Error(`Applied migration changed: ${name}`);
+        continue;
+      }
+      await db.exec(sql);
+      await db.prepare('INSERT INTO schema_migrations (name,sha256,applied_at) VALUES (?,?,?)').run(name, checksum, new Date().toISOString());
     }
-    db.exec("UPDATE resources SET channel='filiere' WHERE message_id IN (SELECT id FROM messages WHERE channel='filiere'); UPDATE announcements SET channel='filiere' WHERE message_id IN (SELECT id FROM messages WHERE channel='filiere');");
-    const pathUpdate=db.prepare('UPDATE notifications SET path=? WHERE id=?');
-    for(const notification of db.prepare("SELECT id,path FROM notifications WHERE path LIKE '/app/chat/%#message-%'").all()) {
-      const match=notification.path.match(/#message-(\d+)$/);
-      const source=match?db.prepare('SELECT id,channel,semester FROM messages WHERE id=?').get(Number(match[1])):null;
-      if(source)pathUpdate.run(`/app/chat/${source.channel}${source.channel==='filiere'?`?semester=${source.semester}`:''}#message-${source.id}`,notification.id);
-    }
-    db.exec('COMMIT');
-  } catch(error) {db.exec('ROLLBACK');throw error;}
-  return db;
+  });
+  return files;
 }

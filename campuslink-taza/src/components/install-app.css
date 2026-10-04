@@ -1,0 +1,29 @@
+.pwa-install-section .pwa-install-card {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--panel-2);
+  color: var(--text);
+}
+.pwa-install-section .pwa-install-icon { flex: 0 0 56px; border-radius: 12px; }
+.pwa-install-section .pwa-install-copy { flex: 1; min-width: 0; }
+.pwa-install-section .pwa-install-copy strong { font-size: 17px; line-height: 1.4; }
+.pwa-install-section .pwa-install-copy p,
+.pwa-install-section .pwa-install-note,
+.pwa-install-section .pwa-install-guide p { margin: 6px 0 0; color: var(--muted); font-size: 15px; line-height: 1.65; }
+.pwa-install-section .pwa-install-button { min-height: 44px; flex-shrink: 0; font-size: 15px; white-space: normal; }
+.pwa-install-section .pwa-installed { display: inline-flex; gap: 8px; align-items: center; color: var(--green); font-size: 15px; font-weight: 600; }
+.pwa-install-section .pwa-install-note { margin-top: 12px; }
+.pwa-install-section .pwa-install-guide { display: flex; align-items: flex-start; gap: 12px; padding: 16px; margin-top: 12px; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; }
+.pwa-install-section .pwa-install-guide > svg { flex-shrink: 0; margin-top: 3px; color: var(--primary); }
+.pwa-install-section .pwa-install-guide p { margin: 0; color: var(--text); }
+.pwa-install-section .pwa-guide-open { transform: rotate(180deg); }
+@media (max-width: 760px) {
+  .pwa-install-section .pwa-install-card { flex-wrap: wrap; padding: 15px; gap: 12px; }
+  .pwa-install-section .pwa-install-copy { flex-basis: calc(100% - 70px); }
+  .pwa-install-section .pwa-install-button { width: 100%; }
+  .pwa-install-section .pwa-installed { margin-top: 2px; }
+}

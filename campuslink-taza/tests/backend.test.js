@@ -1,14 +1,12 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, readdirSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { once } from 'node:events';
 import { createApp } from '../server/app.js';
+import { openDatabase } from '../server/db.js';
 import { makePdf } from '../server/seed.js';
+import { createTestEnvironment } from './helpers.mjs';
 
-const directory=mkdtempSync(join(tmpdir(),'campuslink-tests-'));
-let app,server,base;
+let app,server,base,environment;
 let student,admin,other,moderator,facultyAdmin;
 async function request(path,{cookie,method='GET',body,form,origin}={}){
   const response=await fetch(base+'/api'+path,{method,headers:{...(cookie?{cookie}:{}),...(body?{'content-type':'application/json'}:{}),...(origin?{origin}:{})},body:form|| (body?JSON.stringify(body):undefined)});
@@ -19,10 +17,11 @@ async function request(path,{cookie,method='GET',body,form,origin}={}){
 async function login(username,password='Campus2026!'){const r=await request('/login',{method:'POST',body:{username,password}});assert.equal(r.status,200);return r.cookie;}
 
 before(async()=>{
-  app=createApp({dataDir:directory});server=app.listen(0,'127.0.0.1');await once(server,'listening');base=`http://127.0.0.1:${server.address().port}`;
+  environment=await createTestEnvironment();
+  app=await createApp({db:environment.db,auth:environment.auth,storage:environment.storage});server=app.listen(0,'127.0.0.1');await once(server,'listening');base=`http://127.0.0.1:${server.address().port}`;
   student=await login('ismail');admin=await login('admin','Admin2026!');other=await login('hamza');moderator=await login('amina');facultyAdmin=await login('professeure');
 });
-after(async()=>{await new Promise(r=>server.close(r));app.locals.close();rmSync(directory,{recursive:true,force:true});});
+after(async()=>{app?.locals.endStreams();server?.closeAllConnections();if(server)await new Promise(r=>server.close(r));await app?.locals.close();await environment?.close();});
 
 test('secure persistent session cookies and anonymous protections',async()=>{
   const r=await request('/login',{method:'POST',body:{username:'ismail',password:'Campus2026!'}});
@@ -31,7 +30,11 @@ test('secure persistent session cookies and anonymous protections',async()=>{
   assert.equal((await request('/bootstrap')).status,401);
   assert.equal((await request('/messages',{method:'POST',body:{content:'secret'}})).status,401);
   assert.equal((await request('/login',{method:'POST',origin:'https://evil.example',body:{username:'ismail',password:'Campus2026!'}})).status,403);
-  const stored=app.locals.db.prepare('SELECT password_hash FROM users WHERE username=?').get('ismail').password_hash;assert.notEqual(stored,'Campus2026!');assert.match(stored,/^[a-f0-9]{32}:[a-f0-9]{128}$/);
+  const profile=await app.locals.db.prepare('SELECT auth_user_id,email,legacy_password_hash FROM users WHERE username=?').get('ismail');
+  assert.ok(profile.auth_user_id);assert.equal(profile.email,'ismail@campuslink.test');assert.equal(profile.legacy_password_hash,null);
+  const tables=await app.locals.db.prepare('SELECT table_name FROM information_schema.tables WHERE table_schema=?').all(environment.schema);
+  assert.equal(tables.some(table=>table.table_name==='sessions'),false);
+  assert.equal('auth_user_id' in session.data.user,false);
 });
 
 test('onboarding requires confirmation and faculty choice becomes permanently locked',async()=>{
@@ -75,15 +78,48 @@ test('general chat creates no notifications; important messages and pins notify 
 });
 
 test('upload creates one file and one resource shared by chat/library; rejects duplicates and invalid files',async()=>{
-  const beforeFiles=readdirSync(join(directory,'files')).length;
+  const beforeFiles=environment.storage.objects.size;
   const pdf=makePdf('Test Linguistique',['Exercice de transcription phonetique.']);
   const form=new FormData();form.set('file',new Blob([pdf],{type:'application/pdf'}),'linguistique.pdf');form.set('title','Exercice de test');form.set('category','exercises');form.set('semester','1');form.set('module','Linguistique');form.set('channel','general');
   form.set('filiere_id','french_studies');form.set('resource_type','exercises');form.set('chat_semester','1');
-  const upload=await request('/uploads',{cookie:student,method:'POST',form});assert.equal(upload.status,201);assert.equal(upload.data.message.resource_id,upload.data.resource.id);assert.equal(upload.data.resource.message_id,upload.data.message.id);assert.equal(readdirSync(join(directory,'files')).length,beforeFiles+1);
-  const duplicate=await request('/uploads',{cookie:student,method:'POST',form});assert.equal(duplicate.status,409);assert.equal(duplicate.data.resource.id,upload.data.resource.id);assert.equal(readdirSync(join(directory,'files')).length,beforeFiles+1);
+  const upload=await request('/uploads',{cookie:student,method:'POST',form});assert.equal(upload.status,201);assert.equal(upload.data.message.resource_id,upload.data.resource.id);assert.equal(upload.data.resource.message_id,upload.data.message.id);assert.equal(environment.storage.objects.size,beforeFiles+1);
+  const duplicate=await request('/uploads',{cookie:student,method:'POST',form});assert.equal(duplicate.status,409);assert.equal(duplicate.data.resource.id,upload.data.resource.id);assert.equal(environment.storage.objects.size,beforeFiles+1);
+  const metadata=await environment.db.prepare('SELECT object_key,module_id FROM resources WHERE id=?').get(upload.data.resource.id);assert.ok(metadata.module_id);assert.ok(environment.storage.objects.has(metadata.object_key));assert.equal('object_key' in upload.data.resource,false);
   const search=await request('/search?q=Exercice%20de%20test&type=exercises&semester=1',{cookie:student});assert.equal(search.data.results.length,1);assert.match(search.data.results[0].path,/exercises\/s1\/linguistique#resource-/);
   const missing=new FormData();missing.set('file',new Blob([pdf],{type:'application/pdf'}),'test.pdf');missing.set('category','courses');assert.equal((await request('/uploads',{cookie:student,method:'POST',form:missing})).status,400);
   const invalid=new FormData();invalid.set('file',new Blob(['<script>bad()</script>'],{type:'image/svg+xml'}),'image.svg');invalid.set('category','general');assert.equal((await request('/uploads',{cookie:student,method:'POST',form:invalid})).status,400);
+});
+
+test('general document correction preserves its persisted academic semester and module',async()=>{
+  const form=new FormData();
+  for(const [key,value]of Object.entries({title:'Classified document before correction',category:'general',semester:'6',module:'Publication académique',filiere_id:'french_studies',resource_type:'document',channel:'general'}))form.set(key,value);
+  form.set('file',new Blob(['Classified academic document for correction persistence.'],{type:'text/plain'}),'classified-document.txt');
+  const uploaded=await request('/uploads',{cookie:student,method:'POST',form});assert.equal(uploaded.status,201);
+  const id=uploaded.data.resource.id,moduleId=uploaded.data.resource.module_id;
+  const corrected=await request(`/admin/resources/${id}`,{cookie:facultyAdmin,method:'PATCH',body:{title:'Classified document after correction'}});
+  assert.equal(corrected.status,200);assert.equal(corrected.data.resource.semester,6);assert.equal(corrected.data.resource.module_id,moduleId);
+  const stored=await app.locals.db.prepare('SELECT semester,module_id FROM resources WHERE id=?').get(id);
+  assert.equal(stored.semester,6);assert.equal(stored.module_id,moduleId);
+});
+
+test('provider and PostgreSQL failures roll back metadata and compensate private objects',async()=>{
+  const db=environment.db,storage=environment.storage;
+  const before={objects:storage.objects.size,messages:(await db.prepare('SELECT COUNT(*) AS n FROM messages').get()).n,resources:(await db.prepare('SELECT COUNT(*) AS n FROM resources').get()).n,modules:(await db.prepare('SELECT COUNT(*) AS n FROM modules').get()).n};
+  const form=(title)=>{
+    const body=new FormData();body.set('file',new Blob([makePdf(title,['Failure compensation check.'])],{type:'application/pdf'}),'compensation.pdf');
+    for(const [key,value]of Object.entries({title,category:'courses',filiere_id:'french_studies',semester:'6',module:'Failure compensation module',resource_type:'courses',channel:'general'}))body.set(key,value);
+    return body;
+  };
+  storage.failNextPut=true;
+  const deletes=storage.deleteCount;
+  assert.equal((await request('/uploads',{cookie:student,method:'POST',form:form('Storage rejected upload')})).status,502);
+  assert.equal(storage.deleteCount,deletes+1);
+  await db.exec("ALTER TABLE resources ADD CONSTRAINT test_reject_upload CHECK (title <> 'Database rejected upload')");
+  try{assert.equal((await request('/uploads',{cookie:student,method:'POST',form:form('Database rejected upload')})).status,500);}
+  finally{await db.exec('ALTER TABLE resources DROP CONSTRAINT test_reject_upload');}
+  assert.equal(storage.objects.size,before.objects);
+  for(const table of ['messages','resources','modules'])assert.equal((await db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get()).n,before[table]);
+  assert.equal(storage.deleteCount,deletes+2);
 });
 
 test('bookmarks, notification ownership and preferences are persisted',async()=>{
@@ -120,10 +156,10 @@ test('resource replacement maintains shared ID, physical version history and res
 
 test('withdrawal and chat moderation remove files, pins and search results without exposing foreign content',async()=>{
   const foreign=(await request('/bootstrap',{cookie:other})).data.resources[0];
-  const filesBefore=readdirSync(join(directory,'files')).length;
+  const filesBefore=environment.storage.objects.size;
   assert.equal((await request(`/admin/resources/${foreign.id}`,{cookie:facultyAdmin,method:'DELETE'})).status,403);
   const replace=new FormData();replace.set('file',new Blob([makePdf('Foreign replacement',['Restricted faculty data.'])],{type:'application/pdf'}),'foreign.pdf');
-  assert.equal((await request(`/admin/resources/${foreign.id}/replace`,{cookie:facultyAdmin,method:'POST',form:replace})).status,403);assert.equal(readdirSync(join(directory,'files')).length,filesBefore);
+  assert.equal((await request(`/admin/resources/${foreign.id}/replace`,{cookie:facultyAdmin,method:'POST',form:replace})).status,403);assert.equal(environment.storage.objects.size,filesBefore);
   const form=new FormData();form.set('file',new Blob([makePdf('Document retire',['Retrait et moderation.'])],{type:'application/pdf'}),'retrait.pdf');form.set('title','Document unique pour retrait');form.set('category','courses');form.set('semester','2');
   form.set('filiere_id','french_studies');form.set('resource_type','courses');form.set('module','Méthodologie');form.set('chat_semester','2');
   const uploaded=await request('/uploads',{cookie:student,method:'POST',form});assert.equal(uploaded.status,201);
@@ -153,7 +189,7 @@ test('administrators manage channel access; readonly restriction cannot be bypas
 });
 
 test('private account provisioning and faculty-wide publication obey global role permissions',async()=>{
-  const payload={username:'nouveau.etudiant',name:'Nouvel étudiant',password:'PrivateAccount2026!',faculty_id:null};
+  const payload={username:'nouveau.etudiant',email:'nouveau.etudiant@campuslink.test',name:'Nouvel étudiant',password:'PrivateAccount2026!',faculty_id:null};
   assert.equal((await request('/admin/users',{cookie:facultyAdmin,method:'POST',body:payload})).status,403);
   const created=await request('/admin/users',{cookie:admin,method:'POST',body:payload});assert.equal(created.status,201);assert.equal(created.data.user.faculty_id,null);assert.equal('password' in created.data.user,false);assert.equal('password_hash' in created.data.user,false);
   const cookie=await login(payload.username,payload.password);assert.equal((await request('/bootstrap',{cookie})).status,403);assert.equal((await request('/faculties',{cookie})).data.faculties.length,4);
@@ -202,8 +238,9 @@ test('global admin reassigns faculty, revokes sessions, and prevents old faculty
 
 test('sessions and content survive a full application restart',async()=>{
   const persistent=await login('ismail','NewSecure2026!');
-  await new Promise(resolve=>server.close(resolve));app.locals.close();
-  app=createApp({dataDir:directory});server=app.listen(0,'127.0.0.1');await once(server,'listening');base=`http://127.0.0.1:${server.address().port}`;
+  app.locals.endStreams();server.closeAllConnections();await new Promise(resolve=>server.close(resolve));await app.locals.close();
+  const restartedDb=await openDatabase({schema:environment.schema});environment.auth.useDatabase(restartedDb);
+  app=await createApp({db:restartedDb,auth:environment.auth,storage:environment.storage});server=app.listen(0,'127.0.0.1');await once(server,'listening');base=`http://127.0.0.1:${server.address().port}`;
   const session=await request('/session',{cookie:persistent});assert.equal(session.data.user.username,'ismail');assert.equal(session.data.user.faculty_id,'feg');assert.equal(session.data.user.language,'ar');
   assert.ok((await request('/bootstrap',{cookie:persistent})).data.resources.length>0);
 });

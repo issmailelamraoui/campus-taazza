@@ -1,70 +1,82 @@
 # CampusLink Taza
 
-A working private university community platform using the supplied layout reference with warm ivory/charcoal backgrounds and blue accents adapted from the [official FPT Taza website](https://fpt.usmba.ac.ma/). Dark appearance is the default on new visits; saved light/dark preferences persist and stay synchronized across tabs. Appearance and language live in Settings on phones, with header shortcuts on larger screens. French is the default; English and Arabic translations include proper RTL layouts. The application includes a welcome page, persistent secure login, one-time confirmed faculty selection, a spacious desktop workspace with saved collapsible panels and a hamburger on every screen, accessible mobile/tablet drawers, academic resources, live chat, search, personal saved items, calendar, notifications, settings and scoped administration.
+The existing React/React Router/Vite frontend and Express 5 backend now use **Neon PostgreSQL**, **Neon Auth**, and **private Cloudflare R2** storage. The current layout, faculty colors, dark/light appearance, French/Arabic/English translations, RTL behavior and mobile settings are preserved.
 
 ## Run
 
-Requires Node 22.13+ with npm. From this directory:
+Requires Node 22.13+ and npm. Server configuration is loaded from the existing ignored `.env.local`; variable names are documented in [.env.example](.env.example). Never add client prefixes to credentials.
 
 ```sh
 npm ci
+npm run db:migrate
+npm run db:seed
 npm run dev
 ```
 
-Development: http://localhost:5173. API: http://localhost:3001.
+Frontend: http://localhost:5173. API: http://localhost:3001.
 
 ```sh
 npm run build
 npm start
 ```
 
-The production build and API are served together at http://localhost:3001. `./start.sh` also builds and starts the application and discovers the existing Node runtime in this workspace environment.
+Production serves the SPA and API together on port 3001. `./start.sh` discovers the workspace's Node runtime, builds and starts the application. Startup applies reproducible migrations and idempotent reference seeding; it does not silently create demo users.
 
-## Local demonstration accounts
+## Existing data and account identities
 
-| Account | Username | Initial local password | Faculty |
-| --- | --- | --- | --- |
-| Student | `ismail` | `Campus2026!` | Selected once on first login |
-| Global administrator | `admin` | `Admin2026!` | FLAA |
-| Student used in isolated tests | `sara` | `Campus2026!` | FLAA |
+The read-only importer preserves existing numeric IDs, account roles and academic selections, messages, replies, pins, saved items, notifications and resource/version references. It transfers local files to private R2; the original SQLite database and files remain untouched.
 
-These are local development fixtures. Set `CAMPUS_STUDENT_PASSWORD` and `CAMPUS_ADMIN_PASSWORD` before the first start to override them. Existing passwords are never overwritten. The UI never displays passwords. Account creation is restricted to the global administrator; there is no public registration route. The first faculty selection requires a confirmation checkbox; further student changes are rejected by the API.
+```sh
+npm run db:import-local
+```
 
-Account completion then asks for the student's Filière and current semester, using the faculty already on the account; it does not ask for the faculty again. The exact requested Filière groups and their existing faculty-ID mapping are in [`shared/studies.js`](shared/studies.js). Existing students without a Filière complete this step rather than receiving a guessed assignment.
+Import requires an empty application content schema and records its source checksum. Repeating the same import does not create duplicate rows or files. Legacy unclassified resources retain their metadata; no major or module assignment is guessed.
+
+Existing local accounts have no email identity. They remain securely unlinked until a trusted operator associates them with a real Neon Auth account. Local passwords and sessions are no longer accepted. To provision and link an existing profile:
+
+```sh
+npm run auth:link -- --username admin --email REAL_EMAIL --confirm-role global_admin --create
+```
+
+The command prompts privately for a new Neon password. Omit `--create` when the email already has a Neon identity, and enter that identity's password. It validates the provider session/JWKS and preserves the existing profile ID and role. Repeat for other existing profiles with their actual email and stored role. Passwords are never passed as command arguments.
+
+New students can use **Créer un compte** at `/register` and enter their name, username, email, password, faculty, Filière and current semester. Their account stays pending on `/account-review` until the global administrator accepts it in **Administration → Demandes d’inscription**. Pending and rejected accounts have no access to community data, chats or files. Existing accounts and accounts created directly by the administrator retain approved access. **Administration → Utilisateurs → Gérer → Supprimer l’étudiant** removes a student’s account access after confirmation and anonymizes their attribution; shared academic resources are preserved.
+
+For an explicitly requested empty demonstration setup, `npm run db:seed -- --demo` uses the existing sample dataset and private R2. These profiles also need explicit identity linking; demo passwords are confined to injected test fixtures.
 
 ## Working flows
 
-- The hamburger toggles the desktop navigation and opens a focus-managed drawer on tablets and phones. Faculty information has its own toggle. Both panels start hidden so conversations have ample width. On phones, open Settings through the hamburger to change language or appearance. Body text is 16–18px with readable 14px metadata and theme-aware colors.
-
-- Academic uploads open a classification dialog before sending. Required fields are Filière, semester, module, resource type, title and file; Filière options come from the account's existing faculty. Types include courses, exams, exercises, TD, TP, corrections, images, PDFs, documents and other resources. Chat and library reference the same resource and stored file. In private Filière chats, the resource's academic `semester` is independent of its source `chat_semester`: a document classified in S4 can be shared in the S5 / S6 group. Ordinary general-chat uploads need no chat semester. SHA-256 detects exact duplicates.
-- Chat général is shared by everyone in the account's faculty, regardless of Filière or semester, with the original faculty-wide history available. The separate Chats de filière section has three private conversations: S1 / S2, S3 / S4 and S5 / S6. The pair containing the current semester opens by default; students can switch among the three groups within their own Filière. Private messages, their actions, linked pinned announcements and live updates enforce that Filière scope on the server. Important/help/student-life discussions retain their faculty scope. Authorized pins preserve the original author/date/attachment and link back to the source. Ordinary general and Filière messages do not generate notifications.
-- Resource cards open real locally generated PDFs or uploaded files, allow download/save, show metadata and counts, and link to their original discussions. Corrected documents preserve their resource ID and version history.
-- Resource and message routes use exact anchors, with temporary highlighting; private chat links use `/app/chat/filiere?semester=1`, `3` or `5` for the three pairs. Refresh preserves the route, session, faculty, Filière and database content. Faculty-shared resource cards show a source-discussion link only when that chat is accessible to the current user.
-- Search and Ctrl/Cmd+K query permitted messages, announcements, members, filenames, modules and academic documents. The library and general chat remain faculty-scoped; private Filière chats and their linked announcements are limited to the account's Filière. Semester filters normalize private messages to their pair and keep individual resource semesters. Advanced filters cover type, semester, module, author and date.
-- Calendar supports month/day selection, exact event links and `.ics` export. Notification filters and read states persist per user. Reading history powers the home dashboard's Reprendre area.
-- Settings support avatar, username, password (requiring the current password), language and notification preferences. Faculty membership is read-only.
-- Administration supports private account creation, faculty/role assignment, account suspension, reports, contact requests, announcements, events, channel read-only controls, resource correction, replacement and withdrawal. Faculty administrators and moderators have smaller server-enforced permission scopes.
+- Account completion asks for Filière and current semester using the student's already selected faculty. The exact source catalog stays in [shared/studies.js](shared/studies.js).
+- Faculty-wide general chat remains shared by all majors. The Community Filière section has three study-year chats: S1/S2, S3/S4 and S5/S6. Students can visit any of those groups inside their own major. Old even-semester links open the corresponding group. Messages, replies, pins, search and live updates enforce this on the backend.
+- Upload classification remains Filière → semester → module → resource type → title → file. Modules load from persisted rows and can use an existing user-entered name. No faculty is requested again.
+- The academic library keeps its existing faculty scope. A resource's academic semester can differ from its private source chat semester. Inaccessible source chat links are hidden without changing library access.
+- The server validates classification, signatures and the 20 MB limit before uploading. Safe UUID object keys and PostgreSQL metadata keep the original filename as metadata only. Exact duplicate bytes return the existing resource.
+- Authenticated backend routes stream previews/downloads from the private R2 bucket with permission checks, private caching and safe content headers. No permanent public object URLs are issued.
+- Resource replacements preserve IDs and version history. Upload, avatar and replacement failures attempt object cleanup if metadata cannot commit.
+- On phones, language/theme stay in Settings and semester selection stays compact inside the existing chat header. Desktop/tablet navigation and faculty panels remain collapsible.
+- Message replies remain directly accessible beside the three-dot menu on phones, tablets and desktops. Light-mode message text is readable while the existing dark chat colors are retained. Library categories, study years and member cards have distinct surfaces and accents.
+- New reports, contact requests and registration requests show a temporary popup to their authorized administrators while connected. Existing notices and ordinary chat messages stay quiet. Opening the popup selects the matching administration tab; muted administrative notifications still refresh the request queue.
+- **Settings → Application** offers installation when the browser supports it, or instructions to add CampusLink to the home screen. Full PWA installation requires HTTPS or localhost; the phone's local HTTP address supports a browser shortcut. The public offline page never stores private messages, account data or academic files.
+- Existing search, saved items, calendar, notifications, profile settings, password changes, contacts and scoped administration remain available.
 
 ## Verification
 
 ```sh
 npm test
 npm run test:browser
+npm run test:r2
+npm run test:infrastructure
 ```
 
-The API suite uses temporary SQLite databases. The Playwright suite builds and serves the actual production bundle at port 5174 against an isolated temporary database, then tests Filière, community, study, administrator, theme and responsive workflows. It does not change the main demo data. Install a Playwright browser with `npx playwright install chromium` if necessary; `CAMPUS_CHROMIUM` can point to an existing executable.
+Regression suites use disposable schemas in the configured real PostgreSQL database, with explicitly injected identity/storage fixtures for bounded UI/API checks. Live checks exercise the configured Neon Auth and private R2, then remove their temporary accounts, objects and schema. Browser tests use Chromium; `CAMPUS_CHROMIUM` can point to an installed executable.
 
-Filière API coverage includes the exact catalog, account setup, shared faculty chat, three private semester pairs, cross-Filière access prevention, upload classification/source-pair separation, live-update scope and migration preserving message IDs and references.
+See [tests/README.md](tests/README.md), [ARCHITECTURE.md](ARCHITECTURE.md), and [server/README.md](server/README.md) for contracts and validation details.
 
-Browser validation includes first visit, translations and RTL, authentication and recovery requests, permanent faculty choice, sessions across refresh, reactions/replies/bookmarks, staged classified uploads, duplicate detection, library/chat deep links, real search, reports, pins/announcements, important-discussion notifications, calendar export, profile edits, permissions, mobile layouts and keyboard navigation.
+## Deployment
 
-## Persistence and deployment
+Keep `DATABASE_URL`, `NEON_AUTH_BASE_URL`, `NEON_AUTH_JWKS_URL` and the five `R2_*` variables server-side. Application storage deliberately ignores Neon Object Storage `AWS_*` variables. The existing `neon.ts` bucket configuration is not used for application uploads.
 
-SQLite, session hashes and documents live in `data/`, which is ignored by Git. Use a persistent volume and back up the database and document directory together. Configure `APP_ORIGIN` to the exact HTTPS deployment origin and `COOKIE_SECURE=true` behind a TLS reverse proxy. Replace or disable demonstration accounts and provide institution-approved faculty information/materials before admitting real students. The supplied faculty identities follow the user's reference design; all initial course/exam documents are clearly labeled educational demonstrations. Contact requests are stored for administrator review; the application does not send email or reset credentials automatically.
-
-The migration preserves existing accounts and content. Unclassified legacy general messages remain in the faculty-wide general chat. Messages previously tagged with a Filière move to the private Filière channel, with semester pairs normalized to 1, 3 or 5; message/resource IDs, files, replies, pins and source links are retained. Tagged messages with malformed semester data stay private and hidden. Older academic resources remain available in the faculty library. New local fixtures have explicit Filières; the `ismail` fixture still completes account setup.
-
-See [ARCHITECTURE.md](ARCHITECTURE.md) for routes, components, entity contracts and design tokens, and [server/README.md](server/README.md) for the API and security details.
+Set `APP_ORIGIN` to the deployed browser origin, allow that origin in Neon Auth, and set `COOKIE_SECURE=true` behind HTTPS. Back up Neon and R2 together. Contact forms persist administrator requests; they do not send email or automatically reset passwords.
 
 ## Design assets
 

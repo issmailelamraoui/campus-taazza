@@ -1,17 +1,12 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, readdirSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { once } from 'node:events';
-import { DatabaseSync } from 'node:sqlite';
-import { createApp } from '../server/app.js';
+import { readFile } from 'node:fs/promises';
+import { createTestApp } from './helpers.mjs';
 import { makePdf } from '../server/seed.js';
 import { getFilieres, getFiliere, filiereBelongsToFaculty, getChatSemester, SEMESTER_CHAT_GROUPS } from '../shared/studies.js';
-import { openDatabase, hashPassword } from '../server/db.js';
 
-const directory=mkdtempSync(join(tmpdir(),'campuslink-studies-'));
-let app,server,base,admin,science,sciencePeer,otherMajor,french,arabic;
+let environment,app,server,base,admin,science,sciencePeer,otherMajor,french,arabic,uploadedResource;
 const created=[];
 async function request(path,{cookie,method='GET',body,form}={}) {
   const response=await fetch(base+'/api'+path,{method,headers:{...(cookie?{cookie}:{}),...(body?{'content-type':'application/json'}:{})},body:form||(body?JSON.stringify(body):undefined)});
@@ -19,7 +14,7 @@ async function request(path,{cookie,method='GET',body,form}={}) {
 }
 async function login(username,password='Campus2026!') { const response=await request('/login',{method:'POST',body:{username,password}});assert.equal(response.status,200);return response.cookie; }
 async function newStudent(username,faculty='fsa') {
-  const response=await request('/admin/users',{cookie:admin,method:'POST',body:{username,name:username,password:'Campus2026!',faculty_id:faculty}});
+  const response=await request('/admin/users',{cookie:admin,method:'POST',body:{username,email:`${username}@campuslink.test`,name:username,password:'Campus2026!',faculty_id:faculty}});
   assert.equal(response.status,201);return {cookie:await login(username),user:response.data.user};
 }
 function form(overrides={}) {
@@ -30,13 +25,13 @@ function form(overrides={}) {
   return result;
 }
 before(async()=>{
-  app=createApp({dataDir:directory});server=app.listen(0,'127.0.0.1');await once(server,'listening');base=`http://127.0.0.1:${server.address().port}`;
+  environment=await createTestApp();app=environment.app;server=app.listen(0,'127.0.0.1');await once(server,'listening');base=`http://127.0.0.1:${server.address().port}`;
   admin=await login('admin','Admin2026!');french=await login('sara');arabic=await login('nour');
   science=(await newStudent('science.setup')).cookie;sciencePeer=(await newStudent('science.peer')).cookie;otherMajor=(await newStudent('science.physics')).cookie;
   assert.equal((await request('/studies',{cookie:sciencePeer,method:'POST',body:{filiere_id:'data_science',current_semester:1}})).status,200);
   assert.equal((await request('/studies',{cookie:otherMajor,method:'POST',body:{filiere_id:'physics',current_semester:3}})).status,200);
 });
-after(async()=>{app.locals.endStreams();await new Promise(resolve=>server.close(resolve));app.locals.close();rmSync(directory,{recursive:true,force:true});});
+after(async()=>{app?.locals.endStreams();server?.closeAllConnections();if(server)await new Promise(resolve=>server.close(resolve));await environment?.close();});
 
 test('each existing faculty exposes exactly its specified filières, with unchanged labels',async()=>{
   assert.deepEqual(getFilieres('fsa').map(f=>f.name),[
@@ -53,7 +48,9 @@ test('each existing faculty exposes exactly its specified filières, with unchan
   assert.equal(getFiliere('data_science').name,'Filière Sciences de Données');
   assert.equal(filiereBelongsToFaculty('feg','data_science'),false);
   assert.deepEqual(SEMESTER_CHAT_GROUPS.map(g=>g.semesters),[[1,2],[3,4],[5,6]]);
+  assert.deepEqual(SEMESTER_CHAT_GROUPS.map(g=>g.label),['S1 / S2','S3 / S4','S5 / S6']);
   assert.deepEqual([1,2,3,4,5,6].map(getChatSemester),[1,1,3,3,5,5]);
+  assert.equal(getChatSemester('S6'),5);assert.equal(getChatSemester(7),null);
 });
 
 test('general chat is faculty-wide without requiring a major or semester and remains silent',async()=>{
@@ -87,7 +84,7 @@ test('account setup uses the assigned faculty, validates major and semester, and
   assert.equal((await request('/studies',{cookie:fresh,method:'POST',body:{filiere_id:'biology'}})).data.user.current_semester,1);
 });
 
-test('three semester-pair chats normalize all six semesters and stay inside the account major',async()=>{
+test('each study-year chat combines its two semesters and stays inside the account major',async()=>{
   for(let semester=1;semester<=6;semester++) {
     const response=await request('/messages',{cookie:science,method:'POST',body:{channel:'filiere',semester,content:`Science isolated semester ${semester}`}});
     assert.equal(response.status,201);assert.equal(response.data.message.filiere_id,'data_science');assert.equal(response.data.message.semester,getChatSemester(semester));created.push(response.data.message);
@@ -101,8 +98,8 @@ test('three semester-pair chats normalize all six semesters and stay inside the 
   assert.equal((await request('/messages',{cookie:science,method:'POST',body:{channel:'filiere',filiere_id:'physics',semester:1,content:'Spoofed major'}})).status,403);
   assert.equal((await request('/messages',{cookie:science,method:'POST',body:{channel:'filiere',content:'No semester'}})).status,400);
   assert.equal((await request('/messages',{cookie:science,method:'POST',body:{channel:'filiere',semester:7,content:'Invalid semester'}})).status,400);
-  assert.equal((await request('/messages',{cookie:science,method:'POST',body:{channel:'filiere',semester:3,reply_to:created[0].id,content:'Wrong semester-pair reply'}})).status,400);
-  assert.equal((await request('/messages',{cookie:sciencePeer,method:'POST',body:{channel:'filiere',semester:2,reply_to:created[0].id,content:'Same semester-pair reply'}})).status,201);
+  assert.equal((await request('/messages',{cookie:science,method:'POST',body:{channel:'filiere',semester:3,reply_to:created[0].id,content:'Wrong semester reply'}})).status,400);
+  assert.equal((await request('/messages',{cookie:sciencePeer,method:'POST',body:{channel:'filiere',semester:2,reply_to:created[0].id,content:'S2 reply to S1 in the same study year'}})).status,201);
   const data=(await request('/bootstrap',{cookie:sciencePeer})).data;
   assert.ok(data.messages.every(m=>m.channel!=='filiere'||m.filiere_id==='data_science'));
   assert.equal(new Set(data.messages.filter(m=>m.channel==='filiere').map(m=>m.semester)).size,3);
@@ -121,7 +118,8 @@ test('foreign-major chat IDs cannot be read, replied to, reacted to, saved, repo
   assert.equal((await request('/search?q=Science%20isolated&type=message',{cookie:otherMajor})).data.results.length,0);
   const ownSearch=(await request('/search?q=Science%20isolated&type=message&semester=5',{cookie:sciencePeer})).data.results;
   assert.equal(ownSearch.length,2);assert.ok(ownSearch.every(r=>/filiere\?semester=5#message-/.test(r.path)));
-  assert.deepEqual((await request('/search?q=Science%20isolated&type=message&semester=6',{cookie:sciencePeer})).data.results.map(r=>r.id),ownSearch.map(r=>r.id));
+  assert.ok(ownSearch.every(r=>r.context.includes('S5 / S6')));
+  assert.deepEqual((await request('/search?q=Science%20isolated&type=message&semester=6',{cookie:sciencePeer})).data.results,ownSearch);
 });
 
 test('pin provenance, announcements, notifications and saved content do not leak another major',async()=>{
@@ -138,8 +136,8 @@ test('pin provenance, announcements, notifications and saved content do not leak
   assert.equal((await request('/saved',{cookie:arabic,method:'POST',body:{type:'announcement',id:pinned.id}})).status,403);
   assert.equal((await request(`/messages/${posted.data.message.id}/pin`,{cookie:arabic,method:'POST',body:{}})).status,403);
   // Previously saved faculty-wide rows are also filtered after a major selection.
-  app.locals.db.prepare('INSERT INTO saved VALUES (?,?,?)').run(8,'message',posted.data.message.id);
-  app.locals.db.prepare('INSERT INTO notifications (user_id,faculty_id,type,title,body,path,created_at) VALUES (?,?,?,?,?,?,?)').run(8,'flaa','announcements','Legacy notice','Private text',`/app/announcements#announcement-${pinned.id}`,new Date().toISOString());
+  await app.locals.db.prepare('INSERT INTO saved VALUES (?,?,?)').run(8,'message',posted.data.message.id);
+  await app.locals.db.prepare('INSERT INTO notifications (user_id,faculty_id,type,title,body,path,created_at) VALUES (?,?,?,?,?,?,?)').run(8,'flaa','announcements','Legacy notice','Private text',`/app/announcements#announcement-${pinned.id}`,new Date().toISOString());
   const legacyFiltered=(await request('/bootstrap',{cookie:arabic})).data;
   assert.equal(legacyFiltered.saved.some(s=>s.id===posted.data.message.id&&s.type==='message'),false);
   assert.equal(legacyFiltered.notifications.some(n=>n.path===`/app/announcements#announcement-${pinned.id}`),false);
@@ -156,19 +154,20 @@ test('general pins remain visible and notify students from other majors in the s
 });
 
 test('upload requires all classification fields and separates library classification from private chat scope',async()=>{
-  const initial=readdirSync(join(directory,'files')).length;
+  const initial=environment.storage.objects.size;
   for(const field of ['filiere_id','semester','module','resource_type','title','chat_semester']) {
     const response=await request('/uploads',{cookie:science,method:'POST',form:form({[field]:undefined,title:field==='title'?undefined:`Missing ${field}`})});
     assert.equal(response.status,400,field);
   }
   assert.equal((await request('/uploads',{cookie:science,method:'POST',form:form({filiere_id:'management'})})).status,400);
-  assert.equal(readdirSync(join(directory,'files')).length,initial);
-  const uploaded=await request('/uploads',{cookie:science,method:'POST',form:form({filiere_id:'physics',semester:'3',chat_semester:'5'})});
+  assert.equal(environment.storage.objects.size,initial);
+  const uploaded=await request('/uploads',{cookie:science,method:'POST',form:form({filiere_id:'physics',semester:'3',chat_semester:'6'})});
   assert.equal(uploaded.status,201);
   assert.equal(uploaded.data.resource.filiere_id,'physics');assert.equal(uploaded.data.resource.semester,3);assert.equal(uploaded.data.resource.resource_type,'td');
   assert.equal(uploaded.data.message.filiere_id,'data_science');assert.equal(uploaded.data.message.semester,5);
   assert.equal(uploaded.data.resource.chat_semester,5);
   assert.equal(uploaded.data.resource.message_id,uploaded.data.message.id);assert.equal(uploaded.data.message.resource_id,uploaded.data.resource.id);
+  uploadedResource=uploaded.data.resource;
   const ownChat=(await request('/messages?channel=filiere&semester=5',{cookie:sciencePeer})).data.messages;
   assert.ok(ownChat.some(m=>m.id===uploaded.data.message.id));
   const foreignLibrary=(await request('/bootstrap',{cookie:otherMajor})).data;
@@ -183,6 +182,40 @@ test('upload requires all classification fields and separates library classifica
   assert.equal(generalUpload.status,201);assert.equal(generalUpload.data.message.filiere_id,null);assert.equal(generalUpload.data.message.semester,null);
   assert.equal(generalUpload.data.resource.chat_semester,null);assert.equal(generalUpload.data.resource.semester,3);
   assert.ok((await request('/messages',{cookie:otherMajor})).data.messages.some(m=>m.id===generalUpload.data.message.id));
+});
+
+test('legacy even-semester chats merge while preserving message relationships and academic semesters',async()=>{
+  const db=app.locals.db;
+  for(const [index,semester]of [[1,2],[3,4],[5,6]])await db.prepare('UPDATE messages SET semester=? WHERE id=?').run(semester,created[index].id);
+  await db.prepare('UPDATE messages SET semester=6,reply_to=?,pinned=1 WHERE id=?').run(created[5].id,uploadedResource.message_id);
+  assert.equal((await request(`/messages/${uploadedResource.message_id}/reaction`,{cookie:sciencePeer,method:'POST',body:{reaction:'like'}})).status,200);
+  // DTOs and old S2/S4/S6 links work even for legacy data imported after startup.
+  for(const semester of [2,4,6]) {
+    const chat=(await request(`/messages?channel=filiere&semester=${semester}`,{cookie:sciencePeer})).data.messages;
+    assert.ok(chat.some(m=>m.id===created[semester-1].id));
+    assert.ok(chat.every(m=>m.semester===getChatSemester(semester)));
+  }
+  const before={
+    messages:await db.prepare('SELECT * FROM messages ORDER BY id').all(),
+    resources:await db.prepare('SELECT * FROM resources ORDER BY id').all(),
+    users:await db.prepare('SELECT id,current_semester FROM users ORDER BY id').all(),
+    reactions:await db.prepare('SELECT * FROM reactions ORDER BY message_id,user_id,reaction').all(),
+    modules:await db.prepare('SELECT * FROM modules ORDER BY id').all(),
+  };
+  const migration=await readFile(new URL('../server/migrations/004_semester_chat_pairs.sql',import.meta.url),'utf8');
+  await db.transaction(async()=>{await db.exec(migration);});
+  assert.deepEqual(await db.prepare('SELECT * FROM messages ORDER BY id').all(),before.messages.map(m=>({...m,semester:m.channel==='filiere'?getChatSemester(m.semester):m.semester})));
+  assert.deepEqual(await db.prepare('SELECT * FROM resources ORDER BY id').all(),before.resources);
+  assert.deepEqual(await db.prepare('SELECT id,current_semester FROM users ORDER BY id').all(),before.users);
+  assert.deepEqual(await db.prepare('SELECT * FROM reactions ORDER BY message_id,user_id,reaction').all(),before.reactions);
+  assert.deepEqual(await db.prepare('SELECT * FROM modules ORDER BY id').all(),before.modules);
+  await db.transaction(async()=>{await db.exec(migration);});
+  const source=(await request(`/messages/${uploadedResource.message_id}`,{cookie:sciencePeer})).data.message;
+  assert.equal(source.semester,5);assert.equal(source.reply_to,created[5].id);assert.equal(source.pinned,true);assert.equal(source.reactions.like,1);
+  const shared=(await request('/bootstrap',{cookie:sciencePeer})).data.resources.find(r=>r.id===uploadedResource.id);
+  assert.equal(shared.semester,3);assert.equal(shared.chat_semester,5);assert.equal(shared.message_id,source.id);
+  const evenSearch=(await request('/search?q=Science%20isolated&type=message&semester=6',{cookie:sciencePeer})).data.results;
+  assert.ok(evenSearch.every(r=>/filiere\?semester=5#message-/.test(r.path)));
 });
 
 test('private Filière SSE changes reach the same major and never another major in the same faculty',async()=>{
@@ -221,73 +254,4 @@ test('faculty reassignment resets an incompatible major and keeps account setup 
   assert.deepEqual((await request('/studies',{cookie})).data.filieres,getFilieres('feg'));
   assert.equal((await request('/messages?channel=filiere&semester=1',{cookie})).status,403);
   assert.equal((await request('/studies',{cookie,method:'POST',body:{filiere_id:'management'}})).status,200);
-});
-
-test('additive migrations preserve existing students and retain unclassified faculty-wide history',()=>{
-  const legacyDir=mkdtempSync(join(tmpdir(),'campuslink-studies-migration-'));
-  let legacy=new DatabaseSync(join(legacyDir,'campuslink.sqlite'));
-  legacy.exec(`
-    CREATE TABLE faculties (id TEXT PRIMARY KEY,code TEXT NOT NULL,name TEXT NOT NULL,arabic TEXT NOT NULL,description TEXT NOT NULL,icon TEXT NOT NULL,color TEXT NOT NULL,members INTEGER DEFAULT 0);
-    INSERT INTO faculties VALUES ('fsa','FSA','Existing faculty','Existing','Existing','atom','green',0);
-    CREATE TABLE users (id INTEGER PRIMARY KEY,username TEXT UNIQUE COLLATE NOCASE NOT NULL,name TEXT NOT NULL,password_hash TEXT NOT NULL,avatar TEXT DEFAULT '',role TEXT DEFAULT 'student',faculty_id TEXT REFERENCES faculties(id),language TEXT DEFAULT 'fr',preferences TEXT DEFAULT '{}',disabled INTEGER DEFAULT 0,last_seen TEXT);
-    INSERT INTO users(id,username,name,password_hash,faculty_id) VALUES(1,'legacy','Legacy student','preserved-hash','fsa');
-    CREATE TABLE messages (id INTEGER PRIMARY KEY AUTOINCREMENT,faculty_id TEXT REFERENCES faculties(id),channel TEXT NOT NULL,content TEXT NOT NULL,author_id INTEGER REFERENCES users(id),created_at TEXT NOT NULL,resource_id INTEGER,reply_to INTEGER,pinned INTEGER DEFAULT 0,removed INTEGER DEFAULT 0);
-    INSERT INTO messages(faculty_id,channel,content,author_id,created_at) VALUES('fsa','general','Existing faculty-wide chat',1,'2026-10-01');
-  `);
-  legacy.close();legacy=openDatabase(legacyDir);
-  try {
-    const student=legacy.prepare('SELECT * FROM users WHERE id=1').get();
-    assert.equal(student.password_hash,'preserved-hash');assert.equal(student.filiere_id,null);assert.equal(student.current_semester,1);
-    const message=legacy.prepare('SELECT * FROM messages WHERE id=1').get();
-    assert.equal(message.content,'Existing faculty-wide chat');assert.equal(message.filiere_id,null);assert.equal(message.semester,null);
-    assert.ok(legacy.prepare('PRAGMA table_info(resources)').all().some(c=>c.name==='resource_type'));
-  } finally {legacy.close();rmSync(legacyDir,{recursive:true,force:true});}
-});
-
-test('paired-chat migration preserves IDs, files, replies, pins and paths while reopening unclassified general history',async()=>{
-  const migrationDir=mkdtempSync(join(tmpdir(),'campuslink-paired-migration-'));
-  let legacy=openDatabase(migrationDir);
-  legacy.prepare('INSERT INTO faculties VALUES (?,?,?,?,?,?,?,?)').run('fsa','FSA','Existing faculty','Existing','Existing','atom','green',0);
-  const addUser=legacy.prepare('INSERT INTO users (id,username,name,password_hash,faculty_id,filiere_id,current_semester) VALUES (?,?,?,?,?,?,?)');
-  addUser.run(1,'legacy.science','Legacy science',hashPassword('Campus2026!'),'fsa','data_science',6);
-  addUser.run(2,'legacy.physics','Legacy physics',hashPassword('Campus2026!'),'fsa','physics',1);
-  const addMessage=legacy.prepare('INSERT INTO messages (id,faculty_id,channel,content,author_id,created_at,resource_id,reply_to,pinned,filiere_id,semester) VALUES (?,?,\'general\',?,?,?,?,?,?,?,?)');
-  addMessage.run(101,'fsa','Unclassified faculty history',1,'2026-10-01',null,null,0,null,null);
-  addMessage.run(102,'fsa','Preserved private attachment',1,'2026-10-01',501,null,1,'data_science',2);
-  addMessage.run(103,'fsa','Preserved private reply',1,'2026-10-01',null,102,0,'data_science',2);
-  addMessage.run(104,'fsa','Other-major private history',2,'2026-10-01',null,null,0,'physics',6);
-  addMessage.run(105,'fsa','Malformed private history',1,'2026-10-01',null,null,0,'data_science',9);
-  legacy.prepare('INSERT INTO resources (id,faculty_id,title,filename,stored_name,sha256,category,semester,module,author_id,created_at,size,mime,message_id,channel,filiere_id,resource_type) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)').run(501,'fsa','Preserved document','original.pdf','original-file.pdf','originalhash','courses',4,'Existing module',1,'2026-10-01',123,'application/pdf',102,'general','data_science','courses');
-  legacy.prepare('INSERT INTO announcements (id,faculty_id,content,message_id,channel,author_id,created_at,resource_id,pinned) VALUES (?,?,?,?,?,?,?,?,?)').run(601,'fsa','Preserved private attachment',102,'general',1,'2026-10-01',501,1);
-  legacy.prepare('INSERT INTO notifications (id,user_id,faculty_id,type,title,body,path,created_at) VALUES (?,?,?,?,?,?,?,?)').run(701,1,'fsa','important','Original notice','Preserved body','/app/chat/general?semester=2#message-102','2026-10-01');
-  legacy.prepare('INSERT INTO saved VALUES (?,?,?)').run(1,'message',102);
-  legacy.prepare('INSERT INTO saved VALUES (?,?,?)').run(2,'message',102);
-  legacy.close();
-  const migratedApp=createApp({dataDir:migrationDir,seed:false});
-  const migratedServer=migratedApp.listen(0,'127.0.0.1');await once(migratedServer,'listening');
-  const origin=`http://127.0.0.1:${migratedServer.address().port}`;
-  try {
-    const db=migratedApp.locals.db;
-    const source=db.prepare('SELECT * FROM messages WHERE id=102').get();assert.equal(source.channel,'filiere');assert.equal(source.semester,1);assert.equal(source.resource_id,501);assert.equal(source.pinned,1);
-    assert.equal(db.prepare('SELECT reply_to FROM messages WHERE id=103').get().reply_to,102);
-    assert.equal(db.prepare('SELECT channel FROM messages WHERE id=101').get().channel,'general');
-    assert.equal(db.prepare('SELECT channel FROM messages WHERE id=105').get().channel,'filiere');assert.equal(db.prepare('SELECT semester FROM messages WHERE id=105').get().semester,9);
-    const resource=db.prepare('SELECT * FROM resources WHERE id=501').get();assert.equal(resource.channel,'filiere');assert.equal(resource.semester,4);assert.equal(resource.stored_name,'original-file.pdf');assert.equal(resource.sha256,'originalhash');
-    assert.equal(db.prepare('SELECT channel FROM announcements WHERE id=601').get().channel,'filiere');
-    assert.equal(db.prepare('SELECT path FROM notifications WHERE id=701').get().path,'/app/chat/filiere?semester=1#message-102');
-    for(const username of ['legacy.science','legacy.physics']) {
-      const loginResponse=await fetch(origin+'/api/login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({username,password:'Campus2026!'})});
-      const cookie=loginResponse.headers.get('set-cookie').split(';')[0];
-      const data=await (await fetch(origin+'/api/bootstrap',{headers:{cookie}})).json();
-      assert.ok(data.messages.some(m=>m.id===101));assert.equal(data.messages.some(m=>m.id===105),false);
-      assert.equal(data.messages.some(m=>m.id===102),username==='legacy.science');
-      assert.equal(data.announcements.some(a=>a.id===601),username==='legacy.science');
-      assert.equal(data.saved.some(s=>s.type==='message'&&s.id===102),username==='legacy.science');
-      assert.equal(data.resources[0].message_id,username==='legacy.science'?102:null);
-    }
-  } finally {migratedApp.locals.endStreams();await new Promise(resolve=>migratedServer.close(resolve));migratedApp.locals.close();}
-  // Reopening a migrated database changes neither scope nor IDs a second time.
-  legacy=openDatabase(migrationDir);
-  try {assert.equal(legacy.prepare('SELECT COUNT(*) AS n FROM messages').get().n,5);assert.equal(legacy.prepare('SELECT semester FROM messages WHERE id=102').get().semester,1);assert.equal(legacy.prepare('SELECT COUNT(*) AS n FROM announcements').get().n,1);}
-  finally {legacy.close();rmSync(migrationDir,{recursive:true,force:true});}
 });

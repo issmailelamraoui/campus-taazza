@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { chromium, expect } from '@playwright/test';
 import { browserOptions, selectLanguage } from './browser-utils.mjs';
 import { messagePath, resourcePath } from '../src/utils.js';
+import { getChatSemester, getChatSemesterLabel } from '../shared/studies.js';
 
 const origin = process.env.CAMPUS_BROWSER_ORIGIN || 'http://localhost:5173';
 const browser = await chromium.launch(browserOptions());
@@ -32,7 +33,7 @@ async function json(context, path, options) {
 
 async function provision(faculty, suffix, role = 'student') {
   const username = `studies_browser_${suffix}`;
-  await json(admin, '/admin/users', { method: 'POST', data: { username, name: `Étudiant ${suffix}`, password, faculty_id: faculty, role } });
+  await json(admin, '/admin/users', { method: 'POST', data: { username, email: `${username}@campuslink.test`, name: `Étudiant ${suffix}`, password, faculty_id: faculty, role } });
   const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
   contexts.push(context);
   await json(context, '/login', { method: 'POST', data: { username, password } });
@@ -67,18 +68,21 @@ async function studySetup(context, filiereName, semester = 1) {
 
 async function sendChat(target, text) {
   await target.locator('.chat-composer textarea').fill(text);
+  const persisted=target.waitForResponse(response=>new URL(response.url()).pathname==='/api/messages'&&response.request().method()==='POST');
   await target.locator('.composer-send').click();
   await target.locator('.message-text').filter({ hasText: text }).waitFor();
+  assert.ok((await persisted).ok(), 'The visible message is persisted before backend assertions');
 }
 
 async function tab(target, semester) {
-  const label = `S${semester} / S${semester + 1}`;
+  const label = getChatSemesterLabel(semester);
   await target.locator('.chat-semester-tabs').getByRole('tab', { name: label, exact: true }).click();
   await expect(target.locator('.chat-semester-tabs').getByRole('tab', { name: label, exact: true })).toHaveAttribute('aria-selected', 'true');
-  await target.waitForURL(`**/app/chat/filiere?semester=${semester}`);
+  await target.waitForURL(`**/app/chat/filiere?semester=${getChatSemester(semester)}`);
 }
 
 async function compactPrivateHeader(target, width) {
+  await target.locator('.filiere-chat .chat-header').waitFor({ state: 'visible' });
   const dimensions = await target.evaluate(() => {
     const rect = element => { const box = element.getBoundingClientRect(); return { x: box.x, right: box.right, top: box.top, bottom: box.bottom, height: box.height, width: box.width }; };
     const title = document.querySelector('.filiere-chat .chat-header h1');
@@ -94,16 +98,18 @@ async function compactPrivateHeader(target, width) {
   assert.ok(dimensions.header.height >= 64 && dimensions.header.height <= 67, `${width}px private header expands to ${dimensions.header.height}px`);
   assert.ok(dimensions.title.font >= 20, `${width}px title becomes too small`);
   assert.ok(dimensions.title.height <= dimensions.title.lineHeight + 1, `${width}px title wraps to an extra row`);
-  assert.ok(dimensions.selector.height >= 39 && dimensions.selector.height <= 41, 'Pair selector remains a readable touch control');
-  assert.ok(dimensions.selector.top >= dimensions.header.top && dimensions.selector.bottom <= dimensions.header.bottom, 'Pair selector stays inside the existing header');
-  assert.ok(dimensions.selector.x >= 0 && dimensions.selector.right <= width, 'Pair selector fits inside the phone viewport');
+  assert.ok(dimensions.selector.height >= 39 && dimensions.selector.height <= 41, 'Semester selector remains a readable touch control');
+  assert.ok(dimensions.selector.top >= dimensions.header.top && dimensions.selector.bottom <= dimensions.header.bottom, 'Semester selector stays inside the existing header');
+  assert.ok(dimensions.selector.x >= 0 && dimensions.selector.right <= width, 'Semester selector fits inside the phone viewport');
 }
 
 try {
   await json(admin, '/login', { method: 'POST', data: { username: 'admin', password: 'Admin2026!' } });
   let primary;
+  const facultyContexts = new Map();
   for (const [faculty, names] of Object.entries(groups)) {
     const context = await provision(faculty, faculty);
+    facultyContexts.set(faculty, context);
     const result = await studySetup(context, faculty === 'fsa' ? names[1] : names[0], faculty === 'fsa' ? 5 : 1);
     const catalog = await json(context, '/studies');
     assert.deepEqual(catalog.filieres.map(item => item.name), names);
@@ -160,37 +166,44 @@ try {
   await expect(page.locator('.chat-semester-tabs').getByRole('tab', { name: 'S5 / S6', exact: true })).toHaveAttribute('aria-selected', 'true');
   assert.ok((await page.locator('.chat-filiere-name').textContent()).includes('Sciences de Données'));
   assert.ok(await page.locator('.navigation-columns a[href="/app/chat/filiere"]').count(), 'Private Filière chat appears in Community navigation');
-  const fifth = 'Studies E2E Sciences de Données S5 S6 shared pair 4702';
+  const fifth = 'Studies E2E Sciences de Données S5 independent chat 4702';
   await sendChat(page, fifth);
   const ownS5 = (await json(primary.context, '/bootstrap')).messages.find(message => message.content === fifth);
   assert.equal(ownS5.semester, 5);
-  report('Community has a distinct private Filière chat with three semester pairs and the current-S5 default pair');
+  report('Community has three study-year chats and persisted S5/S6 default for current S5');
 
   await tab(page, 1);
   assert.equal(await page.locator(`#message-${ownS5.id}`).count(), 0);
-  const first = 'Studies E2E Sciences de Données S1 S2 shared pair 1049';
+  const first = 'Studies E2E Sciences de Données S1 independent chat 1049';
   await sendChat(page, first);
   const ownS1 = (await json(primary.context, '/bootstrap')).messages.find(message => message.content === first);
   assert.equal(ownS1.channel, 'filiere');
   assert.equal(ownS1.semester, 1);
   assert.equal(ownS1.filiere_id, primary.user.filiere_id);
   await page.goto(`${origin}/app/chat/filiere?semester=2`);
+  await expect(page.locator('.chat-semester-tabs').getByRole('tab', { name: 'S1 / S2', exact: true })).toHaveAttribute('aria-selected', 'true');
   await page.waitForURL('**/app/chat/filiere?semester=1');
   await page.locator(`#message-${ownS1.id}`).waitFor();
   await tab(page, 3);
-  assert.equal(await page.locator('.message-text').filter({ hasText: first }).count(), 0, 'S1/S2 messages are not in S3/S4');
-  const third = 'Studies E2E Sciences de Données S3 S4 shared pair 2857';
+  assert.equal(await page.locator('.message-text').filter({ hasText: first }).count(), 0, 'S1 messages are not in S3');
+  const third = 'Studies E2E Sciences de Données S3 independent chat 2857';
   await sendChat(page, third);
   const ownS3 = (await json(primary.context, '/bootstrap')).messages.find(message => message.content === third);
   assert.equal(ownS3.semester, 3);
-  const s1Api = await json(primary.context, '/messages?channel=filiere&semester=2');
+  const s1Api = await json(primary.context, '/messages?channel=filiere&semester=1');
   assert.ok(s1Api.messages.some(message => message.id === ownS1.id));
   assert.equal(s1Api.messages.some(message => message.id === ownS3.id), false);
   assert.ok(s1Api.messages.every(message => message.filiere_id === primary.user.filiere_id && message.semester === 1));
-  const crossSemesterReply = await primary.context.request.post(`${origin}/api/messages`, { data: { channel: 'filiere', semester: 1, content: 'A reply cannot combine semester pairs.', reply_to: ownS3.id } });
-  assert.equal(crossSemesterReply.status(), 400, 'Replies cannot bridge S1/S2 and S3/S4');
+  const s2Api = await json(primary.context, '/messages?channel=filiere&semester=2');
+  assert.deepEqual(s2Api.messages, s1Api.messages);
+  assert.ok(s2Api.messages.every(message => message.filiere_id === primary.user.filiere_id && message.semester === 1));
+  const crossSemesterReply = await primary.context.request.post(`${origin}/api/messages`, { data: { channel: 'filiere', semester: 1, content: 'A reply cannot combine semester chats.', reply_to: ownS3.id } });
+  assert.equal(crossSemesterReply.status(), 400, 'Replies cannot bridge S1 and S3');
   await page.goto(`${origin}/app/chat/filiere?semester=4`);
+  await expect(page.locator('.chat-semester-tabs').getByRole('tab', { name: 'S3 / S4', exact: true })).toHaveAttribute('aria-selected', 'true');
   await page.waitForURL('**/app/chat/filiere?semester=3');
+  await page.locator(`#message-${ownS3.id}`).waitFor();
+  await tab(page, 3);
   await page.reload();
   await page.locator('.message-text').filter({ hasText: third }).waitFor();
   assert.equal(await page.locator('.message-text').filter({ hasText: first }).count(), 0);
@@ -199,36 +212,50 @@ try {
   assert.equal(await page.locator('.message-text').filter({ hasText: first }).count(), 0);
   assert.equal(await page.locator('.message-text').filter({ hasText: third }).count(), 0);
   await page.goto(`${origin}/app/chat/filiere?semester=6`);
+  await expect(page.locator('.chat-semester-tabs').getByRole('tab', { name: 'S5 / S6', exact: true })).toHaveAttribute('aria-selected', 'true');
   await page.waitForURL('**/app/chat/filiere?semester=5');
+  await page.locator(`#message-${ownS5.id}`).waitFor();
   await tab(page, 1);
   await page.locator('.message-text').filter({ hasText: first }).waitFor();
   assert.equal(await page.locator('.message-text').filter({ hasText: third }).count(), 0);
-  report('three semester-pair chats remain independent; even semester URLs normalize to the correct pair across reloads');
+  report('each study year combines S1/S2, S3/S4 or S5/S6 across reloads and old even-semester links');
 
   await peerSetup.page.goto(`${origin}/app/chat/filiere`);
   await expect(peerSetup.page.locator('.chat-semester-tabs').getByRole('tab', { name: 'S1 / S2', exact: true })).toHaveAttribute('aria-selected', 'true');
-  await peerSetup.page.locator('.message-text').filter({ hasText: first }).waitFor();
-  const peerText = 'Studies E2E current-S2 peer replies in shared S1 S2 pair 9962';
+  await peerSetup.page.locator(`#message-${ownS1.id}`).waitFor();
+  const peerText = 'Studies E2E current-S2 peer posts in the shared S1/S2 chat 9962';
   await sendChat(peerSetup.page, peerText);
   await page.locator('.message-text').filter({ hasText: peerText }).waitFor();
+  await tab(page, 2);
+  await page.locator('.message-text').filter({ hasText: peerText }).waitFor();
   assert.equal((await json(primary.context, '/bootstrap')).messages.find(message => message.content === peerText).semester, 1);
-  const normalizedSend = await json(peer, '/messages', { method: 'POST', data: { channel: 'filiere', semester: 2, content: 'Studies E2E semester 2 API writes canonical pair 8613' } });
-  assert.equal(normalizedSend.message.semester, 1);
-  await page.locator(`#message-${normalizedSend.message.id}`).waitFor();
-  report('S1 and S2 share actual messages and a current-S5 student can visit the same-Filière S1/S2 chat');
+  const secondSend = await json(peer, '/messages', { method: 'POST', data: { channel: 'filiere', semester: 2, content: 'Studies E2E semester 2 API joins the S1/S2 conversation 8613' } });
+  assert.equal(secondSend.message.semester, 1);
+  await page.locator(`#message-${secondSend.message.id}`).waitFor();
+  report('S2 defaults to the shared S1/S2 chat and a current-S5 student can visit that same-Filière conversation');
+
+  const firstPeer = await provision('fsa', 'first_peer');
+  const firstSetup = await studySetup(firstPeer, groups.fsa[1], 1);
+  await firstSetup.page.goto(`${origin}/app/chat/filiere`);
+  await firstSetup.page.locator(`#message-${ownS1.id}`).waitFor();
+  await tab(page, 1);
+  const firstReply = 'Studies E2E current-S1 peer replies to the visiting S5 student 5106';
+  await sendChat(firstSetup.page, firstReply);
+  await page.locator('.message-text').filter({ hasText: firstReply }).waitFor();
+  report('current-S5 and current-S1 students exchange live inside the same-Filière S1 chat');
 
   const sixthPeer = await provision('fsa', 'sixth_peer');
   const sixthSetup = await studySetup(sixthPeer, groups.fsa[1], 6);
   await sixthSetup.page.goto(`${origin}/app/chat/filiere`);
   await expect(sixthSetup.page.locator('.chat-semester-tabs').getByRole('tab', { name: 'S5 / S6', exact: true })).toHaveAttribute('aria-selected', 'true');
-  await sixthSetup.page.locator(`#message-${ownS5.id}`).waitFor();
   assert.equal(await sixthSetup.page.locator(`#message-${ownS1.id}, #message-${ownS3.id}`).count(), 0);
-  await tab(page, 5);
-  const sixth = 'Studies E2E current S6 peer posts in the shared S5 S6 pair 2718';
+  await sixthSetup.page.locator(`#message-${ownS5.id}`).waitFor();
+  await tab(page, 6);
+  const sixth = 'Studies E2E current S6 peer posts in its shared S5/S6 chat 2718';
   await sendChat(sixthSetup.page, sixth);
   await page.locator('.message-text').filter({ hasText: sixth }).waitFor();
   assert.equal((await json(primary.context, '/bootstrap')).messages.find(message => message.content === sixth).semester, 5);
-  report('current S6 defaults to the same S5/S6 conversation and exchanges live with a current-S5 student');
+  report('current S6 defaults to S5/S6 and exchanges with S5 while other study years stay separate');
 
   await foreignSetup.page.goto(`${origin}/app/chat/filiere`);
   const privateText = 'Studies E2E information systems private chat 3782';
@@ -280,7 +307,7 @@ try {
   await page.goto(`${origin}/app/chat/general?semester=2#message-${ownS1.id}`);
   await page.waitForURL('**' + messagePath(ownS1));
   await page.locator(`#message-${ownS1.id}`).waitFor();
-  report('home/saved announcement links and earlier general URLs recover the actual private source pair and message ID');
+  report('home/saved announcement links and earlier general URLs recover the actual private semester and message ID');
 
   await tab(page, 3);
   const file = { name: 'studies-classified.txt', mimeType: 'text/plain', buffer: Buffer.from('E2E TP : classification filière, semestre, module et type. 12852') };
@@ -304,7 +331,19 @@ try {
   assert.equal(uploaded.channel, 'filiere');
   assert.equal(uploaded.chat_semester, 3);
   assert.equal(uploaded.module, 'Statistiques multivariées');
+  assert.ok(uploaded.module_id, 'The selected module is persisted with its own identifier');
+  const loadedModules = await json(primary.context, `/modules?filiere_id=${primary.user.filiere_id}&semester=6`);
+  assert.ok(loadedModules.modules.some(module => module.id === uploaded.module_id && module.name === uploaded.module));
+  assert.equal('object_key' in uploaded, false);
+  assert.equal('stored_name' in uploaded, false);
   assert.equal(uploaded.resource_type, 'tp');
+  const fileResponse = await primary.context.request.get(`${origin}/api/files/${uploaded.id}`);
+  assert.equal(fileResponse.status(), 200);
+  assert.ok((await fileResponse.text()).includes('classification filière'));
+  assert.equal((await facultyContexts.get('flaa').request.get(`${origin}/api/files/${uploaded.id}`)).status(), 403);
+  const anonymous = await browser.newContext();
+  contexts.push(anonymous);
+  assert.equal((await anonymous.request.get(`${origin}/api/files/${uploaded.id}`)).status(), 401);
   await page.locator(`#message-${uploaded.message_id}`).waitFor();
   await page.locator(`#message-${uploaded.message_id} .attachment-location`).click();
   await page.waitForURL('**' + resourcePath(uploaded));
@@ -312,7 +351,7 @@ try {
   await page.waitForURL('**' + messagePath(uploaded));
   await expect(page.locator('.chat-semester-tabs').getByRole('tab', { name: 'S3 / S4', exact: true })).toHaveAttribute('aria-selected', 'true');
   await page.locator(`#message-${uploaded.message_id}`).waitFor();
-  report('upload classification retains academic S6 while its resource links to the actual private S3/S4 chat');
+  report('upload classification persists academic S6 while its resource links to the actual private S3 chat');
 
   const foreignResourceUpload = await json(foreign, '/uploads', { method: 'POST', multipart: {
     file: { name: 'foreign-studies.txt', mimeType: 'text/plain', buffer: Buffer.from('A shared faculty library document, with private major chat provenance. 16925') },
@@ -328,12 +367,28 @@ try {
   assert.equal(await page.locator(`#resource-${foreignResource.id}`).getByRole('link', { name: 'Voir la discussion', exact: true }).count(), 0, 'No chat link is offered for another major');
   report('faculty-wide resource access is preserved while foreign-major discussion access is hidden');
 
+  await page.goto(`${origin}/app/chat/filiere?semester=3`);
+  await page.locator('.chat-semester-tabs').getByRole('tab', { name: 'S3 / S4', exact: true }).focus();
+  await page.keyboard.press('ArrowRight');
+  await page.waitForURL('**/app/chat/filiere?semester=5');
+  await expect(page.locator('.chat-semester-tabs').getByRole('tab', { name: 'S5 / S6', exact: true })).toBeFocused();
+  await page.keyboard.press('Home');
+  await page.waitForURL('**/app/chat/filiere?semester=1');
+  const firstYearTab=page.locator('.chat-semester-tabs').getByRole('tab', { name: 'S1 / S2', exact: true });
+  await expect(firstYearTab).toHaveAttribute('aria-selected', 'true');
+  await expect(firstYearTab).toBeFocused();
+  await page.keyboard.press('End');
+  await page.waitForURL('**/app/chat/filiere?semester=5');
+  await expect(page.locator('.chat-semester-tabs').getByRole('tab', { name: 'S5 / S6', exact: true })).toBeFocused();
+  report('keyboard arrows, Home and End navigate all three study-year tabs');
+
   await page.setViewportSize({ width: 390, height: 844 });
   await selectLanguage(page, 'AR');
   await page.goto(`${origin}/app/chat/filiere?semester=5`);
   await expect(page.locator('html')).toHaveAttribute('dir', 'rtl');
   await expect(page.locator('.chat-header .chat-group-selector')).toBeVisible();
   await expect(page.locator('.chat-header .chat-group-selector')).toHaveValue('5');
+  await expect(page.locator('.chat-header .chat-group-selector option')).toHaveCount(3);
   await expect(page.locator('.chat-semester-tabs')).toBeHidden();
   assert.equal(await page.locator('.chat-group-selector').count(), 1, 'Phone selector occupies the existing header only');
   await page.locator('.chat-group-selector').selectOption('1');

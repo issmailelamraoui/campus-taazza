@@ -38,12 +38,12 @@ try {
   await expect(page.locator('.resource-card')).toHaveCount(initial.resources.filter(r => r.semester === 3).length);
   report('all-category semester filter remains in the library');
 
-  await navigate('/app/resources/courses/s1');
-  await page.getByLabel('Module', { exact: true }).selectOption('Linguistique');
-  await page.waitForURL('**/app/resources/courses/s1/linguistique');
-  const resource = initial.resources.find(r => r.category === 'courses' && r.module === 'Linguistique');
+  await navigate('/app/resources/courses/s2');
+  await page.getByLabel('Module', { exact: true }).selectOption('Littérature française');
+  await page.waitForURL('**/app/resources/courses/s2/litterature-francaise');
+  const resource = initial.resources.find(r => r.category === 'courses' && r.module === 'Littérature française');
   await expect(page.locator('.resource-card')).toHaveCount(1);
-  await navigate(`/app/resources/courses/s1/linguistique#resource-${resource.id}`);
+  await navigate(`/app/resources/courses/s2/litterature-francaise#resource-${resource.id}`);
   await page.locator('.study-resource-focus').waitFor();
   assert.equal(await page.locator(`[id="resource-${resource.id}"]`).count(), 1);
   await page.locator('.resource-card').getByRole('button', { name: 'Ouvrir', exact: true }).click();
@@ -66,7 +66,7 @@ try {
   savedResource = null;
   report('saved resource toggle persists across navigation and reload');
 
-  await navigate('/app/search?q=linguistique&type=courses&semester=1&module=Linguistique&author=7&date=' + resource.created_at.slice(0, 10));
+  await navigate('/app/search?q=romantisme&type=courses&semester=2&module=' + encodeURIComponent('Littérature française') + '&author=4&date=' + resource.created_at.slice(0, 10));
   await page.locator('.study-search-result').waitFor();
   assert.equal(await page.locator('.study-search-result').count(), 1);
   await page.locator('.study-search-result').click();
@@ -77,9 +77,12 @@ try {
   report('search designed empty state');
 
   await navigate('/app/members');
-  await page.getByLabel('Rechercher un membre…', { exact: true }).fill('Nadia');
+  assert.ok((await json('/bootstrap')).members.every(member => member.role === 'student'));
+  assert.equal(await page.getByRole('button', { name: 'Équipe administrative', exact: true }).count(), 0);
+  for (const card of await page.locator('.study-member-card').all()) await expect(card.getByText('Étudiant', { exact: true })).toBeVisible();
+  await page.getByLabel('Rechercher un membre…', { exact: true }).fill('Yassine');
   await expect(page.locator('.study-member-card')).toHaveCount(1);
-  await navigate('/app/members#member-7');
+  await navigate('/app/members#member-3');
   await page.locator('.study-resource-focus').waitFor();
   report('member search and exact member navigation');
 

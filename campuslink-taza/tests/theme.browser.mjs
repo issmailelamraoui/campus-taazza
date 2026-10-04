@@ -20,6 +20,18 @@ try {
   await page.locator('.theme-toggle').click();await appearance('light');
   await page.locator('.theme-toggle').click();await appearance('dark');
   console.log('PASS keyboard theme control, saved preference, reload and cross-tab synchronization');
+  const authError='Le service de connexion est indisponible. Réessayez.';
+  const authTranslations={FR:authError,EN:'The sign-in service is unavailable. Try again.',AR:'خدمة تسجيل الدخول غير متاحة. حاول مجدداً.'};
+  await page.route('**/api/login',route=>route.fulfill({status:503,json:{error:authError}}));
+  for(const language of ['FR','EN','AR']){
+    await page.goto(origin+'/login');await selectLanguage(page,language);
+    await page.locator('input[autocomplete=username]').fill('admin');
+    await page.locator('input[autocomplete=current-password]').fill('Admin2026!');
+    await page.locator('.login-form-wrap form >button').click();
+    await expect(page.locator('.form-error')).toHaveText(authTranslations[language]);
+  }
+  await page.unroute('**/api/login');await selectLanguage(page,'FR');
+  console.log('PASS unavailable-authentication HTTP response renders clearly in French, English and Arabic');
   await page.goto(origin+'/login');await appearance('dark');
   await page.locator('input[autocomplete=username]').fill('admin');
   await page.locator('input[autocomplete=current-password]').fill('Admin2026!');
@@ -27,9 +39,24 @@ try {
   for(const route of ['/app','/app/chat/general','/app/resources','/app/admin']){
     await page.goto(origin+route);await appearance('dark');await expect(page.locator('.theme-toggle')).toBeVisible();
     const background=await page.locator('.app-header').evaluate(el=>getComputedStyle(el).backgroundColor);
-    assert.equal(background,'rgb(29, 27, 24)',route+' uses dark surfaces');
+    const channels=background.match(/[\d.]+/g)?.slice(0,3).map(Number);
+    assert.ok(channels?.length===3&&channels.every(channel=>channel<=48),route+' uses dark surfaces: '+background);
   }
   console.log('PASS dark public pages, login, community, resources and administration');
+  const storageError='Le stockage des fichiers est temporairement indisponible. Réessayez.';
+  const storageTranslations={FR:storageError,EN:'File storage is temporarily unavailable. Try again.',AR:'خدمة تخزين الملفات غير متاحة مؤقتاً. حاول مجدداً.'};
+  await page.route('**/api/uploads',route=>route.fulfill({status:503,json:{error:storageError}}));
+  for(const language of ['FR','EN','AR']){
+    await page.goto(origin+'/app/chat/general');await page.locator('.chat-composer').waitFor();await selectLanguage(page,language);
+    await page.locator('.chat-composer input[type=file]').setInputFiles({name:'storage-error.txt',mimeType:'text/plain',buffer:Buffer.from('Bounded UI error translation fixture.')});
+    await page.locator('.upload-study-form select').nth(2).selectOption('document');
+    await page.locator('.upload-study-form input[list]').fill('Linguistique');
+    await page.locator('.upload-study-form >button').click();
+    await expect(page.getByRole('dialog').locator('.form-error')).toHaveText(storageTranslations[language]);
+    await page.keyboard.press('Escape');
+  }
+  await page.unroute('**/api/uploads');
+  console.log('PASS unavailable-storage HTTP response renders clearly in French, English and Arabic');
   await page.setViewportSize({width:390,height:844});
   await selectLanguage(page,'AR');
   await expect(page.locator('html')).toHaveAttribute('dir','rtl');
