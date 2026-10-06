@@ -14,6 +14,25 @@ const currentDateParts = new Intl.DateTimeFormat('en', { timeZone: 'Africa/Casab
 const currentPart = type => Number(currentDateParts.find(part => part.type === type)?.value);
 const today = new Date(currentPart('year'), currentPart('month') - 1, currentPart('day'), 12);
 const categoryLabels = { courses: 'Cours', exercises: 'Exercices', exams: 'Anciens examens', rattrapage: 'Rattrapage', general: 'Documents' };
+const resourceTypeOrder = ['courses','exercises','td','tp','correction','exams','rattrapage','pdf','document','image','other'];
+const resourceTypeLabels = {
+  courses: ['courses','Cours'],
+  exercises: ['exercises','Exercices'],
+  td: ['resourceTD','TD'],
+  tp: ['resourceTP','TP'],
+  correction: ['resourceCorrection','Corrections'],
+  exams: ['exams','Anciens examens'],
+  rattrapage: ['rattrapage','Rattrapage'],
+  pdf: ['resourcePDF','PDF'],
+  document: ['resourceDocument','Documents'],
+  image: ['resourceImage','Images'],
+  other: ['resourceOther','Autres ressources'],
+};
+const resourceTypeLabel = (t, type) => {
+  const [key, fallback] = resourceTypeLabels[type] || resourceTypeLabels.other;
+  return t(key, fallback);
+};
+const resourceTypeOf = resource => resource.resource_type || resource.category || 'other';
 const localeFor = (lang) => lang === 'ar' ? 'ar-MA' : lang === 'en' ? 'en-GB' : 'fr-FR';
 const label = (t, category) => t(`category.${category}`, categoryLabels[category] || category);
 const dateLabel = (value, lang, options = {}) => {
@@ -120,6 +139,28 @@ function ResourcesContent() {
   const setQueryParam = (key, value) => setSearchParams(prev => { const next = new URLSearchParams(prev); value ? next.set(key, value) : next.delete(key); return next; }, { replace: true });
   const grouped = semester ? [{ id: semester, resources: filtered }] : [1, 2, 3, 4, 5, 6].map(id => ({ id, resources: filtered.filter(r => Number(r.semester) === id) })).filter(g => g.resources.length);
   const general = filtered.filter(r => !r.semester);
+  const renderResourceGroups = rows => {
+    const moduleNames = [...new Set(rows.map(r => r.module || ''))];
+    return moduleNames.map(module => {
+      const moduleRows = rows.filter(r => (r.module || '') === module);
+      const types = [...new Set(moduleRows.map(resourceTypeOf))].sort((a,b) => {
+        const ai=resourceTypeOrder.indexOf(a), bi=resourceTypeOrder.indexOf(b);
+        return (ai<0?999:ai)-(bi<0?999:bi);
+      });
+      return <div className="study-module-group" key={module || 'other'}>
+        <div className="study-module-heading"><BookOpen size={14} /><h3>{module || t('study.otherDocuments', 'Autres documents')}</h3><span>{moduleRows.length}</span></div>
+        <div className="study-resource-type-groups">
+          {types.map(type => {
+            const typeRows=moduleRows.filter(r => resourceTypeOf(r)===type);
+            return <section className={`study-resource-type-group resource-type-${type}`} key={type}>
+              <div className="study-resource-type-heading"><CategoryIcon category={typeRows[0]?.category} size={16}/><strong>{resourceTypeLabel(t,type)}</strong><span>{typeRows.length}</span></div>
+              <div className="study-resource-grid">{typeRows.map(r => <div className={`study-library-resource category-${r.category} ${target === `resource-${r.id}` ? 'study-resource-focus' : ''}`} key={r.id}><ResourceCard resource={r} /></div>)}</div>
+            </section>;
+          })}
+        </div>
+      </div>;
+    });
+  };
   return <div className="study-page study-library">
     <nav className="study-breadcrumbs" aria-label={t('study.breadcrumbs', "Fil d'Ariane")}><Link to="/app/resources">{t('nav.library', 'Bibliothèque')}</Link>{category && <><ChevronRight size={12} /><Link to={`/app/resources/${category}`}>{label(t, category)}</Link></>}{semester && <><ChevronRight size={12} /><Link to={category ? `/app/resources/${category}/s${semester}` : `/app/resources?semester=${semester}`}>S{semester}</Link></>}{moduleName && <><ChevronRight size={12} /><span>{moduleName}</span></>}{selectedResource && <><ChevronRight size={12} /><span className="study-breadcrumb-current">{selectedResource.title}</span></>}</nav>
     <PageHeading eyebrow={t('study.academicResources', 'Ressources académiques')} title={category ? label(t, category) : t('nav.library', 'Bibliothèque')} description={t('study.libraryIntro', 'Un savoir partagé, organisé pour vos études.')}><button className="btn gold-btn" onClick={() => openModal('upload', { category: category || 'courses', semester: semester || 1, module: moduleName })}><ImagePlus size={16} />{t('study.shareResource', 'Partager une ressource')}</button></PageHeading>
@@ -127,7 +168,7 @@ function ResourcesContent() {
     <section className="study-semester-strip" aria-label={t('study.chooseSemester', 'Choisir un semestre')}><button className={`study-all-semesters ${!semester ? 'active' : ''}`} onClick={() => routeFilters(category, '')}>{t('study.allSemesters', 'Tous les semestres')}</button>{[[1, 2], [3, 4], [5, 6]].map((group, index) => <div className="study-semester-group" data-study-year={index + 1} key={index}><span>{t('study.year', 'Année')} {index + 1}</span><div>{group.map(s => <button key={s} className={semester === s ? 'active' : ''} onClick={() => routeFilters(category, s)}>S{s}</button>)}</div></div>)}</section>
     <div className="study-filters"><label className="study-search-input"><Search size={16} /><input value={query} onChange={e => setQueryParam('q', e.target.value)} placeholder={t('study.findResource', 'Retrouver une ressource…')} aria-label={t('study.findResource', 'Retrouver une ressource…')} />{query && <button className="icon-button" onClick={() => setQueryParam('q', '')} aria-label={t('common.clear', 'Effacer')}><X size={14} /></button>}</label><label className="study-select-field"><Filter size={14} /><select value={moduleName} aria-label={t('study.module', 'Module')} onChange={e => routeFilters(category, semester, e.target.value)}><option value="">{t('study.allModules', 'Tous les modules')}</option>{modules.map(m => <option key={m} value={m}>{m}</option>)}</select></label><label className="study-select-field"><select value={sort} aria-label={t('study.sort', 'Trier')} onChange={e => setQueryParam('sort', e.target.value)}><option value="newest">{t('study.newest', 'Plus récents')}</option><option value="oldest">{t('study.oldest', 'Plus anciens')}</option><option value="popular">{t('study.mostDownloaded', 'Plus téléchargés')}</option></select></label></div>
     <div className="study-results-meta"><span>{filtered.length} {t('study.resourcesFound', 'ressources trouvées')}{semester ? ` · S${semester}` : ''}{moduleName ? ` · ${moduleName}` : ''}</span>{(query || moduleName || semester) && <button className="subtle-link" onClick={() => navigate(`/app/resources${category ? `/${category}` : ''}`)}>{t('study.resetFilters', 'Réinitialiser les filtres')}<X size={12} /></button>}</div>
-    {filtered.length ? <>{grouped.map(group => <section className="study-resource-section" data-study-year={Math.ceil(group.id / 2)} key={group.id}><SectionHeader title={`${t('study.semester', 'Semestre')} ${group.id}`} description={!semester ? `${group.resources.length} ${t('study.documents', 'documents')}` : moduleName || t('study.semesterOrganized', 'Vos documents, organisés par module')} to={!semester ? category ? `/app/resources/${category}/s${group.id}` : `/app/resources?semester=${group.id}` : undefined} />{semester && !moduleName ? [...new Set(group.resources.map(r => r.module || ''))].map(module => <div className="study-module-group" key={module}><div className="study-module-heading"><BookOpen size={14} /><h3>{module || t('study.otherDocuments', 'Autres documents')}</h3></div><div className="study-resource-grid">{group.resources.filter(r => (r.module || '') === module).map(r => <div className={`study-library-resource category-${r.category} ${target === `resource-${r.id}` ? 'study-resource-focus' : ''}`} key={r.id}><ResourceCard resource={r} /></div>)}</div></div>) : <div className="study-resource-grid">{group.resources.map(r => <div className={`study-library-resource category-${r.category} ${target === `resource-${r.id}` ? 'study-resource-focus' : ''}`} key={r.id}><ResourceCard resource={r} /></div>)}</div>}</section>)}{general.length > 0 && <section className="study-resource-section"><SectionHeader title={t('study.generalDocuments', 'Documents généraux')} /><div className="study-resource-grid">{general.map(r => <div className={`study-library-resource category-${r.category} ${target === `resource-${r.id}` ? 'study-resource-focus' : ''}`} key={r.id}><ResourceCard resource={r} /></div>)}</div></section>}</> : <EmptyState icon={BookOpen} title={semester ? `${t('study.noResourcesSemester', 'Aucune ressource disponible pour')} S${semester}.` : t('study.noResourceMatch', 'Aucune ressource ne correspond à votre recherche')} description={t('study.resourceEmptyHint', 'Essayez un autre filtre ou partagez le premier document.')} action={<button className="btn gold-btn" onClick={() => openModal('upload', { category: category || 'courses', semester: semester || 1 })}>{t('study.shareResource', 'Partager une ressource')}</button>} />}
+    {filtered.length ? <>{grouped.map(group => <section className="study-resource-section" data-study-year={Math.ceil(group.id / 2)} key={group.id}><SectionHeader title={`${t('study.semester', 'Semestre')} ${group.id}`} description={!semester ? `${group.resources.length} ${t('study.documents', 'documents')}` : moduleName || t('study.semesterOrganized', 'Vos documents, organisés par module et type')} to={!semester ? category ? `/app/resources/${category}/s${group.id}` : `/app/resources?semester=${group.id}` : undefined} />{renderResourceGroups(group.resources)}</section>)}{general.length > 0 && <section className="study-resource-section"><SectionHeader title={t('study.generalDocuments', 'Documents généraux')} />{renderResourceGroups(general)}</section>}</> : <EmptyState icon={BookOpen} title={semester ? `${t('study.noResourcesSemester', 'Aucune ressource disponible pour')} S${semester}.` : t('study.noResourceMatch', 'Aucune ressource ne correspond à votre recherche')} description={t('study.resourceEmptyHint', 'Essayez un autre filtre ou partagez le premier document.')} action={<button className="btn gold-btn" onClick={() => openModal('upload', { category: category || 'courses', semester: semester || 1 })}>{t('study.shareResource', 'Partager une ressource')}</button>} />}
     {moduleName && <section className="study-related"><BookOpen size={19} /><div><h3>{t('study.continueModule', 'Approfondir ce module')}</h3><p>{moduleName} · S{semester}</p></div>{categories.filter(c => c !== category && resources.some(r => r.category === c && Number(r.semester) === semester && r.module === moduleName)).map(c => <Link className="btn btn-secondary" key={c} to={`/app/resources/${c}/s${semester}/${slug(moduleName)}`}>{label(t, c)}<ArrowUpRight size={13} /></Link>)}</section>}
   </div>;
 }
