@@ -147,6 +147,7 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
   async function canReadItem(table,item,user) {
     if(table==='messages')return canReadMessage(item,user);
     if(table==='announcements')return (await canReadAnnouncement(item,user));
+    if(table==='resources')return item&&!item.removed&&item.faculty_id===user.faculty_id&&!!user.filiere_id&&item.filiere_id===user.filiere_id;
     return item&&!item.removed&&item.faculty_id===user.faculty_id;
   }
   async function canReadNotification(item,user) {
@@ -392,12 +393,12 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
     const [channels,messageRows,resourceRows,announcementRows,notificationRows,eventRows,savedRows,history]=await Promise.all([
       db.prepare('SELECT * FROM channels WHERE faculty_id=?').all(faculty.id),
       db.prepare('SELECT * FROM messages WHERE faculty_id=? AND removed=0 ORDER BY created_at,id').all(faculty.id),
-      db.prepare('SELECT * FROM resources WHERE faculty_id=? AND removed=0 ORDER BY created_at DESC,id DESC').all(faculty.id),
+      req.user.filiere_id ? db.prepare('SELECT * FROM resources WHERE faculty_id=? AND filiere_id=? AND removed=0 ORDER BY created_at DESC,id DESC').all(faculty.id,req.user.filiere_id) : [],
       db.prepare('SELECT * FROM announcements WHERE faculty_id=? ORDER BY created_at DESC,id DESC').all(faculty.id),
       db.prepare('SELECT id,type,title,body,path,created_at,read FROM notifications WHERE user_id=? AND faculty_id=? ORDER BY created_at DESC,id DESC LIMIT 200').all(req.user.id,faculty.id),
       db.prepare('SELECT id,title,date,time,type FROM events WHERE faculty_id=? ORDER BY date,time').all(faculty.id),
       db.prepare('SELECT type,target_id AS id FROM saved WHERE user_id=?').all(req.user.id),
-      db.prepare('SELECT h.resource_id,h.opened_at FROM history h JOIN resources r ON r.id=h.resource_id WHERE h.user_id=? AND r.faculty_id=? AND r.removed=0 ORDER BY h.opened_at DESC LIMIT 20').all(req.user.id,faculty.id),
+      req.user.filiere_id ? db.prepare('SELECT h.resource_id,h.opened_at FROM history h JOIN resources r ON r.id=h.resource_id WHERE h.user_id=? AND r.faculty_id=? AND r.filiere_id=? AND r.removed=0 ORDER BY h.opened_at DESC LIMIT 20').all(req.user.id,faculty.id,req.user.filiere_id) : [],
     ]);
     const [messages,resources,announcements,notifications,saved]=await Promise.all([
       messagesFor(messageRows.filter(m=>canReadMessage(m,req.user)),req.user.id),
@@ -543,7 +544,7 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
     const content = string(req.body.content || `Je partage « ${title} ».`,'Message',8000);
     const mime = detectFile(req.file.buffer,filename);
     const hash = digest(req.file.buffer);
-    const duplicate = (await db.prepare('SELECT * FROM resources WHERE faculty_id=? AND sha256=? AND removed=0').get(req.user.faculty_id,hash));
+    const duplicate = (await db.prepare('SELECT * FROM resources WHERE faculty_id=? AND filiere_id=? AND sha256=? AND removed=0').get(req.user.faculty_id,filiere,hash));
     if (duplicate) return res.status(409).json({error:'Un fichier identique existe déjà dans les ressources de votre faculté.',resource:(await resource(duplicate,req.user))});
     const reply = req.body.reply_to ? (await scoped('messages',req.body.reply_to,req)) : null;
     if (reply && reply.channel!==channel) throw problem(400,'La réponse doit rester dans la discussion d’origine.');
@@ -559,13 +560,13 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
         const messageId = Number((await db.prepare('INSERT INTO messages (faculty_id,channel,content,author_id,created_at,reply_to,filiere_id,semester) VALUES (?,?,?,?,?,?,?,?)').run(req.user.faculty_id,channel,content,req.user.id,created,reply?.id||null,scope.filiere_id,scope.semester)).lastInsertRowid);
         id = Number((await db.prepare('INSERT INTO resources (faculty_id,title,filename,object_key,sha256,category,semester,module,module_id,author_id,created_at,size,mime,message_id,channel,filiere_id,resource_type,relative_path) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)').run(req.user.faculty_id,title,filename,objectKey,hash,category,semester,module,selectedModule,req.user.id,created,req.file.size,mime,messageId,channel,filiere,resourceType,relativePath)).lastInsertRowid);
         (await db.prepare('UPDATE messages SET resource_id=? WHERE id=?').run(id,messageId));
-        if (category!=='general') (await notify(req.user.faculty_id,'resources','Nouvelle ressource',`${title}${semester ? ` · S${semester}` : ''}`,resourcePath({id,category,semester,module}),req.user.id));
+        if (category!=='general') (await notify(req.user.faculty_id,'resources','Nouvelle ressource',`${title}${semester ? ` · S${semester}` : ''}`,resourcePath({id,category,semester,module}),req.user.id,filiere));
         if (channel==='important') (await notify(req.user.faculty_id,'important','Nouvelle discussion importante',content,`/app/chat/important#message-${messageId}`,req.user.id));
       }));
     } catch(e) {
       if(uploaded)try {await storage.delete(objectKey);}catch {console.error('[CampusLink storage] Upload cleanup failed.');}
       if(e.code==='23505') {
-        const concurrent=await db.prepare('SELECT * FROM resources WHERE faculty_id=? AND sha256=? AND removed=0').get(req.user.faculty_id,hash);
+        const concurrent=await db.prepare('SELECT * FROM resources WHERE faculty_id=? AND filiere_id=? AND sha256=? AND removed=0').get(req.user.faculty_id,filiere,hash);
         if(concurrent)return res.status(409).json({error:'Un fichier identique existe déjà dans les ressources de votre faculté.',resource:await resource(concurrent,req.user)});
       }
       throw e;
@@ -717,7 +718,7 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
     const results=[];
     const matches=(text)=>!q||text.toLocaleLowerCase().includes(q);
     const baseMatches=async (row)=>{const a=(await author(row.author_id||row.id));return (!authorFilter||String(a.id)===authorFilter||a.username===authorFilter)&&(!date||String(row.created_at||'').startsWith(date));};
-    if(!type||type==='resource'||CATEGORIES.includes(type))for(const r of (await db.prepare('SELECT * FROM resources WHERE faculty_id=? AND removed=0 ORDER BY created_at DESC').all(req.user.faculty_id))){
+    if(!type||type==='resource'||CATEGORIES.includes(type))for(const r of (req.user.filiere_id ? await db.prepare('SELECT * FROM resources WHERE faculty_id=? AND filiere_id=? AND removed=0 ORDER BY created_at DESC').all(req.user.faculty_id,req.user.filiere_id) : [])){
       if(type&&type!=='resource'&&r.category!==type)continue;
       if(semester&&r.semester!==semester||module&&r.module.toLocaleLowerCase()!==module||!await baseMatches(r)||!matches(`${r.title} ${r.filename} ${r.module}`))continue;
       results.push({id:r.id,type:r.category,title:r.title,context:`${r.filename} · ${r.module}${r.semester?` · S${r.semester}`:''}`,path:resourcePath(r),author:(await author(r.author_id)),semester:r.semester,module:r.module,date:r.created_at});
@@ -901,7 +902,7 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
     const filename=basename(req.file.originalname).replace(/[\u0000-\u001f]/g,'').slice(0,180);
     const mime=detectFile(req.file.buffer,filename),hash=digest(req.file.buffer);
     if(hash===r.sha256)throw problem(409,'Le fichier est identique à la version actuelle.');
-    const duplicate=(await db.prepare('SELECT * FROM resources WHERE faculty_id=? AND sha256=? AND removed=0 AND id<>?').get(r.faculty_id,hash,r.id));
+    const duplicate=(await db.prepare('SELECT * FROM resources WHERE faculty_id=? AND filiere_id=? AND sha256=? AND removed=0 AND id<>?').get(r.faculty_id,r.filiere_id,hash,r.id));
     if(duplicate)return res.status(409).json({error:'Ce fichier existe déjà dans votre faculté.',resource:(await resource(duplicate))});
     let objectKey,uploaded=false;
     try{await transaction(async()=>{
