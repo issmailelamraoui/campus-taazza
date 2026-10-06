@@ -553,3 +553,95 @@
   .study-members .study-member-card { padding: 18px; }
   .study-member-identity { gap: 12px; }
 }
+
+
+/* Compact academic library cards and type shelves. */
+.study-library .study-resource-grid {
+  grid-template-columns: repeat(auto-fill, minmax(205px, 1fr));
+  gap: 10px;
+}
+.study-library .resource-preview {
+  height: 96px;
+  padding: 8px 24px 0;
+}
+.study-library .paper-preview {
+  transform: scale(.72);
+  transform-origin: bottom center;
+}
+.study-library .resource-body {
+  padding: 12px;
+}
+.study-library .resource-title {
+  font-size: 14px;
+  line-height: 1.45;
+}
+.study-library .resource-meta,
+.study-library .resource-author,
+.study-library .resource-card-bottom,
+.study-library .resource-actions .subtle-link {
+  font-size: 12px;
+}
+.study-library .resource-card-bottom {
+  margin-top: 9px;
+  padding-top: 8px;
+  gap: 8px;
+}
+.study-library .resource-actions {
+  padding-top: 9px;
+}
+.study-library .resource-actions > .subtle-link {
+  min-height: 31px;
+  padding: 4px 7px;
+}
+.study-library .save-button {
+  width: 32px;
+  height: 32px;
+}
+.study-library .study-module-group {
+  margin-bottom: 22px;
+}
+.study-library .study-module-heading > span,
+.study-library .study-resource-type-heading > span {
+  margin-inline-start: auto;
+  min-width: 24px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: var(--panel-2);
+  color: var(--muted);
+  font-size: 12px;
+  text-align: center;
+}
+.study-resource-type-groups {
+  display: grid;
+  gap: 14px;
+}
+.study-resource-type-group {
+  min-width: 0;
+  padding: 11px;
+  border: 1px solid color-mix(in srgb, var(--library-accent, var(--primary)) 20%, var(--border));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--library-accent, var(--primary)) 3%, var(--panel));
+}
+.study-resource-type-heading {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 9px;
+  color: var(--text);
+}
+.study-resource-type-heading strong {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+@container study-library (max-width: 620px) {
+  .study-library .study-resource-grid {
+    grid-template-columns: 1fr;
+  }
+  .study-library .resource-preview {
+    height: 82px;
+  }
+  .study-library .paper-preview {
+    transform: scale(.62);
+  }
+}
