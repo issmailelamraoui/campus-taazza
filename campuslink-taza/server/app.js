@@ -155,6 +155,8 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
     if(linkedAnnouncement)return (await canReadAnnouncement((await db.prepare('SELECT * FROM announcements WHERE id=?').get(Number(linkedAnnouncement[1]))),user));
     const linkedMessage=String(item.path).match(/#message-(\d+)/);
     if(linkedMessage)return canReadMessage((await db.prepare('SELECT * FROM messages WHERE id=?').get(Number(linkedMessage[1]))),user);
+    const linkedResource=String(item.path).match(/#resource-(\d+)/);
+    if(linkedResource)return canReadItem('resources',await db.prepare('SELECT * FROM resources WHERE id=?').get(Number(linkedResource[1])),user);
     return true;
   }
   async function scoped(table, id, req, moderation=false) {
@@ -382,6 +384,7 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
   app.get('/api/modules',requireFaculty,async (req,res)=>{
     const filiere=String(req.query.filiere_id||req.user.filiere_id||'');
     if(!filiereBelongsToFaculty(req.user.faculty_id,filiere))throw problem(400,'Choisissez une filière de votre faculté.');
+    if(req.user.role==='student'&&filiere!==req.user.filiere_id)throw problem(403,'Cette bibliothèque appartient à une autre filière.');
     const semester=semesterValue(req.query.semester);
     res.json({modules:await db.prepare('SELECT id,name,filiere_id,semester FROM modules WHERE faculty_id=? AND filiere_id=? AND semester=? ORDER BY name').all(req.user.faculty_id,filiere,semester)});
   });
@@ -534,6 +537,7 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
     (await checkChannelWrite(req,channel));
     const filiere=string(req.body.filiere_id,'Filière',80);
     if(!filiereBelongsToFaculty(req.user.faculty_id,filiere))throw problem(400,'Choisissez une filière de votre faculté.');
+    if(req.user.role==='student'&&filiere!==req.user.filiere_id)throw problem(403,'Vous pouvez publier uniquement dans la bibliothèque de votre filière.');
     const semester = semesterValue(req.body.semester);
     const scope=chatScope(req,channel,'chat_semester');
     const resourceType=string(req.body.resource_type,'Type de ressource',40).toLowerCase();
