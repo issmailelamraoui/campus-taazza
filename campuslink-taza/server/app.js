@@ -8,6 +8,7 @@ import { openDatabase, digest } from './db.js';
 import { seedDatabase } from './seed.js';
 import { createAuthService } from './auth.js';
 import { createStorage, resourceObjectKey } from './storage.js';
+import { uploadFilePath } from './upload-path.js';
 import { slug } from '../shared/paths.js';
 import { getFilieres, filiereBelongsToFaculty, getChatSemester, getChatSemesterLabel } from '../shared/studies.js';
 
@@ -536,7 +537,7 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
     const scope=chatScope(req,channel,'chat_semester');
     const resourceType=string(req.body.resource_type,'Type de ressource',40).toLowerCase();
     if(!RESOURCE_TYPES.includes(resourceType))throw problem(400,'Choisissez un type de ressource.');
-    const filename = basename(req.file.originalname).replace(/[\u0000-\u001f]/g,'').slice(0,180);
+    const {filename,relativePath}=uploadFilePath(req.file.originalname,req.body.relative_path);
     const title = string(req.body.title,'Titre',180);
     const module = string(req.body.module,'Module',120);
     const content = string(req.body.content || `Je partage « ${title} ».`,'Message',8000);
@@ -556,7 +557,7 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
         await storage.put(objectKey,req.file.buffer,mime);
         const created = now();
         const messageId = Number((await db.prepare('INSERT INTO messages (faculty_id,channel,content,author_id,created_at,reply_to,filiere_id,semester) VALUES (?,?,?,?,?,?,?,?)').run(req.user.faculty_id,channel,content,req.user.id,created,reply?.id||null,scope.filiere_id,scope.semester)).lastInsertRowid);
-        id = Number((await db.prepare('INSERT INTO resources (faculty_id,title,filename,object_key,sha256,category,semester,module,module_id,author_id,created_at,size,mime,message_id,channel,filiere_id,resource_type) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)').run(req.user.faculty_id,title,filename,objectKey,hash,category,semester,module,selectedModule,req.user.id,created,req.file.size,mime,messageId,channel,filiere,resourceType)).lastInsertRowid);
+        id = Number((await db.prepare('INSERT INTO resources (faculty_id,title,filename,object_key,sha256,category,semester,module,module_id,author_id,created_at,size,mime,message_id,channel,filiere_id,resource_type,relative_path) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)').run(req.user.faculty_id,title,filename,objectKey,hash,category,semester,module,selectedModule,req.user.id,created,req.file.size,mime,messageId,channel,filiere,resourceType,relativePath)).lastInsertRowid);
         (await db.prepare('UPDATE messages SET resource_id=? WHERE id=?').run(id,messageId));
         if (category!=='general') (await notify(req.user.faculty_id,'resources','Nouvelle ressource',`${title}${semester ? ` · S${semester}` : ''}`,resourcePath({id,category,semester,module}),req.user.id));
         if (channel==='important') (await notify(req.user.faculty_id,'important','Nouvelle discussion importante',content,`/app/chat/important#message-${messageId}`,req.user.id));

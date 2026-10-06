@@ -38,6 +38,8 @@ The global administrator reviews `GET /api/admin/registrations` through `PATCH /
 
 Uploads require Filière, semester, module, type, title and file; faculty comes only from the account. The server validates the faculty/Filière mapping, semester1–6, nonempty module, supported content type, file signature and 20 MB limit. SHA-256 identifies duplicate faculty resources.
 
+`POST /api/uploads` accepts optional `relative_path` metadata for folder selections. The client submits one document per request, at most two concurrently. Paths preserve the root and nested folders, must be relative and match the supplied filename, and cannot contain traversal or control characters. Migration 007 gives previous resources an empty path. Paths appear in safe resource DTOs, library cards and previews; R2 keys remain private server-generated UUIDs. Omitting this field retains ordinary upload behavior.
+
 Private R2 holds all new upload/replacement/avatar bytes. PostgreSQL holds metadata, UUID object keys, module references and version history. Existing local resource files are transferred only by the explicit importer, preserving their original names as metadata.
 
 Protected `/api/files/:id` previews/downloads enforce the current faculty resource permission before R2 retrieval. Source-chat access remains separately restricted to the account's major. The server supports safe byte ranges and private cache headers; no permanent public object URL or storage key appears in DTOs. New avatars stream through protected `/api/avatars/:id`.

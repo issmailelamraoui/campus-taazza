@@ -26,6 +26,8 @@ The versioned SQL migration [001_application_schema.sql](server/migrations/001_a
 
 There is no application sessions table and no active local password verifier. Imported legacy password hashes are inactive archival fields and are removed on identity linking. Resources retain existing field names: `author_id` is the owner, `filename` is the original filename, `mime` is the MIME type and `size` is byte size. New resources reference a persisted `module_id`.
 
+Migration 007 adds `resources.relative_path` with an empty default for existing and ordinary single-file uploads. Folder uploads preserve their selected root and nested folders as optional display metadata. The server validates relative slash-separated paths and their filename match, including Unicode multipart filenames. This metadata never supplies a filesystem path or R2 object key.
+
 ## Identity and authorization
 
 [server/auth.js](server/auth.js) calls the configured Neon Auth Better Auth REST service. Login submits email/password to that provider; a username first resolves its linked email from PostgreSQL. The backend verifies the remote session and JWKS-signed JWT subject, issuer, audience and expiry. Provider claims never assign application roles.
@@ -87,6 +89,8 @@ The PostgreSQL pool handles idle-client error events with a fixed sanitized log 
 Private message permissions apply to direct reads, replies, reactions, saves, reports, pins, search, linked announcements, notification filtering and SSE. The existing faculty-wide library is preserved; source discussion IDs are omitted for an inaccessible private chat.
 
 ## Private storage and consistency
+
+The upload modal selects folders recursively with `webkitdirectory`, with ordinary multiple-file selection available as a mobile fallback. A client queue sends two individual `/api/uploads` requests at a time using one shared academic classification and a title per file. It flags unsupported, empty and oversized files independently, retains successful/duplicate results, and retries only failures. Folder batches keep their summary open; ordinary single-file completion retains its existing navigation. Closing the modal and opening result links are blocked while requests are active. Private storage, file-signature validation, faculty permissions, paired-major chat scope and hash deduplication are unchanged.
 
 [server/storage.js](server/storage.js) uses only explicit `R2_*` configuration with the minimal S3 SDK. New resource keys contain major/semester/module/UUID. Legacy unclassified files and replacements retain classification and use safe UUID legacy/version prefixes. Original names are never object identifiers.
 

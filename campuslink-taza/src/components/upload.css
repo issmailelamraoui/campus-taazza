@@ -1,0 +1,44 @@
+.modal-upload .modal-close.icon-button { display: inline-flex; width: 40px; height: 40px; }
+.modal-upload:has(.upload-batch) { width: 660px; }
+.modal-upload:has(form[aria-busy="true"]) .modal-close { visibility: hidden; }
+.upload-classification-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0 12px; }
+.upload-classification-grid .upload-wide { grid-column: 1 / -1; }
+.upload-classification-grid .field { min-width: 0; }
+.upload-pickers { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
+.upload-pickers .btn { min-width: 0; white-space: normal; min-height: 46px; line-height: 1.4; padding: 9px 12px; font-size: 14px; }
+.upload-pickers svg { flex-shrink: 0; }
+.upload-folder-picker { border-color: var(--primary-dim); background: color-mix(in srgb, var(--primary) 7%, var(--panel)); }
+.upload-picker-hint { margin: 10px 0 16px; color: var(--muted); font-size: 14px; line-height: 1.65; }
+.upload-batch { margin-block: 14px; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; background: var(--panel); }
+.upload-batch-heading { display: flex; align-items: center; gap: 9px; padding: 14px; background: color-mix(in srgb, var(--primary) 8%, var(--panel)); }
+.upload-batch-heading svg { flex-shrink: 0; color: var(--primary); }
+.upload-batch-heading strong { min-width: 0; flex: 1; overflow-wrap: anywhere; font-size: 16px; }
+.upload-batch-heading > span { color: var(--muted); font-size: 14px; white-space: nowrap; }
+.upload-batch-summary { display: flex; flex-wrap: wrap; gap: 6px 14px; padding: 12px 14px; color: var(--muted); font-size: 14px; }
+.upload-batch-progress { display: block; width: calc(100% - 28px); height: 8px; margin: 0 14px 14px; accent-color: var(--primary); }
+.upload-batch-list { max-height: 360px; overflow-y: auto; overscroll-behavior: contain; padding: 0 12px 12px; }
+.upload-batch-row { padding: 13px; margin-top: 10px; background: var(--panel-2); border: 1px solid var(--border); border-inline-start: 3px solid var(--primary-dim); border-radius: 8px; min-width: 0; }
+.upload-batch-row[data-status="uploaded"], .upload-batch-row[data-status="duplicate"] { border-inline-start-color: #49a775; }
+.upload-batch-row[data-status="error"], .upload-batch-row[data-status="skipped"] { border-inline-start-color: #cf795d; }
+.upload-file-heading { display: flex; align-items: flex-start; gap: 9px; }
+.upload-file-heading > svg { flex-shrink: 0; margin-top: 2px; color: var(--primary); }
+.upload-file-path { min-width: 0; flex: 1; overflow-wrap: anywhere; font-size: 14px; line-height: 1.6; color: var(--text); }
+.upload-remove { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; width: 40px; height: 40px; border: 1px solid var(--border); border-radius: 6px; color: var(--muted); background: var(--panel); cursor: pointer; }
+.upload-remove:hover { color: var(--text); border-color: var(--primary-dim); }
+.upload-file-details { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 6px; margin: 7px 0 10px; color: var(--muted); font-size: 14px; line-height: 1.5; }
+.upload-file-status { color: var(--primary); }
+.upload-file-title { display: grid; gap: 6px; color: var(--muted); font-size: 14px; }
+.upload-batch-row input { width: 100%; min-width: 0; min-height: 44px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel); font-size: 16px; color: var(--text); }
+.upload-batch-row input:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.upload-file-error { margin-top: 8px; color: var(--rose); font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; }
+.upload-result-link { display: inline-flex; gap: 6px; align-items: center; margin-top: 10px; color: var(--primary); font-size: 14px; }
+.upload-done { margin-top: 10px; }
+.resource-folder-path { display: flex; align-items: flex-start; gap: 7px; min-width: 0; margin-block: 9px; color: var(--muted); font-size: 14px; line-height: 1.6; }
+.resource-folder-path svg { flex-shrink: 0; margin-top: 3px; }
+.resource-folder-path span { min-width: 0; overflow-wrap: anywhere; }
+@media (max-width: 480px) {
+  .upload-pickers { gap: 7px; }
+  .upload-pickers .btn { padding: 9px 7px; }
+  .upload-batch-list { padding-inline: 8px; max-height: 310px; }
+  .upload-batch-row { padding: 10px; }
+}
