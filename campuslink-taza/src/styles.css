@@ -5242,3 +5242,79 @@ body{line-height:1.6}
 .upload-study-form select{min-width:0;max-width:100%;text-overflow:ellipsis}
 .upload-study-form .selected-file{margin-bottom:0}
 .preview-study-meta{overflow-wrap:anywhere}
+
+
+/* PDF preview controls */
+.modal-preview > .modal-close {
+  width: 38px;
+  height: 38px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--panel);
+  color: var(--text);
+  box-shadow: 0 5px 18px #201b151c;
+}
+.modal-preview > .modal-close:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+.document-preview {
+  position: relative;
+}
+.preview-fullscreen-button {
+  position: absolute;
+  inset-block-start: 10px;
+  inset-inline-end: 10px;
+  z-index: 3;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 36px;
+  padding: 7px 10px;
+  border: 1px solid color-mix(in srgb, var(--border) 85%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--panel) 92%, transparent);
+  color: var(--text);
+  box-shadow: 0 5px 18px #0000001f;
+  backdrop-filter: blur(8px);
+  font-size: 13px;
+  font-weight: 600;
+}
+.preview-fullscreen-button:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+.document-preview:fullscreen,
+.document-preview.is-fullscreen {
+  width: 100vw;
+  height: 100vh;
+  max-height: none;
+  border: 0;
+  border-radius: 0;
+  background: #111;
+}
+.document-preview:fullscreen iframe,
+.document-preview.is-fullscreen iframe {
+  width: 100%;
+  height: 100%;
+}
+.preview-close-action {
+  margin-inline-start: auto;
+}
+.preview-actions > .icon-button {
+  margin-inline-start: 0;
+}
+
+@media (max-width: 600px) {
+  .preview-fullscreen-button span {
+    display: none;
+  }
+  .preview-fullscreen-button {
+    width: 38px;
+    justify-content: center;
+    padding: 7px;
+  }
+  .preview-close-action {
+    margin-inline-start: 0;
+  }
+}
