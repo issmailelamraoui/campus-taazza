@@ -11,7 +11,8 @@ import './upload.css';
 export function UploadClassificationModal({ payload }) {
   const { t, lang, user, data, toast, refresh, closeModal } = useApp();
   const navigate = useNavigate();
-  const filieres = data?.filieres || getFilieres(user?.faculty_id);
+  const facultyFilieres = data?.filieres || getFilieres(user?.faculty_id);
+  const filieres = user?.role === 'student' ? facultyFilieres.filter(item => item.id === user?.filiere_id) : facultyFilieres;
   const [entries, setEntries] = useState(() => prepareUploadFiles(payload.file ? [payload.file] : []));
   const [batch, setBatch] = useState(false), [attempted, setAttempted] = useState(false);
   const [filiere, setFiliere] = useState(user?.filiere_id || '');
