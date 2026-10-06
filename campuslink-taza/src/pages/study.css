@@ -25,7 +25,7 @@
 .study-stat > svg { color: var(--text); }
 .study-stat strong { font-size: 22px; font-weight: 500; color: var(--text); }
 .study-stat span { grid-column: 2; font-size: 14px; color: var(--muted); margin-top: 2px; }
-.study-section {padding: 30px; border: 1px solid rgba(255, 255, 255, 0.17); border-radius: 15px; margin-top: 27px; min-width: 0;}
+.study-section {padding: 30px; border: 1px solid rgba(255, 255, 255, 0.17); border-radius: 15px; margin-top: 27px; min-width: 0;background: #ffffff0a;}
 .study-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 13px; }
 .study-section-heading h2 { display: flex; align-items: center; gap: 8px; font-size: 18px; font-weight: 500; line-height: 1.4; }
 .study-section-heading h2 > svg { color: var(--text); }
@@ -35,7 +35,7 @@
 .study-page .subtle-link:hover { color: var(--text); }
 .study-category-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 9px; }
 .study-category-card { min-width: 0; border: 1px solid var(--border); border-radius: 7px; background: rgba(0, 0, 0, 0.111); padding: 15px 11px; display: flex; align-items: center; gap: 9px; text-decoration: none; transition: border-color .16s, background .16s; }
-.study-category-card:hover { border-color: var(--border-accent); background: var(--panel); }
+.study-category-card:hover { border-color: var(--border-accent); background: #202020; }
 .study-category-card > svg:first-child { flex-shrink: 0; }
 .study-category-card > .category-icon { width: 33px; height: 35px; flex-shrink: 0; }
 .study-category-card h3 { font-size: 15px; line-height: 1.4; font-weight: 500; }
@@ -380,7 +380,7 @@
 
 @media (max-width: 1050px) {
   .study-home-columns, .study-calendar-layout { grid-template-columns: 1fr; }
-  .study-home-columns > section + section { border-inline-start: 0; padding-inline-start: 0; }
+  .study-home-columns > section + section { border-inline-start: 0; padding-inline-start: 30px; }
   .study-about-values { grid-template-columns: 1fr; }
   .study-settings-fields { grid-template-columns: 1fr; }
   .study-password-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
