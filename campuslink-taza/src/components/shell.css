@@ -247,3 +247,160 @@
 @media (prefers-reduced-motion: reduce) {
   .app-shell.responsive-shell .app-columns .drawer-open { animation: none; }
 }
+
+
+/* Faculty sidebar tuned to the attached reference. Frontend-only. */
+.app-shell.responsive-shell.navigation-expanded .navigation-columns {
+  grid-template-columns: 190px 230px;
+}
+
+.app-shell.responsive-shell .faculty-sidebar,
+:root[data-theme="dark"] .app-shell.responsive-shell .faculty-sidebar {
+  padding: 20px 15px 18px;
+  background: #232323;
+  border-inline-end: 1px solid #343235;
+  color: #d7d3cc;
+  scrollbar-color: #4a4849 transparent;
+}
+
+.app-shell.responsive-shell .faculty-sidebar-heading {
+  margin-bottom: 14px;
+  padding-inline: 6px;
+}
+
+.app-shell.responsive-shell .faculty-sidebar .section-label {
+  color: #a9c9f2;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: .11em;
+}
+
+.app-shell.responsive-shell .selected-faculty {
+  padding: 14px 12px 13px;
+  border: 1px solid #4a4334;
+  border-radius: 8px;
+  background: #171712;
+  box-shadow: none;
+}
+
+.app-shell.responsive-shell .faculty-emblem {
+  width: 40px;
+  height: 40px;
+  margin-bottom: 12px;
+  border: 1px solid #343b48;
+  border-radius: 7px;
+  background: #181a20;
+  color: #8db9ea;
+}
+
+.app-shell.responsive-shell .selected-faculty > b {
+  color: #f0ece5;
+  font-size: 21px;
+  line-height: 1.25;
+  font-weight: 600;
+}
+
+.app-shell.responsive-shell .selected-faculty > small {
+  margin-top: 9px;
+  color: #a8a39c;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.app-shell.responsive-shell .selected-faculty .faculty-code {
+  margin-top: 10px;
+  padding-top: 9px;
+  border-top: 1px solid #39352d;
+  color: #9fc4ed;
+  font-size: 12px;
+}
+
+.app-shell.responsive-shell .channel-group {
+  margin-top: 21px;
+}
+
+.app-shell.responsive-shell .channel-group > .section-label {
+  margin: 0 6px 8px;
+}
+
+.app-shell.responsive-shell .faculty-sidebar .channel-link {
+  min-height: 42px;
+  padding: 9px 10px;
+  gap: 10px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  color: #c5c1ba;
+  font-size: 14px;
+  line-height: 1.35;
+}
+
+.app-shell.responsive-shell .faculty-sidebar .channel-link:hover {
+  background: #29292a;
+  color: #f0ede7;
+}
+
+.app-shell.responsive-shell .faculty-sidebar .channel-link.active {
+  background: #232833;
+  border-color: #343b48;
+  color: #a9c9f2;
+}
+
+.app-shell.responsive-shell .faculty-sidebar .channel-link.active svg {
+  color: #8db9ea;
+}
+
+.app-shell.responsive-shell .faculty-sidebar .channel-link > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-shell.responsive-shell .semester-chips {
+  margin: 9px 6px 0;
+  border-color: #3a393b;
+  border-radius: 5px;
+  background: #1a1a1b;
+}
+
+.app-shell.responsive-shell .semester-chips > a {
+  min-width: 0;
+  min-height: 34px;
+  padding: 7px 2px;
+  color: #aaa69f;
+  border-color: #343235;
+  font-size: 12px;
+}
+
+.app-shell.responsive-shell .semester-chips > a:hover {
+  background: #25282d;
+  color: #a9c9f2;
+}
+
+.app-shell.responsive-shell .other-links {
+  margin-top: 17px;
+  padding-top: 12px;
+  border-color: #343235;
+}
+
+.app-shell.responsive-shell .faculty-lock {
+  margin-top: 18px;
+  padding: 12px 6px 0;
+  border-top: 1px solid #343235;
+  color: #8db9ea;
+}
+
+.app-shell.responsive-shell .faculty-lock p {
+  color: #d0ccc5;
+  font-size: 12px;
+}
+
+.app-shell.responsive-shell .faculty-lock small {
+  color: #918d87;
+  font-size: 11px;
+}
+
+/* Keep the mobile drawer readable with the same sidebar identity. */
+.app-shell.responsive-shell .navigation-columns.drawer-open .faculty-sidebar {
+  background: #232323;
+}
