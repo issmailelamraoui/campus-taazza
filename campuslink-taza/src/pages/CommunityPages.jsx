@@ -65,6 +65,13 @@ export function ChatMessage({message:m,groupedWithPrevious=false,groupedWithNext
       <div className={`message-meta ${groupedWithPrevious?'message-meta-grouped':''}`}>
         {!groupedWithPrevious&&<><b>{m.author.name||m.author.username}</b><span className="message-timestamp"><span className="message-calendar-date">{formatDate(m.created_at,lang)} · </span><time dateTime={m.created_at} title={formatDate(m.created_at,lang,{day:'numeric',month:'long',year:'numeric',hour:'2-digit',minute:'2-digit'})}>{new Date(m.created_at).toLocaleTimeString(lang,{hour:'2-digit',minute:'2-digit',timeZone:'Africa/Casablanca'})}</time></span></>}
         {m.pinned&&<Pin size={14} className="gold"/>}
+      </div>
+      <div className="message-bubble-wrap">
+        <div className="message-bubble" onPointerDown={startLongPress} onPointerMove={moveLongPress} onPointerUp={clearLongPress} onPointerCancel={clearLongPress} onContextMenu={e=>{if(window.matchMedia?.('(hover: none) and (pointer: coarse)').matches)e.preventDefault();}}>
+          {parent&&<Link to={messagePath(parent)} className="reply-context"><CornerUpLeft size={15}/><b>{parent.author.name}</b><span>{parent.content.slice(0,80)}</span></Link>}
+          <p className="message-text" dir="auto">{m.content}</p>
+          {r&&<Attachment resource={r}/>}
+        </div>
         {!local&&<div className="message-hover-actions">
           <button type="button" className="icon-button message-reply-action" onClick={()=>{onReply?.(m);setMenu(false);}} aria-label={t('reply','Répondre')} title={t('reply','Répondre')}><Reply size={18}/></button>
           <button type="button" disabled={busy} className={'icon-button message-quick-like '+(m.my_reactions?.includes('like')?'reacted':'')} onClick={()=>react('like')} aria-label={t('like',"J'aime")}><ThumbsUp size={17} fill={m.my_reactions?.includes('like')?'currentColor':'none'}/></button>
@@ -73,7 +80,6 @@ export function ChatMessage({message:m,groupedWithPrevious=false,groupedWithNext
           {menu&&<div ref={menuRef} id={`message-menu-${m.id}`} className="message-menu panel" aria-label={t('messageActions','Actions du message')} data-side={menuPlacement.up?'up':'down'} style={{maxHeight:menuPlacement.maxHeight,maxWidth:menuPlacement.maxWidth,insetInlineEnd:'auto',left:menuPlacement.left}}>
             <button onClick={()=>{onReply?.(m);setMenu(false);}}><Reply size={16}/>{t('reply','Répondre')}</button>
             <button className="message-menu-save" disabled={busy} onClick={()=>action(()=>toggleSave('message',m.id))}><Bookmark size={16} fill={isSaved?'currentColor':'none'}/>{t('save','Enregistrer')}</button>
-            
             {privileged&&<button onClick={pin} disabled={busy}><Pin size={16}/>{t(m.pinned?'unpinFromAnnouncements':'pinToAnnouncements',m.pinned?'Retirer des annonces':'Épingler dans les annonces')}</button>}
             <button onClick={copy}><Link2 size={16}/>{t('copyLink','Copier le lien')}</button>
             <button onClick={()=>{openModal('report',{target_type:'message',target_id:m.id});setMenu(false);}}><Flag size={16}/>{t('report','Signaler')}</button>
@@ -81,18 +87,13 @@ export function ChatMessage({message:m,groupedWithPrevious=false,groupedWithNext
             {canModerate&&!own&&<button className="message-menu-danger" disabled={busy||chatBlockBusy} onClick={()=>action(()=>onChatBlock(m.author.id,!chatBlocked))}><Ban size={16}/>{t(chatBlocked?'unblockFromChat':'blockFromChat',chatBlocked?'Débloquer du chat':'Bloquer du chat')}</button>}
           </div>}
         </div>}
+        {quickActionsOpen&&!local&&<div ref={quickActionsRef} className="message-quick-reactions" role="toolbar" aria-label={t('quickReactions','Réactions rapides')}>
+          <button type="button" className={m.my_reactions?.includes('like')?'reacted':''} onClick={()=>{setQuickActionsOpen(false);react('like');}} aria-label={t('like',"J'aime")}><ThumbsUp size={19} fill={m.my_reactions?.includes('like')?'currentColor':'none'}/></button>
+          <button type="button" className={m.my_reactions?.includes('heart')?'reacted':''} onClick={()=>{setQuickActionsOpen(false);react('heart');}} aria-label={t('heart','Apprécier')}><Heart size={19} fill={m.my_reactions?.includes('heart')?'currentColor':'none'}/></button>
+          <button type="button" onClick={()=>{setQuickActionsOpen(false);onReply?.(m);}} aria-label={t('reply','Répondre')}><Reply size={19}/></button>
+          <button type="button" onClick={openMoreActions} aria-label={t('messageActions','Actions du message')}><MoreHorizontal size={20}/></button>
+        </div>}
       </div>
-      <div className="message-bubble" onPointerDown={startLongPress} onPointerMove={moveLongPress} onPointerUp={clearLongPress} onPointerCancel={clearLongPress} onContextMenu={e=>{if(window.matchMedia?.('(hover: none) and (pointer: coarse)').matches)e.preventDefault();}}>
-        {parent&&<Link to={messagePath(parent)} className="reply-context"><CornerUpLeft size={15}/><b>{parent.author.name}</b><span>{parent.content.slice(0,80)}</span></Link>}
-        <p className="message-text" dir="auto">{m.content}</p>
-        {r&&<Attachment resource={r}/>}
-      </div>
-      {quickActionsOpen&&!local&&<div ref={quickActionsRef} className="message-quick-reactions" role="toolbar" aria-label={t('quickReactions','Réactions rapides')}>
-        <button type="button" className={m.my_reactions?.includes('like')?'reacted':''} onClick={()=>{setQuickActionsOpen(false);react('like');}} aria-label={t('like',"J'aime")}><ThumbsUp size={19} fill={m.my_reactions?.includes('like')?'currentColor':'none'}/></button>
-        <button type="button" className={m.my_reactions?.includes('heart')?'reacted':''} onClick={()=>{setQuickActionsOpen(false);react('heart');}} aria-label={t('heart','Apprécier')}><Heart size={19} fill={m.my_reactions?.includes('heart')?'currentColor':'none'}/></button>
-        <button type="button" onClick={()=>{setQuickActionsOpen(false);onReply?.(m);}} aria-label={t('reply','Répondre')}><Reply size={19}/></button>
-        <button type="button" onClick={openMoreActions} aria-label={t('messageActions','Actions du message')}><MoreHorizontal size={20}/></button>
-      </div>}
       {local?<div className={`message-delivery ${m._status}`} role="status">{m._status==='pending'?<><Clock3 size={13}/><span>{t('messageSending','Envoi en cours…')}</span></>:<><AlertCircle size={14}/><span>{t('messageSendFailed','Envoi échoué')}</span><button type="button" onClick={()=>sendMessage(m).catch(error=>toast(error.message,'error'))}><RotateCcw size={13}/>{t('retry','Réessayer')}</button><button type="button" onClick={()=>discardMessage(m)} aria-label={t('discardMessage','Retirer ce message')}><X size={14}/></button></>}</div>:<>{hasVisibleReactions&&<div className="message-reactions visible-reactions">
         {visibleReactions.map(reaction=>{
           const count=m.reactions?.[reaction]||0,reacted=m.my_reactions?.includes(reaction);
