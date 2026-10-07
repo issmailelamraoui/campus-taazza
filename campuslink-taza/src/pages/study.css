@@ -725,3 +725,223 @@
   flex-shrink: 0;
   color: var(--library-accent, var(--primary));
 }
+
+
+/* Charcoal study rhythm — same structure, cleaner scale. */
+.study-page {
+  padding: 28px clamp(18px, 3vw, 34px) 38px;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.study-section {
+  margin-top: 24px;
+}
+
+.study-section-heading {
+  margin-bottom: 12px;
+  gap: 10px;
+}
+
+.study-section-heading h2,
+.study-module-heading h3 {
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 16px;
+  line-height: 1.35;
+  font-weight: 600;
+  letter-spacing: -.01em;
+}
+
+.study-section-heading p {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.study-category-grid {
+  gap: 10px;
+}
+
+.study-category-card {
+  min-height: 72px;
+  padding: 12px;
+  background: var(--panel);
+  border-color: var(--border);
+}
+
+.study-category-card:hover {
+  background: var(--panel-hover);
+  border-color: var(--border-accent);
+}
+
+.study-category-card h3 {
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.study-category-card p {
+  font-size: 12px;
+}
+
+.study-resource-tabs {
+  gap: 8px;
+}
+
+.study-library-category {
+  min-height: 42px;
+  padding: 9px 11px;
+  border-radius: 8px;
+  color: var(--muted);
+}
+
+.study-library-category.active {
+  color: var(--text);
+  background: color-mix(in srgb, var(--primary) 12%, var(--panel-2));
+  border-color: color-mix(in srgb, var(--primary) 28%, var(--border));
+}
+
+.study-semester-strip {
+  gap: 8px;
+  padding: 10px;
+  border-radius: 10px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+}
+
+.study-semester-group button,
+.study-all-semesters {
+  min-height: 36px;
+  border-radius: 7px;
+  font-size: 12px;
+}
+
+.study-semester-group button.active,
+.study-all-semesters.active {
+  background: var(--primary);
+  color: #17150e;
+}
+
+.study-resource-section {
+  padding: 16px;
+  border-radius: 12px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+}
+
+.study-module-rail {
+  gap: 9px;
+}
+
+.study-module-tile {
+  flex-basis: clamp(210px, 22vw, 275px);
+  min-height: 82px;
+  padding: 11px 12px;
+  border-radius: 10px;
+  background: var(--panel-2);
+  border-color: var(--border);
+}
+
+.study-module-tile:hover {
+  background: var(--panel-hover);
+  border-color: var(--border-accent);
+}
+
+.study-module-tile-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 10%, var(--panel));
+}
+
+.study-module-tile strong {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.study-module-tile > span:not(.study-module-tile-icon),
+.study-module-tile small {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.study-resource-type-groups {
+  gap: 11px;
+}
+
+.study-resource-type-group {
+  padding: 10px;
+  border-radius: 10px;
+  background: #1a1a1c;
+  border-color: var(--border);
+}
+
+.study-resource-type-heading {
+  margin-bottom: 8px;
+}
+
+.study-resource-type-heading strong {
+  font-size: 12px;
+}
+
+.study-library .study-resource-grid {
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 9px;
+}
+
+.study-library .resource-preview {
+  height: 84px;
+  background: var(--panel-2);
+}
+
+.study-library .resource-body {
+  padding: 11px;
+}
+
+.study-library .resource-title {
+  font-size: 13px;
+}
+
+.study-library .resource-actions {
+  gap: 6px;
+  padding-top: 8px;
+}
+
+.study-library .resource-actions > .subtle-link {
+  min-height: 32px;
+  padding: 5px 7px;
+  border-radius: 7px;
+  background: var(--panel-2);
+  border-color: var(--border);
+  font-size: 11px;
+}
+
+.study-library .save-button {
+  width: 32px;
+  height: 32px;
+}
+
+.study-notification,
+.study-announcement,
+.study-discussion-preview,
+.study-event-preview,
+.study-month-event,
+.study-member-card {
+  background: var(--panel);
+  border-color: var(--border);
+}
+
+@media (max-width: 600px) {
+  .study-page {
+    padding: 20px 12px 28px;
+  }
+
+  .study-resource-section {
+    padding: 12px;
+  }
+
+  .study-library .study-resource-grid {
+    grid-template-columns: 1fr;
+  }
+}
