@@ -924,3 +924,204 @@
     grid-template-columns: 1fr;
   }
 }
+
+
+/* Unified academic interface: one accent instead of category/year rainbow. */
+.category-courses,
+.category-exercises,
+.category-exams,
+.category-rattrapage,
+.category-general {
+  --category-color: var(--primary);
+}
+
+.study-resource-section,
+.study-resource-section[data-study-year="1"],
+.study-resource-section[data-study-year="2"],
+.study-resource-section[data-study-year="3"] {
+  --study-year-accent: var(--primary);
+  --library-accent: var(--primary);
+}
+
+.study-page {
+  color: var(--text);
+}
+
+.study-home-hero,
+.study-section,
+.study-resource-section,
+.study-semester-strip,
+.study-module-group,
+.study-resource-type-group,
+.study-category-card,
+.study-continue-card,
+.study-member-card,
+.study-announcement,
+.study-discussion-preview,
+.study-event-preview,
+.study-notification,
+.study-month-event {
+  background: var(--panel);
+  border-color: var(--border);
+  box-shadow: none;
+}
+
+.study-category-card:hover,
+.study-continue-card:hover,
+.study-module-tile:hover {
+  background: var(--panel-2);
+  border-color: var(--border-accent);
+}
+
+.study-category-card > .category-icon,
+.study-file-symbol,
+.study-result-icon,
+.study-module-tile-icon {
+  color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 10%, var(--panel-2));
+}
+
+.study-resource-tabs {
+  border-color: var(--border);
+}
+
+.study-library-category {
+  color: var(--muted);
+  background: transparent;
+  border-color: transparent;
+}
+
+.study-library-category:hover {
+  color: var(--text);
+  background: var(--panel-2);
+}
+
+.study-library-category.active {
+  color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 9%, var(--panel));
+  border-color: color-mix(in srgb, var(--primary) 28%, var(--border));
+}
+
+.study-semester-group,
+.study-all-semesters {
+  border-color: var(--border);
+  background: var(--panel);
+}
+
+.study-semester-group button,
+.study-all-semesters {
+  color: var(--muted);
+}
+
+.study-semester-group button:hover,
+.study-all-semesters:hover {
+  color: var(--text);
+  background: var(--panel-2);
+}
+
+.study-semester-group button.active,
+.study-all-semesters.active {
+  color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 10%, var(--panel));
+  border-color: color-mix(in srgb, var(--primary) 30%, var(--border));
+}
+
+.study-module-tile {
+  background: var(--panel);
+  border-color: var(--border);
+  box-shadow: none;
+}
+
+.study-module-tile:hover {
+  background: var(--panel-2);
+  border-color: var(--primary);
+}
+
+.study-module-tile-icon {
+  background: color-mix(in srgb, var(--primary) 11%, var(--panel-2));
+  color: var(--primary);
+}
+
+.study-resource-type-group {
+  background: var(--panel);
+  border-color: var(--border);
+}
+
+.study-resource-type-heading {
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 9px;
+}
+
+.study-library .resource-card {
+  background: var(--panel);
+  border-color: var(--border);
+}
+
+.study-library .resource-preview {
+  background: var(--panel-2);
+}
+
+.study-library .resource-preview::after {
+  background: linear-gradient(0deg, color-mix(in srgb, var(--primary) 8%, transparent), transparent 68%);
+}
+
+.study-library .paper-preview,
+.study-library .pdf-label,
+.study-library .save-button,
+.study-library .resource-actions > .subtle-link {
+  background: var(--panel);
+  border-color: var(--border);
+}
+
+.study-library .paper-brand,
+.study-library .resource-title:hover,
+.resource-teacher svg {
+  color: var(--primary);
+}
+
+.study-library .resource-meta > span:first-child,
+.study-library .resource-actions > .subtle-link:first-child {
+  color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 8%, var(--panel));
+  border-color: color-mix(in srgb, var(--primary) 24%, var(--border));
+}
+
+.study-member-overview > div,
+.study-member-overview > div:last-child,
+.study-member-overview-icon,
+.study-member-overview-icon.online {
+  background: var(--panel);
+  border-color: var(--border);
+}
+
+.study-member-overview-icon,
+.study-member-overview-icon.online {
+  color: var(--primary);
+}
+
+.study-member-card {
+  --member-accent: var(--primary) !important;
+  border-top-color: var(--primary);
+  background: var(--panel);
+}
+
+.study-notification.type-resources,
+.study-notification.type-announcements,
+.study-notification.type-important,
+.study-notification.type-admin,
+.study-notification.type-calendar {
+  --notification-accent: var(--primary);
+}
+
+@media (max-width: 700px) {
+  .study-home-hero,
+  .study-section,
+  .study-resource-section {
+    border-radius: 10px;
+  }
+
+  .study-resource-type-heading {
+    background: var(--panel);
+    backdrop-filter: none;
+  }
+}
