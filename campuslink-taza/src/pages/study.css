@@ -796,3 +796,182 @@
     width: auto;
   }
 }
+
+
+/* Keep the collapsible library filters inside their container on tablets/phones.
+   Layout-only: inherits all existing colors and visual styling. */
+.study-library,
+.study-filter-panel,
+.study-filter-panel .study-semester-strip,
+.study-filter-panel .study-filters,
+.study-filter-panel .study-search-input,
+.study-filter-panel .study-select-field {
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.study-filter-panel {
+  width: 100%;
+  overflow: hidden;
+}
+
+.study-filter-panel .study-filters > * {
+  min-width: 0;
+}
+
+.study-filter-panel .study-search-input input,
+.study-filter-panel .study-select-field select {
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.study-filter-panel .study-select-field select {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.study-library .page-heading-actions {
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.study-library .study-results-meta {
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 1024px) {
+  .study-filter-panel .study-semester-strip {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: stretch;
+    gap: 8px;
+    width: 100%;
+  }
+
+  .study-filter-panel .study-all-semesters {
+    grid-column: 1 / -1;
+    width: max-content;
+    max-width: 100%;
+  }
+
+  .study-filter-panel .study-semester-group {
+    min-width: 0;
+    width: 100%;
+    padding: 9px 8px;
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 7px;
+    box-sizing: border-box;
+  }
+
+  .study-filter-panel .study-semester-group > span {
+    text-align: center;
+  }
+
+  .study-filter-panel .study-semester-group > div {
+    width: 100%;
+    min-width: 0;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 5px;
+  }
+
+  .study-filter-panel .study-semester-group button {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .study-filter-panel .study-filters {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(150px, .72fr);
+    gap: 8px;
+    width: 100%;
+  }
+
+  .study-filter-panel .study-search-input {
+    grid-column: 1 / -1;
+    width: 100%;
+  }
+
+  .study-filter-panel .study-select-field {
+    width: 100%;
+  }
+}
+
+@media (max-width: 760px) {
+  .study-filter-panel .study-semester-strip {
+    grid-template-columns: 1fr;
+  }
+
+  .study-filter-panel .study-all-semesters {
+    grid-column: auto;
+    width: 100%;
+  }
+
+  .study-filter-panel .study-semester-group {
+    padding: 8px;
+  }
+
+  .study-filter-panel .study-filters {
+    grid-template-columns: 1fr;
+  }
+
+  .study-filter-panel .study-search-input,
+  .study-filter-panel .study-select-field {
+    grid-column: auto;
+    width: 100%;
+  }
+
+  .study-library .page-heading-actions {
+    width: 100%;
+  }
+
+  .study-library .page-heading-actions > .btn {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .study-library .study-results-meta {
+    align-items: flex-start;
+  }
+}
+
+@media (max-width: 430px) {
+  .study-filter-panel {
+    margin-top: 9px;
+  }
+
+  .study-filter-panel .study-semester-strip {
+    gap: 7px;
+    padding: 9px 0;
+  }
+
+  .study-filter-panel .study-semester-group > div {
+    gap: 4px;
+  }
+
+  .study-filter-panel .study-semester-group button {
+    height: 34px;
+  }
+
+  .study-filter-panel .study-filters {
+    gap: 7px;
+  }
+
+  .study-library .page-heading-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .study-library .page-heading-actions > .btn {
+    width: 100%;
+    justify-content: center;
+  }
+}
