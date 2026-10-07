@@ -12,17 +12,23 @@ export function useDeepFocus(dependency){const location=useLocation();useEffect(
 export function Attachment({resource:r}){const{t,lang,openModal}=useApp();return <div className="chat-attachment">{r.mime?.startsWith('image/')&&<button className="attachment-image" onClick={()=>openModal('preview',r)}><img src={`/api/files/${r.id}`} alt={r.title}/></button>}<button className="attachment-file" onClick={()=>openModal('preview',r)}><span className={`file-icon ${r.category}`}><FileText size={24} strokeWidth={1.4}/><small>{fileLabel(r)}</small></span><span><b>{r.filename||r.title}</b><small>{formatBytes(r.size,lang)}</small></span><ArrowUpRight size={17}/></button>{r.category!=='general'&&<Link className={`attachment-location ${r.category}`} to={resourcePath(r)}><CategoryIcon category={r.category} size={12}/>{t(r.category,categoryNames[r.category])} <span>·</span> S{r.semester} <span>·</span> {r.module||t('noModule','Sans module')}<ArrowUpRight size={12}/></Link>}</div>}
 export function ChatMessage({message:m,groupedWithPrevious=false,groupedWithNext=false,onReply,menuOpen,onMenuChange,onMessageRemoved,onChatBlock,chatBlocked,chatBlockBusy}){
   const{data,user,t,lang,saved,toggleSave,toast,openModal,optimisticAction,sendMessage,discardMessage}=useApp();
-  const[busy,setBusy]=useState(false);
+  const[busy,setBusy]=useState(false),[quickActionsOpen,setQuickActionsOpen]=useState(false);
   const menu=menuOpen,setMenu=onMenuChange;
-  const menuRef=useRef(null);
+  const menuRef=useRef(null),quickActionsRef=useRef(null),pressTimerRef=useRef(null),pressStartRef=useRef(null);
   const[menuPlacement,setMenuPlacement]=useState({up:false,maxHeight:undefined,left:undefined,maxWidth:undefined});
   const r=data.resources.find(r=>r.id===m.resource_id),isSaved=saved.some(s=>s.type==='message'&&s.id===m.id);
   const privileged=['global_admin','faculty_admin','moderator'].includes(user.role);
   const parent=data.messages.find(p=>p.id===m.reply_to);
   const own=m.author.id===user.id,canModerate=user.role==='global_admin';
   const local=Boolean(m._status);
+  const clearLongPress=()=>{if(pressTimerRef.current){clearTimeout(pressTimerRef.current);pressTimerRef.current=null;}pressStartRef.current=null;};
+  const startLongPress=e=>{if(e.pointerType==='mouse'||local||e.target.closest('button,a,input,textarea,select'))return;clearLongPress();pressStartRef.current={x:e.clientX,y:e.clientY};pressTimerRef.current=setTimeout(()=>{setMenu(false);setQuickActionsOpen(true);pressTimerRef.current=null;if(navigator.vibrate)navigator.vibrate(12);},420);};
+  const moveLongPress=e=>{const start=pressStartRef.current;if(!start)return;if(Math.abs(e.clientX-start.x)>10||Math.abs(e.clientY-start.y)>10)clearLongPress();};
+  const openMoreActions=()=>{setQuickActionsOpen(false);setMenu(true);};
   const visibleReactions=['like','heart'].filter(reaction=>(m.reactions?.[reaction]||0)>0||m.my_reactions?.includes(reaction));
   const hasVisibleReactions=visibleReactions.length>0;
+  useEffect(()=>()=>clearLongPress(),[]);
+  useEffect(()=>{if(!quickActionsOpen)return;const dismiss=e=>{if(!quickActionsRef.current?.contains(e.target))setQuickActionsOpen(false);};document.addEventListener('pointerdown',dismiss,true);return()=>document.removeEventListener('pointerdown',dismiss,true);},[quickActionsOpen]);
   useLayoutEffect(()=>{
     if(!menu)return;
     const element=menuRef.current,scroll=element?.closest('.chat-scroll');
@@ -61,13 +67,13 @@ export function ChatMessage({message:m,groupedWithPrevious=false,groupedWithNext
         {m.pinned&&<Pin size={14} className="gold"/>}
         {!local&&<div className="message-hover-actions">
           <button type="button" className="icon-button message-reply-action" onClick={()=>{onReply?.(m);setMenu(false);}} aria-label={t('reply','Répondre')} title={t('reply','Répondre')}><Reply size={18}/></button>
-          <button disabled={busy} className={'icon-button '+(isSaved?'is-saved':'')} onClick={()=>action(()=>toggleSave('message',m.id))} aria-label={t('save','Enregistrer')}><Bookmark size={17} fill={isSaved?'currentColor':'none'}/></button>
+          <button type="button" disabled={busy} className={'icon-button message-quick-like '+(m.my_reactions?.includes('like')?'reacted':'')} onClick={()=>react('like')} aria-label={t('like',"J'aime")}><ThumbsUp size={17} fill={m.my_reactions?.includes('like')?'currentColor':'none'}/></button>
+          <button type="button" disabled={busy} className={'icon-button message-quick-heart '+(m.my_reactions?.includes('heart')?'reacted':'')} onClick={()=>react('heart')} aria-label={t('heart','Apprécier')}><Heart size={17} fill={m.my_reactions?.includes('heart')?'currentColor':'none'}/></button>
           <button className="icon-button" onClick={()=>setMenu(!menu)} aria-label={t('messageActions','Actions du message')} aria-expanded={menu} aria-controls={menu?`message-menu-${m.id}`:undefined}><MoreHorizontal size={20}/></button>
           {menu&&<div ref={menuRef} id={`message-menu-${m.id}`} className="message-menu panel" aria-label={t('messageActions','Actions du message')} data-side={menuPlacement.up?'up':'down'} style={{maxHeight:menuPlacement.maxHeight,maxWidth:menuPlacement.maxWidth,insetInlineEnd:'auto',left:menuPlacement.left}}>
             <button onClick={()=>{onReply?.(m);setMenu(false);}}><Reply size={16}/>{t('reply','Répondre')}</button>
             <button className="message-menu-save" disabled={busy} onClick={()=>action(()=>toggleSave('message',m.id))}><Bookmark size={16} fill={isSaved?'currentColor':'none'}/>{t('save','Enregistrer')}</button>
-            <button disabled={busy} onClick={()=>react('like')}><ThumbsUp size={16} fill={m.my_reactions?.includes('like')?'currentColor':'none'}/>{t('like',"J'aime")}</button>
-            <button disabled={busy} onClick={()=>react('heart')}><Heart size={16} fill={m.my_reactions?.includes('heart')?'currentColor':'none'}/>{t('heart','Apprécier')}</button>
+            
             {privileged&&<button onClick={pin} disabled={busy}><Pin size={16}/>{t(m.pinned?'unpinFromAnnouncements':'pinToAnnouncements',m.pinned?'Retirer des annonces':'Épingler dans les annonces')}</button>}
             <button onClick={copy}><Link2 size={16}/>{t('copyLink','Copier le lien')}</button>
             <button onClick={()=>{openModal('report',{target_type:'message',target_id:m.id});setMenu(false);}}><Flag size={16}/>{t('report','Signaler')}</button>
@@ -76,11 +82,17 @@ export function ChatMessage({message:m,groupedWithPrevious=false,groupedWithNext
           </div>}
         </div>}
       </div>
-      <div className="message-bubble">
+      <div className="message-bubble" onPointerDown={startLongPress} onPointerMove={moveLongPress} onPointerUp={clearLongPress} onPointerCancel={clearLongPress} onContextMenu={e=>{if(window.matchMedia?.('(hover: none) and (pointer: coarse)').matches)e.preventDefault();}}>
         {parent&&<Link to={messagePath(parent)} className="reply-context"><CornerUpLeft size={15}/><b>{parent.author.name}</b><span>{parent.content.slice(0,80)}</span></Link>}
         <p className="message-text" dir="auto">{m.content}</p>
         {r&&<Attachment resource={r}/>}
       </div>
+      {quickActionsOpen&&!local&&<div ref={quickActionsRef} className="message-quick-reactions" role="toolbar" aria-label={t('quickReactions','Réactions rapides')}>
+        <button type="button" className={m.my_reactions?.includes('like')?'reacted':''} onClick={()=>{setQuickActionsOpen(false);react('like');}} aria-label={t('like',"J'aime")}><ThumbsUp size={19} fill={m.my_reactions?.includes('like')?'currentColor':'none'}/></button>
+        <button type="button" className={m.my_reactions?.includes('heart')?'reacted':''} onClick={()=>{setQuickActionsOpen(false);react('heart');}} aria-label={t('heart','Apprécier')}><Heart size={19} fill={m.my_reactions?.includes('heart')?'currentColor':'none'}/></button>
+        <button type="button" onClick={()=>{setQuickActionsOpen(false);onReply?.(m);}} aria-label={t('reply','Répondre')}><Reply size={19}/></button>
+        <button type="button" onClick={openMoreActions} aria-label={t('messageActions','Actions du message')}><MoreHorizontal size={20}/></button>
+      </div>}
       {local?<div className={`message-delivery ${m._status}`} role="status">{m._status==='pending'?<><Clock3 size={13}/><span>{t('messageSending','Envoi en cours…')}</span></>:<><AlertCircle size={14}/><span>{t('messageSendFailed','Envoi échoué')}</span><button type="button" onClick={()=>sendMessage(m).catch(error=>toast(error.message,'error'))}><RotateCcw size={13}/>{t('retry','Réessayer')}</button><button type="button" onClick={()=>discardMessage(m)} aria-label={t('discardMessage','Retirer ce message')}><X size={14}/></button></>}</div>:<>{hasVisibleReactions&&<div className="message-reactions visible-reactions">
         {visibleReactions.map(reaction=>{
           const count=m.reactions?.[reaction]||0,reacted=m.my_reactions?.includes(reaction);
