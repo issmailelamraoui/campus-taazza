@@ -5402,48 +5402,52 @@ body{line-height:1.6}
 
 
 /* -------------------------------------------------------------------------- */
-/* CampusLink unified visual system                                            */
-/* One restrained blue/graphite identity. Green/red are reserved for status.  */
+/* CampusLink visual identity                                                  */
+/* Atlas clay + ink: warm, academic, recognizable, and high-contrast.          */
 /* -------------------------------------------------------------------------- */
 :root {
-  --bg: #f3f5f7;
-  --panel: #ffffff;
-  --panel-2: #eef2f6;
-  --panel-hover: #e6ebf1;
-  --border: #d7dee7;
-  --border-accent: #9aa9ba;
-  --primary: #294f75;
-  --primary-soft: #3d658b;
-  --primary-dim: #667f99;
-  --text: #18212b;
-  --muted: #657281;
-  --soft: #7e8996;
-  --green: #47735f;
-  --violet: #294f75;
-  --rose: #a74e55;
+  --bg: #f3efe8;
+  --panel: #fffaf4;
+  --panel-2: #eee5da;
+  --panel-hover: #e5d8ca;
+  --border: #d8cbbd;
+  --border-accent: #b79d88;
+  --primary: #8f4d34;
+  --primary-soft: #a75e40;
+  --primary-dim: #6f3f30;
+  --text: #211c19;
+  --muted: #6f665f;
+  --soft: #8a7d74;
+  --green: #4f715d;
+  --violet: #8f4d34;
+  --rose: #9e4b50;
   --radius: 11px;
-  --surface-shadow: 0 10px 30px rgba(20, 32, 46, .06);
-  --surface-shadow-hover: 0 14px 36px rgba(20, 32, 46, .10);
+  --on-primary: #fff8f2;
+  --brand-ink: #2b211c;
+  --surface-shadow: 0 10px 30px rgba(66, 39, 25, .07);
+  --surface-shadow-hover: 0 14px 36px rgba(66, 39, 25, .12);
 }
 
 :root[data-theme="dark"] {
-  --bg: #07090c;
-  --panel: #0d1117;
-  --panel-2: #141a22;
-  --panel-hover: #1a2230;
-  --border: #27313e;
-  --border-accent: #425266;
-  --primary: #7fa8d2;
-  --primary-soft: #abc5df;
-  --primary-dim: #6f8daa;
-  --text: #edf2f7;
-  --muted: #9aa7b5;
-  --soft: #7f8b98;
-  --green: #75a58d;
-  --violet: #7fa8d2;
-  --rose: #d27c82;
-  --surface-shadow: 0 12px 36px rgba(0, 0, 0, .26);
-  --surface-shadow-hover: 0 16px 42px rgba(0, 0, 0, .34);
+  --bg: #090908;
+  --panel: #11100f;
+  --panel-2: #191714;
+  --panel-hover: #211e1a;
+  --border: #342f29;
+  --border-accent: #665649;
+  --primary: #d68a5c;
+  --primary-soft: #e2a47d;
+  --primary-dim: #b8734b;
+  --text: #f4efe8;
+  --muted: #b1a69b;
+  --soft: #91867c;
+  --green: #7ea38c;
+  --violet: #d68a5c;
+  --rose: #d4777d;
+  --on-primary: #1a100b;
+  --brand-ink: #f4efe8;
+  --surface-shadow: 0 12px 36px rgba(0, 0, 0, .32);
+  --surface-shadow-hover: 0 16px 42px rgba(0, 0, 0, .42);
 }
 
 body,
@@ -5494,7 +5498,7 @@ body,
 .gold-btn,
 :root[data-theme="dark"] .gold-btn {
   background: var(--primary);
-  color: #fff;
+  color: var(--on-primary);
   border-color: var(--primary);
   box-shadow: none;
 }
@@ -5636,5 +5640,94 @@ hr,
   .modal,
   .admin-dialog {
     box-shadow: none;
+  }
+}
+
+
+/* Signature CampusLink details: warm Atlas clay, ink surfaces, no rainbow UI. */
+.public-header {
+  background: color-mix(in srgb, var(--panel) 96%, transparent);
+  border-bottom: 1px solid var(--border);
+}
+
+.app-header {
+  background: color-mix(in srgb, var(--panel) 97%, transparent);
+  border-bottom: 1px solid var(--border);
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--primary) 18%, transparent);
+}
+
+.brand-mark,
+.brand strong em {
+  color: var(--primary);
+}
+
+.brand strong {
+  color: var(--text);
+}
+
+.selected-faculty {
+  border: 1px solid var(--border);
+  border-inline-start: 3px solid var(--primary);
+  background: color-mix(in srgb, var(--primary) 6%, var(--panel));
+}
+
+.global-nav-item.active,
+.channel-link.active {
+  color: var(--text);
+  background: color-mix(in srgb, var(--primary) 11%, var(--panel));
+  border-color: color-mix(in srgb, var(--primary) 28%, var(--border));
+}
+
+.global-nav-item.active svg,
+.channel-link.active svg {
+  color: var(--primary);
+}
+
+.global-nav-item:hover,
+.channel-link:hover {
+  color: var(--text);
+  background: color-mix(in srgb, var(--primary) 7%, var(--panel));
+}
+
+.theme-toggle,
+.notification-bell {
+  color: var(--primary);
+  background: var(--panel-2);
+  border-color: var(--border);
+}
+
+.count-badge {
+  background: var(--primary);
+  color: var(--on-primary);
+}
+
+.page-heading h1,
+.modal-heading h2,
+.empty-state h3 {
+  color: var(--text);
+}
+
+.page-heading::before {
+  content: "";
+  display: block;
+  width: 34px;
+  height: 3px;
+  margin-bottom: 10px;
+  border-radius: 999px;
+  background: var(--primary);
+}
+
+.public-page {
+  background: var(--bg);
+}
+
+:root[data-theme="dark"] .public-page {
+  background: var(--bg);
+}
+
+@media (max-width: 700px) {
+  .page-heading::before {
+    width: 28px;
+    margin-bottom: 8px;
   }
 }
