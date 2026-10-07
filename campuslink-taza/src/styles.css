@@ -5318,3 +5318,140 @@ body{line-height:1.6}
     margin-inline-start: 0;
   }
 }
+
+
+/* Refined CampusLink wordmark alignment. */
+.brand {
+  gap: 10px;
+  align-items: center;
+}
+
+.brand-mark {
+  width: 34px;
+  min-width: 34px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  align-self: center;
+}
+
+.brand-mark svg {
+  display: block;
+  width: 31px;
+  height: 36px;
+}
+
+.brand > span:last-child {
+  display: grid;
+  align-content: center;
+  gap: 4px;
+  min-width: 0;
+  line-height: 1;
+}
+
+.brand strong {
+  display: flex;
+  align-items: baseline;
+  gap: .22em;
+  margin: 0;
+  font-size: 24px;
+  line-height: .98;
+  letter-spacing: .15px;
+  white-space: nowrap;
+}
+
+.brand strong em {
+  display: inline-block;
+  margin: 0;
+  font-size: .92em;
+  line-height: 1;
+}
+
+.brand small {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 12px;
+  font-size: 10px;
+  line-height: 1;
+  letter-spacing: 1.35px;
+  white-space: nowrap;
+}
+
+.brand small i {
+  width: 3px;
+  height: 3px;
+  margin: 0 1px;
+  flex: 0 0 3px;
+}
+
+.app-header .brand,
+.public-header .brand {
+  min-width: 0;
+}
+
+.app-header .brand strong,
+.public-header .brand strong {
+  font-size: 24px;
+}
+
+.app-header .brand small,
+.public-header .brand small {
+  font-size: 10px;
+  margin-top: 0;
+}
+
+@media (max-width: 760px) {
+  .app-header .brand {
+    gap: 8px;
+  }
+
+  .app-header .brand-mark {
+    width: 30px;
+    min-width: 30px;
+    height: 35px;
+  }
+
+  .app-header .brand-mark svg {
+    width: 27px;
+    height: 32px;
+  }
+
+  .app-header .brand strong {
+    font-size: 21px;
+  }
+
+  .app-header .brand small {
+    font-size: 9px;
+    letter-spacing: 1.1px;
+    gap: 5px;
+  }
+}
+
+@media (max-width: 390px) {
+  .app-header .brand {
+    gap: 7px;
+  }
+
+  .app-header .brand-mark {
+    width: 27px;
+    min-width: 27px;
+    height: 32px;
+  }
+
+  .app-header .brand-mark svg {
+    width: 24px;
+    height: 29px;
+  }
+
+  .app-header .brand strong {
+    font-size: 18px;
+  }
+
+  .app-header .brand small {
+    font-size: 8px;
+    letter-spacing: .9px;
+    gap: 4px;
+  }
+}
