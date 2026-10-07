@@ -5399,3 +5399,242 @@ body{line-height:1.6}
     height: 52dvh;
   }
 }
+
+
+/* -------------------------------------------------------------------------- */
+/* CampusLink unified visual system                                            */
+/* One restrained blue/graphite identity. Green/red are reserved for status.  */
+/* -------------------------------------------------------------------------- */
+:root {
+  --bg: #f3f5f7;
+  --panel: #ffffff;
+  --panel-2: #eef2f6;
+  --panel-hover: #e6ebf1;
+  --border: #d7dee7;
+  --border-accent: #9aa9ba;
+  --primary: #294f75;
+  --primary-soft: #3d658b;
+  --primary-dim: #667f99;
+  --text: #18212b;
+  --muted: #657281;
+  --soft: #7e8996;
+  --green: #47735f;
+  --violet: #294f75;
+  --rose: #a74e55;
+  --radius: 11px;
+  --surface-shadow: 0 10px 30px rgba(20, 32, 46, .06);
+  --surface-shadow-hover: 0 14px 36px rgba(20, 32, 46, .10);
+}
+
+:root[data-theme="dark"] {
+  --bg: #07090c;
+  --panel: #0d1117;
+  --panel-2: #141a22;
+  --panel-hover: #1a2230;
+  --border: #27313e;
+  --border-accent: #425266;
+  --primary: #7fa8d2;
+  --primary-soft: #abc5df;
+  --primary-dim: #6f8daa;
+  --text: #edf2f7;
+  --muted: #9aa7b5;
+  --soft: #7f8b98;
+  --green: #75a58d;
+  --violet: #7fa8d2;
+  --rose: #d27c82;
+  --surface-shadow: 0 12px 36px rgba(0, 0, 0, .26);
+  --surface-shadow-hover: 0 16px 42px rgba(0, 0, 0, .34);
+}
+
+body,
+#root {
+  background: var(--bg);
+  color: var(--text);
+}
+
+.panel {
+  background: var(--panel);
+  border-color: var(--border);
+  box-shadow: none;
+}
+
+.app-header,
+.global-sidebar,
+.faculty-sidebar,
+.info-column,
+.chat-sidebar,
+.modal,
+.modal-card,
+.dropdown,
+.command-palette {
+  background: var(--panel);
+  border-color: var(--border);
+}
+
+:root[data-theme="dark"] .faculty-sidebar,
+.faculty-sidebar {
+  background: var(--panel);
+}
+
+.selected-faculty {
+  background: var(--panel-2);
+  border-color: var(--border);
+  box-shadow: none;
+}
+
+.btn,
+.icon-button,
+.subtle-link,
+.global-nav-item,
+.faculty-nav-item,
+.channel-link {
+  transition: background-color .16s ease, border-color .16s ease, color .16s ease, transform .16s ease;
+}
+
+.gold-btn,
+:root[data-theme="dark"] .gold-btn {
+  background: var(--primary);
+  color: #fff;
+  border-color: var(--primary);
+  box-shadow: none;
+}
+
+.gold-btn:hover:not(:disabled),
+:root[data-theme="dark"] .gold-btn:hover:not(:disabled) {
+  background: var(--primary-soft);
+  border-color: var(--primary-soft);
+  box-shadow: none;
+  transform: translateY(-1px);
+}
+
+.btn.outline,
+.btn.btn-secondary {
+  background: var(--panel);
+  border-color: var(--border);
+  color: var(--text);
+}
+
+.btn.outline:hover,
+.btn.btn-secondary:hover {
+  background: var(--panel-2);
+  border-color: var(--border-accent);
+  color: var(--primary);
+}
+
+.badge,
+.badge.courses,
+.badge.exercises,
+.badge.exams,
+.badge.rattrapage,
+.badge.rose {
+  color: var(--primary);
+  border-color: var(--border);
+  background: var(--panel-2);
+}
+
+.category-icon,
+.category-icon.courses,
+.category-icon.exercises,
+.category-icon.exams,
+.category-icon.rattrapage {
+  color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 10%, var(--panel));
+}
+
+.resource-preview.courses,
+.resource-preview.exercises,
+.resource-preview.exams,
+.resource-preview.rattrapage,
+.resource-preview.general {
+  color: var(--text);
+}
+
+input,
+textarea,
+select,
+.input,
+.field input,
+.field textarea,
+.field select {
+  background: var(--panel);
+  color: var(--text);
+  border-color: var(--border);
+}
+
+input:focus,
+textarea:focus,
+select:focus,
+.input:focus,
+.field input:focus,
+.field textarea:focus,
+.field select:focus {
+  border-color: var(--primary) !important;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 14%, transparent);
+  outline: none;
+}
+
+.form-error {
+  color: var(--rose);
+  border-color: color-mix(in srgb, var(--rose) 30%, var(--border));
+  background: color-mix(in srgb, var(--rose) 8%, var(--panel));
+}
+
+.empty-state,
+.modal,
+.admin-dialog,
+.resource-card,
+.chat-message,
+.announcement-card {
+  box-shadow: none;
+}
+
+.resource-card:hover,
+.study-category-card:hover,
+.study-module-tile:hover,
+.admin-report-card:hover,
+.admin-contact-card:hover,
+.admin-channel-card:hover {
+  box-shadow: var(--surface-shadow-hover);
+}
+
+.section-label,
+.subtle-link:hover,
+a:hover {
+  color: var(--primary);
+}
+
+hr,
+.divider {
+  border-color: var(--border);
+}
+
+/* Semantic colors only: success/online and danger/error. */
+.green-dot,
+.presence-dot {
+  background: var(--green) !important;
+}
+
+.red-dot {
+  background: var(--rose) !important;
+}
+
+/* Remove the previous category rainbow in dark mode too. */
+:root[data-theme="dark"] .category-courses,
+:root[data-theme="dark"] .category-exercises,
+:root[data-theme="dark"] .category-exams,
+:root[data-theme="dark"] .category-rattrapage {
+  --category-color: var(--primary);
+}
+
+@media (max-width: 700px) {
+  :root {
+    --radius: 10px;
+  }
+
+  .panel,
+  .resource-card,
+  .modal,
+  .admin-dialog {
+    box-shadow: none;
+  }
+}
