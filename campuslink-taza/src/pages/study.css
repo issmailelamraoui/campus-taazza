@@ -1078,3 +1078,32 @@
     padding: 12px;
   }
 }
+
+
+/* Opened module: keep the document area clean and make cards behave like direct targets. */
+.study-library .study-resource-type-group {
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.study-library .study-resource-type-heading {
+  padding-inline: 2px;
+}
+
+.study-library .resource-card.compact {
+  cursor: pointer;
+}
+
+.study-library .resource-card.compact:hover,
+.study-library .resource-card.compact:focus,
+.study-library .resource-card.compact:focus-visible {
+  transform: none;
+  border-color: var(--border);
+  box-shadow: none;
+}
+
+.study-library .resource-card.compact:focus-visible {
+  outline: 1px solid var(--border-accent);
+  outline-offset: 2px;
+}
