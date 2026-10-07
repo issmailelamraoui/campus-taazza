@@ -1557,3 +1557,23 @@
   transition-duration: var(--motion-ui, 220ms) !important;
   transition-timing-function: var(--motion-ease, cubic-bezier(.22, .61, .36, 1)) !important;
 }
+
+
+/* Stable chat hover painting: color fades only, no background-image swap. */
+.chat-page button,
+.chat-page a,
+.chat-page [role="button"],
+.chat-page .reaction,
+.chat-page .attachment-file {
+  background-image: none;
+}
+
+.chat-page button,
+.chat-page a,
+.chat-page [role="button"],
+.chat-page .reaction,
+.chat-page .attachment-file {
+  transition-property: background-color, color, border-color, box-shadow, opacity !important;
+  transition-duration: 240ms !important;
+  transition-timing-function: cubic-bezier(.22,.61,.36,1) !important;
+}
