@@ -397,3 +397,71 @@
     height: 44px;
   }
 }
+
+
+/* Tighten grouped message stacks: no fake header gap between consecutive bubbles. */
+.chat-page .chat-message.message-grouped-prev {
+  margin-bottom: 4px;
+}
+
+.chat-page .message-grouped-prev .message-meta.message-meta-grouped {
+  min-height: 0;
+  height: 0;
+  margin: 0;
+  padding: 0;
+  overflow: visible;
+}
+
+.chat-page .message-grouped-prev .message-meta.message-meta-grouped > .gold {
+  position: absolute;
+  top: 8px;
+  inset-inline-start: 48px;
+}
+
+.chat-page .message-grouped-prev .message-meta.message-meta-grouped .message-hover-actions {
+  position: absolute;
+  top: 2px;
+  inset-inline-end: -112px;
+  z-index: 3;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.chat-page .message-grouped-prev:hover .message-meta.message-meta-grouped .message-hover-actions,
+.chat-page .message-grouped-prev:focus-within .message-meta.message-meta-grouped .message-hover-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.chat-page .own-message.message-grouped-prev .message-meta.message-meta-grouped .message-hover-actions {
+  inset-inline-end: auto;
+  inset-inline-start: -112px;
+}
+
+.chat-page .message-grouped-prev .message-bubble {
+  margin-top: 0;
+}
+
+@media (max-width: 760px) {
+  .chat-page .chat-message.message-grouped-prev {
+    margin-bottom: 3px;
+  }
+
+  .chat-page .message-grouped-prev .message-meta.message-meta-grouped {
+    position: static;
+    height: 0;
+    min-height: 0;
+  }
+
+  .chat-page .message-grouped-prev .message-meta.message-meta-grouped .message-hover-actions {
+    top: 0;
+    inset-inline-end: 0;
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .chat-page .own-message.message-grouped-prev .message-meta.message-meta-grouped .message-hover-actions {
+    inset-inline-start: 0;
+    inset-inline-end: auto;
+  }
+}
