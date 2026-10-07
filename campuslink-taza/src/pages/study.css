@@ -978,27 +978,27 @@
 
 
 /* Simple document cards inside an opened module; keeps the current palette. */
-.study-library .study-resource-grid-compact {
+.study-page .study-resource-grid-compact {
   grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
   gap: 10px;
 }
 
-.study-library .resource-card.compact {
+.study-page .resource-card.compact {
   min-height: 0;
   border-radius: 10px;
   background: var(--panel);
   overflow: hidden;
 }
 
-.study-library .resource-card.compact:hover {
+.study-page .resource-card.compact:hover {
   transform: translateY(-1px);
 }
 
-.study-library .resource-card.compact .resource-body {
+.study-page .resource-card.compact .resource-body {
   padding: 13px;
 }
 
-.study-library .resource-card.compact .resource-title-row {
+.study-page .resource-card.compact .resource-title-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1006,7 +1006,7 @@
   margin-bottom: 10px;
 }
 
-.study-library .compact-file-label {
+.study-page .compact-file-label {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -1021,17 +1021,17 @@
   letter-spacing: .04em;
 }
 
-.study-library .compact-file-label svg {
+.study-page .compact-file-label svg {
   flex-shrink: 0;
 }
 
-.study-library .resource-card.compact .save-button {
+.study-page .resource-card.compact .save-button {
   width: 32px;
   height: 32px;
   flex-shrink: 0;
 }
 
-.study-library .resource-card.compact .resource-title {
+.study-page .resource-card.compact .resource-title {
   display: block;
   margin: 0;
   min-height: 0;
@@ -1039,42 +1039,42 @@
   line-height: 1.45;
 }
 
-.study-library .resource-card.compact .resource-meta {
+.study-page .resource-card.compact .resource-meta {
   margin-top: 7px;
   gap: 5px;
 }
 
-.study-library .resource-card.compact .resource-teacher,
-.study-library .resource-card.compact .resource-folder-path {
+.study-page .resource-card.compact .resource-teacher,
+.study-page .resource-card.compact .resource-folder-path {
   margin-top: 7px;
 }
 
-.study-library .resource-card.compact .resource-author {
+.study-page .resource-card.compact .resource-author {
   margin-top: 10px;
   padding-top: 9px;
   border-top: 1px solid var(--border);
 }
 
-.study-library .resource-card.compact .resource-card-bottom {
+.study-page .resource-card.compact .resource-card-bottom {
   display: none;
 }
 
-.study-library .resource-card.compact .resource-actions {
+.study-page .resource-card.compact .resource-actions {
   margin-top: 10px;
   padding-top: 0;
 }
 
-.study-library .resource-card.compact .resource-actions > .subtle-link {
+.study-page .resource-card.compact .resource-actions > .subtle-link {
   min-height: 32px;
   padding: 5px 8px;
 }
 
 @media (max-width: 760px) {
-  .study-library .study-resource-grid-compact {
+  .study-page .study-resource-grid-compact {
     grid-template-columns: 1fr;
   }
 
-  .study-library .resource-card.compact .resource-body {
+  .study-page .resource-card.compact .resource-body {
     padding: 12px;
   }
 }
