@@ -50,6 +50,9 @@ button {
   cursor: pointer;
   border: 0;
   background: none;
+  background-color: transparent;
+  -webkit-appearance: none;
+  appearance: none;
 }
 button:disabled {
   opacity: 0.4;
@@ -61,11 +64,9 @@ a {
 }
 button,
 a {
-  transition:
-    background 0.18s,
-    color 0.18s,
-    border-color 0.18s,
-    transform 0.18s;
+  transition-property: background-color, color, border-color, box-shadow, transform, opacity;
+  transition-duration: 220ms;
+  transition-timing-function: cubic-bezier(.22, .61, .36, 1);
 }
 button:focus-visible,
 a:focus-visible,
@@ -141,12 +142,12 @@ small {
 }
 .gold-btn {
   color: var(--primary);
-  background: linear-gradient(105deg, var(--panel-hover), var(--panel-hover));
+  background-color: var(--panel-hover);
   border-color: var(--border-accent);
   box-shadow: 0 2px 10px #201b1520;
 }
 .gold-btn:hover:not(:disabled) {
-  background: var(--panel-hover);
+  background-color: color-mix(in srgb, var(--panel-hover) 88%, var(--primary) 12%);
   box-shadow: 0 3px 18px #201b1520;
   transform: translateY(-1px);
 }
@@ -5026,12 +5027,12 @@ em {
   --category-color: #f0a2bc;
 }
 :root[data-theme="dark"] .gold-btn {
-  background: linear-gradient(105deg, #215388, #16608b);
+  background-color: #1d5a89;
   border-color: #496c94;
   color: #fff;
 }
 :root[data-theme="dark"] .gold-btn:hover:not(:disabled) {
-  background: #27649e;
+  background-color: #27649e;
 }
 :root[data-theme="dark"] .form-error {
   color: #ffb4bd;
@@ -5453,5 +5454,64 @@ body{line-height:1.6}
     font-size: 8px;
     letter-spacing: .9px;
     gap: 4px;
+  }
+}
+
+
+/* Interaction motion — no white flash and no abrupt hover jumps. */
+:root {
+  --motion-ui: 220ms;
+  --motion-ui-fast: 170ms;
+  --motion-ease: cubic-bezier(.22, .61, .36, 1);
+}
+
+button,
+a,
+[role="button"],
+.btn,
+.icon-button,
+.subtle-link,
+.global-nav-item,
+.channel-link,
+.resource-shortcut,
+.resource-card,
+.faculty-choice,
+.theme-toggle,
+.language-selector button,
+.profile-menu a,
+.profile-menu button {
+  transition-property: background-color, color, border-color, box-shadow, transform, opacity !important;
+  transition-duration: var(--motion-ui) !important;
+  transition-timing-function: var(--motion-ease) !important;
+}
+
+button:active:not(:disabled),
+.btn:active:not(:disabled),
+[role="button"]:active {
+  transition-duration: 90ms !important;
+}
+
+/* Keep focus from deleting a visible border and causing a one-frame flash. */
+button:focus-visible,
+a:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--primary) 45%, transparent);
+  outline-offset: 2px;
+}
+
+/* Respect users who explicitly ask the OS for less motion. */
+@media (prefers-reduced-motion: reduce) {
+  button,
+  a,
+  [role="button"],
+  .btn,
+  .icon-button,
+  .subtle-link,
+  .global-nav-item,
+  .channel-link,
+  .resource-shortcut,
+  .resource-card,
+  .faculty-choice,
+  .theme-toggle {
+    transition-duration: 0.01ms !important;
   }
 }
