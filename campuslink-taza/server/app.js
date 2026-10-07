@@ -542,6 +542,9 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
     const scope=chatScope(req,channel,'chat_semester');
     const resourceType=string(req.body.resource_type,'Type de ressource',40).toLowerCase();
     if(!RESOURCE_TYPES.includes(resourceType))throw problem(400,'Choisissez un type de ressource.');
+    const partNumber=Number(req.body.part_number);
+    if(!Number.isInteger(partNumber)||partNumber<1||partNumber>999)throw problem(400,'Choisissez une partie entre 1 et 999.');
+    const teacherName=string(req.body.teacher_name,'Professeur / auteur',120);
     const {filename,relativePath}=uploadFilePath(req.file.originalname,req.body.relative_path);
     const title = string(req.body.title,'Titre',180);
     const module = string(req.body.module,'Module',120);
@@ -562,7 +565,7 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
         await storage.put(objectKey,req.file.buffer,mime);
         const created = now();
         const messageId = Number((await db.prepare('INSERT INTO messages (faculty_id,channel,content,author_id,created_at,reply_to,filiere_id,semester) VALUES (?,?,?,?,?,?,?,?)').run(req.user.faculty_id,channel,content,req.user.id,created,reply?.id||null,scope.filiere_id,scope.semester)).lastInsertRowid);
-        id = Number((await db.prepare('INSERT INTO resources (faculty_id,title,filename,object_key,sha256,category,semester,module,module_id,author_id,created_at,size,mime,message_id,channel,filiere_id,resource_type,relative_path) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)').run(req.user.faculty_id,title,filename,objectKey,hash,category,semester,module,selectedModule,req.user.id,created,req.file.size,mime,messageId,channel,filiere,resourceType,relativePath)).lastInsertRowid);
+        id = Number((await db.prepare('INSERT INTO resources (faculty_id,title,filename,object_key,sha256,category,semester,module,module_id,author_id,created_at,size,mime,message_id,channel,filiere_id,resource_type,relative_path,part_number,teacher_name) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)').run(req.user.faculty_id,title,filename,objectKey,hash,category,semester,module,selectedModule,req.user.id,created,req.file.size,mime,messageId,channel,filiere,resourceType,relativePath,partNumber,teacherName)).lastInsertRowid);
         (await db.prepare('UPDATE messages SET resource_id=? WHERE id=?').run(id,messageId));
         if (category!=='general') (await notify(req.user.faculty_id,'resources','Nouvelle ressource',`${title}${semester ? ` · S${semester}` : ''}`,resourcePath({id,category,semester,module}),req.user.id,filiere));
         if (channel==='important') (await notify(req.user.faculty_id,'important','Nouvelle discussion importante',content,`/app/chat/important#message-${messageId}`,req.user.id));
@@ -724,7 +727,7 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
     const baseMatches=async (row)=>{const a=(await author(row.author_id||row.id));return (!authorFilter||String(a.id)===authorFilter||a.username===authorFilter)&&(!date||String(row.created_at||'').startsWith(date));};
     if(!type||type==='resource'||CATEGORIES.includes(type))for(const r of (req.user.filiere_id ? await db.prepare('SELECT * FROM resources WHERE faculty_id=? AND filiere_id=? AND removed=0 ORDER BY created_at DESC').all(req.user.faculty_id,req.user.filiere_id) : [])){
       if(type&&type!=='resource'&&r.category!==type)continue;
-      if(semester&&r.semester!==semester||module&&r.module.toLocaleLowerCase()!==module||!await baseMatches(r)||!matches(`${r.title} ${r.filename} ${r.module}`))continue;
+      if(semester&&r.semester!==semester||module&&r.module.toLocaleLowerCase()!==module||!await baseMatches(r)||!matches(`${r.title} ${r.filename} ${r.module} ${r.teacher_name||''} ${r.part_number||''}`))continue;
       results.push({id:r.id,type:r.category,title:r.title,context:`${r.filename} · ${r.module}${r.semester?` · S${r.semester}`:''}`,path:resourcePath(r),author:(await author(r.author_id)),semester:r.semester,module:r.module,date:r.created_at});
     }
     if((!type||type==='message')&&!module)for(const m of (await db.prepare('SELECT * FROM messages WHERE faculty_id=? AND removed=0 ORDER BY created_at DESC').all(req.user.faculty_id)))if(canReadMessage(m,req.user)&&(!semester||m.channel==='filiere'&&getChatSemester(m.semester)===getChatSemester(semester))&&matches(m.content)&&await baseMatches(m))results.push({id:m.id,type:'message',title:m.content.slice(0,100),context:`#${m.channel}${m.channel==='filiere'?` · ${getChatSemesterLabel(m.semester)}`:''} · ${(await author(m.author_id)).name}`,path:messagePath(m),author:(await author(m.author_id)),semester:m.channel==='filiere'?getChatSemester(m.semester):m.semester,filiere_id:m.filiere_id,date:m.created_at});
@@ -891,6 +894,8 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
     values.semester=semester;
     if(req.body.module!==undefined)values.module=string(req.body.module,'Module',120,false);
     if(req.body.status!==undefined){if(!['new','popular','corrected','updated'].includes(req.body.status))throw problem(400,'Statut invalide.');values.status=req.body.status;}
+    if(req.body.part_number!==undefined){const part=Number(req.body.part_number);if(!Number.isInteger(part)||part<1||part>999)throw problem(400,'Partie invalide.');values.part_number=part;}
+    if(req.body.teacher_name!==undefined)values.teacher_name=string(req.body.teacher_name,'Professeur / auteur',120);
     await transaction(async()=>{
       const module=values.module??r.module;
       values.module_id=module?await moduleId(r.faculty_id,r.filiere_id,semester,module):null;
