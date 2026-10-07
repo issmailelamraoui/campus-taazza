@@ -48,7 +48,7 @@ export function UploadClassificationModal({ payload }) {
   };
   const upload = async entry => {
     const form = new FormData();
-    form.append('file', entry.file, entry.file.name); form.append('title', entry.title.trim()); form.append('category', category); form.append('filiere_id', filiere); form.append('semester', String(semester)); form.append('module', module.trim()); form.append('resource_type', resourceType); form.append('channel', payload.channel || 'general');
+    form.append('file', entry.file, entry.file.name); form.append('title', entry.title.trim()); form.append('part_number', String(entry.partNumber || '')); form.append('teacher_name', entry.teacherName.trim()); form.append('category', category); form.append('filiere_id', filiere); form.append('semester', String(semester)); form.append('module', module.trim()); form.append('resource_type', resourceType); form.append('channel', payload.channel || 'general');
     if (entry.relativePath) form.append('relative_path', entry.relativePath);
     if (payload.channel === 'filiere') form.append('chat_semester', String(getChatSemester(payload.chat_semester || user.current_semester || 1)));
     form.append('content', payload.content || t('resourceShared', 'Je partage cette ressource avec vous.'));
@@ -61,7 +61,7 @@ export function UploadClassificationModal({ payload }) {
   };
   const submit = async event => {
     event.preventDefault();
-    if (busy || !pending.length || !filiere || !category || !module.trim() || pending.some(entry => !entry.title.trim())) return;
+    if (busy || !pending.length || !filiere || !category || !module.trim() || pending.some(entry => !entry.title.trim() || !entry.teacherName.trim() || !Number.isInteger(Number(entry.partNumber)) || Number(entry.partNumber) < 1)) return;
     setBusy(true); setError(''); setDuplicate(null); setNotice('');
     try {
       if (batch) {
@@ -94,7 +94,11 @@ export function UploadClassificationModal({ payload }) {
         <label className="field"><span>{t('semester', 'Semestre')}</span><select required aria-label={t('semester', 'Semestre')} value={semester} disabled={!filiere || locked} onChange={e => { setSemester(Number(e.target.value)); setModule(''); setDuplicate(null); }}>{[1,2,3,4,5,6].map(s => <option key={s} value={s}>S{s}</option>)}</select></label>
         <label className="field"><span>{t('contentType', 'Type de contenu')}</span><select required aria-label={t('contentType', 'Type de contenu')} value={resourceType} disabled={locked} onChange={e => { setResourceType(e.target.value); setDuplicate(null); }}><option value="">{t('selectContentType', 'Choisir un type de contenu')}</option>{types.map(([value,key,label]) => <option key={value} value={value}>{t(key,label)}</option>)}</select></label>
         <label className="field upload-wide"><span>{t('module', 'Module')}</span><input required aria-label={t('module', 'Module')} list="upload-module-suggestions" value={module} onChange={e => setModule(e.target.value)} disabled={!filiere || locked} placeholder={t('selectModule', 'Sélectionner ou saisir un module')} maxLength={120}/><datalist id="upload-module-suggestions">{modules.map(m => <option key={m} value={m}/>)}</datalist></label>
-        {!batch && entries.length > 0 && <label className="field upload-wide"><span>{t('resourceTitle', 'Titre de la ressource')}</span><input required aria-label={t('resourceTitle', 'Titre de la ressource')} value={entries[0].title} disabled={busy} onChange={e => update(entries[0].id, { title:e.target.value })} placeholder={t('clearResourceTitle', 'Un titre clair et utile')} maxLength={180}/></label>}
+        {!batch && entries.length > 0 && <>
+          <label className="field upload-wide"><span>{t('resourceTitle', 'Titre de la ressource')}</span><input required aria-label={t('resourceTitle', 'Titre de la ressource')} value={entries[0].title} disabled={busy} onChange={e => update(entries[0].id, { title:e.target.value })} placeholder={t('clearResourceTitle', 'Un titre clair et utile')} maxLength={180}/></label>
+          <label className="field"><span>{t('resourcePart', 'Partie')}</span><input required type="number" min="1" max="999" value={entries[0].partNumber} disabled={busy} onChange={e => update(entries[0].id, { partNumber:e.target.value })} placeholder="1"/></label>
+          <label className="field"><span>{t('resourceTeacher', 'Professeur / auteur')}</span><input required value={entries[0].teacherName} disabled={busy} onChange={e => update(entries[0].id, { teacherName:e.target.value })} placeholder={t('resourceTeacherPlaceholder', 'Nom du professeur')} maxLength={120}/></label>
+        </>}
       </div>
       <div className="upload-pickers">
         <button type="button" className="btn outline" disabled={locked} onClick={() => filesInput.current?.click()}><FileText size={18}/>{t('chooseFile', 'Choisir un fichier')}</button>
@@ -110,7 +114,11 @@ export function UploadClassificationModal({ payload }) {
         <div className="upload-batch-list">{entries.map(entry => <article key={entry.id} className="upload-batch-row" data-status={entry.status} data-upload-path={entry.relativePath || entry.file.name}>
           <div className="upload-file-heading"><FileText size={18}/><span className="upload-file-path" dir="auto">{entry.relativePath || entry.file.name}</span>{!locked && <button type="button" className="upload-remove" aria-label={`${t('removeFile', 'Retirer le fichier')} : ${entry.file.name}`} onClick={() => setEntries(rows => rows.filter(row => row.id !== entry.id))}><X size={16}/></button>}</div>
           <div className="upload-file-details"><span>{formatBytes(entry.file.size, lang)}</span><span className="upload-file-status">{t(({ queued:'uploadQueued',uploading:'uploading',uploaded:'uploadFileSent',duplicate:'uploadFileExisting',error:'uploadFileFailed',skipped:'uploadFileSkipped' })[entry.status], ({ queued:'À envoyer',uploading:'Envoi en cours…',uploaded:'Envoyé',duplicate:'Déjà présent',error:'Échec',skipped:'Ignoré' })[entry.status])}</span></div>
-          {entry.status !== 'skipped' && <label className="upload-file-title"><span>{t('resourceTitle', 'Titre de la ressource')}</span><input data-upload-title required={['queued','error'].includes(entry.status)} aria-label={`${t('title', 'Titre')} : ${entry.relativePath || entry.file.name}`} value={entry.title} maxLength={180} disabled={busy || ['uploaded','duplicate'].includes(entry.status)} onChange={e => update(entry.id, { title:e.target.value })}/></label>}
+          {entry.status !== 'skipped' && <div className="upload-file-classification">
+            <label className="upload-file-title"><span>{t('resourceTitle', 'Titre de la ressource')}</span><input data-upload-title required={['queued','error'].includes(entry.status)} aria-label={`${t('title', 'Titre')} : ${entry.relativePath || entry.file.name}`} value={entry.title} maxLength={180} disabled={busy || ['uploaded','duplicate'].includes(entry.status)} onChange={e => update(entry.id, { title:e.target.value })}/></label>
+            <label><span>{t('resourcePart', 'Partie')}</span><input required type="number" min="1" max="999" value={entry.partNumber} disabled={busy || ['uploaded','duplicate'].includes(entry.status)} onChange={e => update(entry.id, { partNumber:e.target.value })}/></label>
+            <label><span>{t('resourceTeacher', 'Professeur / auteur')}</span><input required value={entry.teacherName} maxLength={120} disabled={busy || ['uploaded','duplicate'].includes(entry.status)} onChange={e => update(entry.id, { teacherName:e.target.value })} placeholder={t('resourceTeacherPlaceholder', 'Nom du professeur')}/></label>
+          </div>}
           {entry.issue && <p className="upload-file-error">{t(entry.issue, ({ uploadEmptyFile:'Fichier vide.',uploadTooLarge:'Ce fichier dépasse 20 Mo.',uploadUnsupported:'Format non pris en charge.' })[entry.issue])}</p>}
           {entry.error && <p className="upload-file-error" role="alert">{t(entry.error, entry.error)}</p>}
           {!busy && entry.result?.resource && <Link className="upload-result-link" to={resourcePath(entry.result.resource)} onClick={closeModal}><CheckCircle2 size={14}/>{t(entry.status === 'duplicate' ? 'viewExisting' : 'open', entry.status === 'duplicate' ? 'Voir la ressource existante' : 'Ouvrir')}<ArrowUpRight size={14}/></Link>}
@@ -119,7 +127,7 @@ export function UploadClassificationModal({ payload }) {
       <p className="upload-info"><ShieldCheck size={15}/>{batch ? t('uploadBatchBothPlaces', 'Chaque fichier sera accessible dans la conversation et dans la bibliothèque.') : t('uploadBothPlaces', 'Un seul fichier, accessible dans la conversation et dans votre bibliothèque.')}</p>
       {error && <div className="form-error" role="alert">{t(error,error)}{duplicate && <Link to={resourcePath(duplicate)} onClick={closeModal}>{t('viewExisting', 'Voir la ressource existante')}<ArrowUpRight size={14}/></Link>}</div>}
       {notice && <p className="upload-picker-hint" role="status">{notice}</p>}
-      {(!batch || pending.length > 0) && <button className="btn gold-btn full" disabled={!pending.length || !filiere || !category || !module.trim() || pending.some(entry => !entry.title.trim()) || busy}>{t(busy ? 'uploading' : batch ? attempted ? 'uploadRetryFailed' : 'uploadPublishFiles' : 'publishResource', busy ? 'Envoi en cours…' : batch ? attempted ? 'Réessayer les fichiers en échec' : 'Partager les fichiers' : 'Partager la ressource')}{attempted ? <RotateCw size={16}/> : <ArrowRight size={16}/>}</button>}
+      {(!batch || pending.length > 0) && <button className="btn gold-btn full" disabled={!pending.length || !filiere || !category || !module.trim() || pending.some(entry => !entry.title.trim() || !entry.teacherName.trim() || !Number.isInteger(Number(entry.partNumber)) || Number(entry.partNumber) < 1) || busy}>{t(busy ? 'uploading' : batch ? attempted ? 'uploadRetryFailed' : 'uploadPublishFiles' : 'publishResource', busy ? 'Envoi en cours…' : batch ? attempted ? 'Réessayer les fichiers en échec' : 'Partager les fichiers' : 'Partager la ressource')}{attempted ? <RotateCw size={16}/> : <ArrowRight size={16}/>}</button>}
       {batch && attempted && <button type="button" className="btn outline full upload-done" disabled={busy} onClick={closeModal}>{t('done', 'Terminé')}</button>}
     </form>
   </>;
