@@ -1682,3 +1682,38 @@
     min-height: 40px;
   }
 }
+
+
+/* Desktop semester row: balanced across the full library width. */
+@container study-library (min-width: 901px) {
+  .study-library .study-semester-strip {
+    display: grid;
+    grid-template-columns: minmax(155px, .8fr) repeat(3, minmax(190px, 1fr));
+    align-items: stretch;
+    gap: 10px;
+    width: 100%;
+  }
+
+  .study-library .study-all-semesters {
+    width: 100%;
+    min-height: 76px;
+    padding: 0 16px;
+    justify-content: center;
+  }
+
+  .study-library .study-semester-group {
+    width: 100%;
+    min-width: 0;
+    min-height: 76px;
+    padding: 8px 10px;
+  }
+
+  .study-library .study-semester-group > div {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .study-library .study-semester-group button {
+    min-width: 0;
+    width: 100%;
+  }
+}
