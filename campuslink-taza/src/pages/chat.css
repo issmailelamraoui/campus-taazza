@@ -666,3 +666,202 @@
     color: var(--rose);
   }
 }
+
+
+/* Final quick-action positioning: anchor controls to the bubble itself. */
+.chat-page .message-bubble-wrap {
+  position: relative;
+  width: fit-content;
+  max-width: 100%;
+  align-self: flex-start;
+}
+
+.chat-page .own-message .message-bubble-wrap {
+  align-self: flex-end;
+}
+
+.chat-page .message-bubble-wrap > .message-bubble {
+  max-width: 100%;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .chat-page .message-bubble-wrap > .message-hover-actions {
+    position: absolute !important;
+    top: 50% !important;
+    inset-inline-start: calc(100% + 8px) !important;
+    inset-inline-end: auto !important;
+    display: flex !important;
+    align-items: center;
+    gap: 2px;
+    width: max-content !important;
+    height: auto !important;
+    margin: 0 !important;
+    padding: 3px;
+    border: 1px solid var(--border);
+    border-radius: 11px;
+    background: var(--panel);
+    box-shadow: 0 8px 24px #0000001f;
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transform: translateY(-50%) !important;
+    z-index: 7;
+  }
+
+  .chat-page .own-message .message-bubble-wrap > .message-hover-actions {
+    inset-inline-start: auto !important;
+    inset-inline-end: calc(100% + 8px) !important;
+  }
+
+  .chat-page .message-bubble-wrap:hover > .message-hover-actions,
+  .chat-page .message-bubble-wrap:focus-within > .message-hover-actions,
+  .chat-page .message-menu-open .message-bubble-wrap > .message-hover-actions {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+  }
+
+  /* Override older responsive rules that hid the middle action buttons. */
+  .chat-page .message-bubble-wrap > .message-hover-actions > .icon-button,
+  .chat-page .message-bubble-wrap > .message-hover-actions > .icon-button:not(:last-of-type),
+  .chat-page .message-bubble-wrap > .message-hover-actions > .message-quick-like,
+  .chat-page .message-bubble-wrap > .message-hover-actions > .message-quick-heart,
+  .chat-page .message-bubble-wrap > .message-hover-actions > .message-reply-action {
+    display: inline-flex !important;
+    width: 32px !important;
+    height: 32px !important;
+    min-width: 32px;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border-radius: 8px;
+  }
+
+  .chat-page .message-bubble-wrap > .message-hover-actions > .message-quick-like:hover,
+  .chat-page .message-bubble-wrap > .message-hover-actions > .message-quick-like.reacted {
+    color: var(--primary);
+    background: var(--chat-own-bubble);
+  }
+
+  .chat-page .message-bubble-wrap > .message-hover-actions > .message-quick-heart:hover,
+  .chat-page .message-bubble-wrap > .message-hover-actions > .message-quick-heart.reacted {
+    color: var(--rose);
+    background: var(--chat-own-bubble);
+  }
+
+  .chat-page .message-bubble-wrap > .message-hover-actions .message-menu {
+    z-index: 20;
+  }
+}
+
+@media (hover: none), (pointer: coarse) {
+  /* Keep the desktop toolbar itself invisible on touch, but keep its menu usable
+     when the long-press palette's "more" button opens it. */
+  .chat-page .message-bubble-wrap > .message-hover-actions {
+    position: static !important;
+    display: block !important;
+    width: 0 !important;
+    height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    opacity: 1 !important;
+    visibility: visible !important;
+    pointer-events: none;
+    transform: none !important;
+  }
+
+  .chat-page .message-bubble-wrap > .message-hover-actions > .icon-button {
+    display: none !important;
+  }
+
+  .chat-page .message-bubble-wrap > .message-hover-actions .message-menu {
+    position: absolute !important;
+    top: calc(100% + 8px) !important;
+    bottom: auto !important;
+    left: auto !important;
+    right: auto !important;
+    inset-inline-start: 0 !important;
+    inset-inline-end: auto !important;
+    width: min(270px, calc(100vw - 28px));
+    max-width: min(270px, calc(100vw - 28px)) !important;
+    max-height: min(60vh, 420px) !important;
+    pointer-events: auto;
+    z-index: 30;
+  }
+
+  .chat-page .own-message .message-bubble-wrap > .message-hover-actions .message-menu {
+    inset-inline-start: auto !important;
+    inset-inline-end: 0 !important;
+  }
+
+  .chat-page .message-bubble {
+    touch-action: pan-y;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
+  }
+
+  .chat-page .message-bubble-wrap > .message-quick-reactions {
+    position: absolute;
+    bottom: calc(100% + 7px);
+    inset-inline-start: 0;
+    inset-inline-end: auto;
+    display: inline-flex !important;
+    align-items: center;
+    gap: 4px;
+    width: auto;
+    max-width: calc(100vw - 28px);
+    margin: 0;
+    padding: 5px;
+    border: 1px solid var(--border-accent);
+    border-radius: 14px;
+    background: var(--panel);
+    box-shadow: 0 12px 34px #00000038;
+    z-index: 25;
+  }
+
+  .chat-page .own-message .message-bubble-wrap > .message-quick-reactions {
+    inset-inline-start: auto;
+    inset-inline-end: 0;
+  }
+
+  .chat-page .message-bubble-wrap > .message-quick-reactions > button {
+    display: grid;
+    place-items: center;
+    flex: 0 0 44px;
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    border: 0;
+    border-radius: 11px;
+    background: transparent;
+    color: var(--muted);
+  }
+
+  .chat-page .message-bubble-wrap > .message-quick-reactions > button:active,
+  .chat-page .message-bubble-wrap > .message-quick-reactions > button.reacted {
+    background: var(--chat-own-bubble);
+    color: var(--primary);
+  }
+
+  .chat-page .message-bubble-wrap > .message-quick-reactions > button:nth-child(2):active,
+  .chat-page .message-bubble-wrap > .message-quick-reactions > button:nth-child(2).reacted {
+    color: var(--rose);
+  }
+}
+
+@media (max-width: 420px) {
+  .chat-page .message-bubble-wrap > .message-quick-reactions {
+    gap: 2px;
+    padding: 4px;
+  }
+
+  .chat-page .message-bubble-wrap > .message-quick-reactions > button {
+    width: 42px;
+    height: 42px;
+    flex-basis: 42px;
+  }
+}
