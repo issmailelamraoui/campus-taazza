@@ -67,8 +67,8 @@ export function ChatMessage({message:m,groupedWithPrevious=false,groupedWithNext
         {m.pinned&&<Pin size={14} className="gold"/>}
       </div>
       <div className="message-bubble-wrap">
+        {parent&&<Link to={messagePath(parent)} className="reply-context reply-context-floating"><CornerUpLeft size={14}/><b>{parent.author.name}</b><span>{parent.content.slice(0,80)}</span></Link>}
         <div className="message-bubble" onPointerDown={startLongPress} onPointerMove={moveLongPress} onPointerUp={clearLongPress} onPointerCancel={clearLongPress} onContextMenu={e=>{if(window.matchMedia?.('(hover: none) and (pointer: coarse)').matches)e.preventDefault();}}>
-          {parent&&<Link to={messagePath(parent)} className="reply-context"><CornerUpLeft size={15}/><b>{parent.author.name}</b><span>{parent.content.slice(0,80)}</span></Link>}
           <p className="message-text" dir="auto">{m.content}</p>
           {r&&<Attachment resource={r}/>}
         </div>
