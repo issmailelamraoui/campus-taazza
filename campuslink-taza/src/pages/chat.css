@@ -332,3 +332,68 @@
 }
 .message-delivery button:hover { background: var(--panel-2); }
 .message-failed .message-bubble { border-color: #a85f58; }
+
+
+/* Consecutive messages from the same sender, sent within two minutes, read as one group. */
+.chat-page .message-avatar-spacer {
+  width: 37px;
+  min-width: 37px;
+  height: 1px;
+  flex: 0 0 37px;
+}
+
+.chat-page .chat-message.message-grouped-next {
+  margin-bottom: 4px;
+}
+
+.chat-page .chat-message.message-grouped-prev {
+  margin-top: 0;
+}
+
+.chat-page .message-grouped-prev .message-meta {
+  min-height: 30px;
+  margin-bottom: 2px;
+}
+
+.chat-page .message-grouped-prev .message-hover-actions > .icon-button {
+  width: 30px;
+  height: 30px;
+}
+
+.chat-page .message-grouped-next:not(.own-message) .message-bubble {
+  border-end-start-radius: 6px;
+}
+
+.chat-page .message-grouped-prev:not(.own-message) .message-bubble {
+  border-start-start-radius: 6px;
+}
+
+.chat-page .own-message.message-grouped-next .message-bubble {
+  border-end-end-radius: 6px;
+}
+
+.chat-page .own-message.message-grouped-prev .message-bubble {
+  border-start-end-radius: 6px;
+}
+
+@media (max-width: 760px) {
+  .chat-page .message-avatar-spacer {
+    width: 32px;
+    min-width: 32px;
+    flex-basis: 32px;
+  }
+
+  .chat-page .chat-message.message-grouped-next {
+    margin-bottom: 3px;
+  }
+
+  .chat-page .message-grouped-prev .message-meta {
+    min-height: 44px;
+    margin-bottom: 2px;
+  }
+
+  .chat-page .message-grouped-prev .message-hover-actions > .icon-button {
+    width: 44px;
+    height: 44px;
+  }
+}
