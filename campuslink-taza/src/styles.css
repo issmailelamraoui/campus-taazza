@@ -5318,3 +5318,380 @@ body{line-height:1.6}
     margin-inline-start: 0;
   }
 }
+
+
+/* ========================================================================== */
+/* Screenshot-matched dark palette                                            */
+/* Keeps the existing layout/backend intact; only visual colors are changed.  */
+/* ========================================================================== */
+:root,
+:root[data-theme="dark"] {
+  --bg: #141416;
+  --panel: #222122;
+  --panel-2: #25231e;
+  --panel-hover: #2d2b2c;
+  --border: #343235;
+  --border-accent: #555057;
+
+  --primary: #8db9ea;
+  --primary-soft: #a8c8f0;
+  --primary-dim: #628fc1;
+
+  --text: #f1eee8;
+  --muted: #aaa49c;
+  --soft: #77736e;
+
+  --green: #78b89b;
+  --violet: #b898e5;
+  --rose: #d98aa8;
+  --gold: #c4aa65;
+
+  color-scheme: dark;
+  background: var(--bg);
+  color: var(--text);
+}
+
+html,
+body,
+#root,
+.app-shell,
+.public-page {
+  background: var(--bg);
+  color: var(--text);
+}
+
+/* Main shell from the reference: charcoal outer columns, deep indigo faculty rail,
+   and a slightly lighter reading surface in the center. */
+.app-header,
+.public-header,
+.global-sidebar,
+.info-column {
+  background: #141416;
+  border-color: var(--border);
+}
+
+.faculty-sidebar,
+:root[data-theme="dark"] .faculty-sidebar {
+  background: #0f0e1c;
+  border-color: #302f39;
+}
+
+.content-column,
+.main-column,
+.chat-page,
+.content-page {
+  background: #222122;
+}
+
+.info-column,
+.faculty-info,
+.right-sidebar {
+  background: #141416;
+}
+
+.panel,
+.resource-card,
+.study-category-card,
+.study-continue-card,
+.study-resource-section,
+.study-resource-type-group,
+.study-module-tile,
+.study-member-card,
+.study-notification,
+.study-announcement,
+.study-discussion-preview,
+.study-event-preview,
+.admin-report-card,
+.admin-contact-card,
+.admin-channel-card,
+.admin-publish-panel,
+.admin-dialog,
+.upload-batch,
+.upload-batch-row {
+  background: #1b1b1d;
+  border-color: var(--border);
+  box-shadow: none;
+}
+
+/* Warm dark cards/composer visible in the screenshot. */
+.chat-composer,
+.chat-welcome,
+.selected-faculty,
+.modal,
+.command-palette,
+.dropdown,
+.document-preview,
+.upload-batch-heading {
+  background: #25231e;
+  border-color: #464035;
+}
+
+.selected-faculty {
+  box-shadow: none;
+}
+
+/* Navigation */
+.global-nav-item,
+.channel-link,
+.faculty-nav-item {
+  color: #c8c4be;
+}
+
+.global-nav-item:hover,
+.channel-link:hover,
+.faculty-nav-item:hover {
+  background: #1d1f25;
+  color: var(--text);
+}
+
+.global-nav-item.active,
+.channel-link.active,
+.faculty-nav-item.active {
+  background: #232833;
+  border-color: #353b48;
+  color: #a9c9f2;
+}
+
+.global-nav-item.active svg,
+.channel-link.active svg,
+.faculty-nav-item.active svg,
+.brand-mark,
+.theme-toggle,
+.mobile-menu {
+  color: #8db9ea;
+}
+
+/* Buttons */
+.gold-btn,
+:root[data-theme="dark"] .gold-btn {
+  background: #1d5b89;
+  border-color: #2c78ad;
+  color: #eef7ff;
+  box-shadow: none;
+}
+
+.gold-btn:hover:not(:disabled),
+:root[data-theme="dark"] .gold-btn:hover:not(:disabled) {
+  background: #246b9e;
+  border-color: #3684ba;
+  color: #ffffff;
+}
+
+.btn.outline,
+.btn.btn-secondary {
+  background: #19191b;
+  border-color: var(--border);
+  color: #d9d5cf;
+}
+
+.btn.outline:hover,
+.btn.btn-secondary:hover {
+  background: #252529;
+  border-color: #4b4a4e;
+  color: #a9c9f2;
+}
+
+.icon-button {
+  color: #aaa6a0;
+}
+
+.icon-button:hover {
+  background: #29292c;
+  color: #f0ede7;
+}
+
+/* Search / inputs */
+.global-search,
+.field input,
+.field textarea,
+.field select,
+.input,
+input.input,
+select.input,
+.admin-search,
+.upload-batch-row input {
+  background: #171719;
+  border-color: #3a383b;
+  color: var(--text);
+}
+
+.global-search:hover,
+.global-search:focus-within,
+.field input:focus,
+.field textarea:focus,
+.field select:focus,
+.input:focus,
+input.input:focus,
+select.input:focus,
+.admin-search:focus-within,
+.upload-batch-row input:focus {
+  border-color: #6f8eae !important;
+  box-shadow: 0 0 0 2px rgba(141,185,234,.12);
+}
+
+/* Warm gold details from the reference. */
+.section-label,
+.faculty-code,
+.hero-eyebrow {
+  color: #a9c9f2;
+}
+
+.chat-welcome,
+.chat-composer {
+  border-color: #4a4334;
+}
+
+.chat-welcome svg,
+.chat-composer .composer-attach {
+  color: #8db9ea;
+}
+
+.count-badge,
+.badge,
+.verified-badge {
+  background: #29271f;
+  border-color: #494332;
+  color: #d7bf78;
+}
+
+/* Restrained category accents like the reference screenshot:
+   color lives in icons/details, not in whole backgrounds. */
+.category-courses {
+  --category-color: #b898e5 !important;
+}
+.category-exercises {
+  --category-color: #78b89b !important;
+}
+.category-exams {
+  --category-color: #8db9ea !important;
+}
+.category-rattrapage {
+  --category-color: #d98aa8 !important;
+}
+
+.category-icon,
+.study-file-symbol,
+.study-result-icon {
+  background: #202024;
+}
+
+.category-icon.courses,
+.category-courses .category-icon {
+  color: #b898e5;
+}
+.category-icon.exercises,
+.category-exercises .category-icon {
+  color: #78b89b;
+}
+.category-icon.exams,
+.category-exams .category-icon {
+  color: #8db9ea;
+}
+.category-icon.rattrapage,
+.category-rattrapage .category-icon {
+  color: #d98aa8;
+}
+
+/* Center conversation and messages */
+.chat-header {
+  background: #141416;
+  border-color: var(--border);
+}
+
+.chat-scroll {
+  background: #222122;
+}
+
+.chat-message {
+  color: var(--text);
+}
+
+.message-text,
+.announcement-card > p {
+  color: #dedad3;
+}
+
+.message-meta,
+.message-meta > span,
+.resource-meta,
+.resource-author,
+.resource-card-bottom {
+  color: var(--muted);
+}
+
+.message-hover-actions {
+  background: #1b1b1d;
+  border-color: var(--border);
+}
+
+/* Right information rail */
+.faculty-info,
+.resource-shortcut,
+.member-card,
+.info-card {
+  border-color: var(--border);
+}
+
+.resource-shortcut {
+  background: #18181a;
+}
+
+.resource-shortcut:hover {
+  background: #202023;
+  border-color: #46454a;
+}
+
+/* Modal / overlay */
+.modal-backdrop,
+.admin-dialog-overlay {
+  background: rgba(8,8,10,.82);
+  backdrop-filter: blur(5px);
+}
+
+.modal {
+  box-shadow: 0 28px 90px rgba(0,0,0,.45);
+}
+
+/* Semantic states stay semantic. */
+.green-dot,
+.presence-dot {
+  background: #78b89b !important;
+}
+
+.red-dot {
+  background: #e0525c !important;
+}
+
+.form-error {
+  color: #f1a1aa;
+  background: #351d21;
+  border-color: #673239;
+}
+
+/* Remove old light/gradient leftovers that fight the new palette. */
+:root[data-theme="dark"] .public-page,
+.public-page {
+  background: #141416;
+}
+
+:root[data-theme="dark"] .faculty-cover:after {
+  background: linear-gradient(0deg, #141416, transparent 70%);
+}
+
+.study-library .resource-preview {
+  background: #27262a;
+}
+
+.study-library .paper-preview,
+.study-library .pdf-label,
+.study-library .save-button,
+.study-library .resource-actions > .subtle-link {
+  background: #18181a;
+  border-color: #39383c;
+}
+
+.study-library .resource-actions > .subtle-link:first-child {
+  background: #202733;
+  border-color: #34465d;
+  color: #a9c9f2;
+}
