@@ -5403,51 +5403,72 @@ body{line-height:1.6}
 
 /* -------------------------------------------------------------------------- */
 /* CampusLink visual identity                                                  */
-/* Atlas clay + ink: warm, academic, recognizable, and high-contrast.          */
+/* FPT identity: institutional royal blue + restrained faculty red.            */
 /* -------------------------------------------------------------------------- */
 :root {
-  --bg: #f3efe8;
-  --panel: #fffaf4;
-  --panel-2: #eee5da;
-  --panel-hover: #e5d8ca;
-  --border: #d8cbbd;
-  --border-accent: #b79d88;
-  --primary: #8f4d34;
-  --primary-soft: #a75e40;
-  --primary-dim: #6f3f30;
-  --text: #211c19;
-  --muted: #6f665f;
-  --soft: #8a7d74;
-  --green: #4f715d;
-  --violet: #8f4d34;
-  --rose: #9e4b50;
-  --radius: 11px;
-  --on-primary: #fff8f2;
-  --brand-ink: #2b211c;
-  --surface-shadow: 0 10px 30px rgba(66, 39, 25, .07);
-  --surface-shadow-hover: 0 14px 36px rgba(66, 39, 25, .12);
+  --bg: #f4f7fb;
+  --panel: #ffffff;
+  --panel-2: #edf2f8;
+  --panel-hover: #e4ebf4;
+  --border: #d7e0ea;
+  --border-accent: #9fb0c4;
+  --primary: #173b7a;
+  --primary-soft: #285497;
+  --primary-dim: #46678f;
+  --text: #1b2430;
+  --muted: #667085;
+  --soft: #8491a3;
+  --green: #2f7d5a;
+  --violet: #173b7a;
+  --rose: #b4232f;
+  --radius: 12px;
+  --brand-red: #d71920;
+  --brand-red-soft: #fff0f1;
+  --danger: #b4232f;
+  --on-primary: #ffffff;
+  --font-ui: "DM Sans", "Noto Sans Arabic", sans-serif;
+  --font-display: "Cormorant Garamond", "Noto Sans Arabic", serif;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-7: 32px;
+  --space-8: 40px;
+  --control-sm: 36px;
+  --control-md: 44px;
+  --control-lg: 50px;
+  --card-radius: 12px;
+  --modal-radius: 16px;
+  --brand-ink: #111827;
+  --surface-shadow: 0 10px 28px rgba(23, 59, 122, .07);
+  --surface-shadow-hover: 0 14px 34px rgba(23, 59, 122, .12);
 }
 
 :root[data-theme="dark"] {
-  --bg: #090908;
-  --panel: #11100f;
-  --panel-2: #191714;
-  --panel-hover: #211e1a;
-  --border: #342f29;
-  --border-accent: #665649;
-  --primary: #d68a5c;
-  --primary-soft: #e2a47d;
-  --primary-dim: #b8734b;
-  --text: #f4efe8;
-  --muted: #b1a69b;
-  --soft: #91867c;
-  --green: #7ea38c;
-  --violet: #d68a5c;
-  --rose: #d4777d;
-  --on-primary: #1a100b;
-  --brand-ink: #f4efe8;
-  --surface-shadow: 0 12px 36px rgba(0, 0, 0, .32);
-  --surface-shadow-hover: 0 16px 42px rgba(0, 0, 0, .42);
+  --bg: #070b12;
+  --panel: #0d1420;
+  --panel-2: #131e2c;
+  --panel-hover: #19283a;
+  --border: #27364a;
+  --border-accent: #4b6382;
+  --primary: #8fb4ff;
+  --primary-soft: #aec8ff;
+  --primary-dim: #7898c7;
+  --text: #f3f6fa;
+  --muted: #a7b2c0;
+  --soft: #8795a8;
+  --green: #78b696;
+  --violet: #8fb4ff;
+  --rose: #ff7d87;
+  --brand-red: #ff6670;
+  --brand-red-soft: #2b1419;
+  --danger: #ff7d87;
+  --on-primary: #07101f;
+  --brand-ink: #f3f6fa;
+  --surface-shadow: 0 12px 34px rgba(0, 0, 0, .30);
+  --surface-shadow-hover: 0 16px 40px rgba(0, 0, 0, .40);
 }
 
 body,
@@ -5644,7 +5665,7 @@ hr,
 }
 
 
-/* Signature CampusLink details: warm Atlas clay, ink surfaces, no rainbow UI. */
+/* Signature CampusLink details: FPT blue structure with restrained faculty red. */
 .public-header {
   background: color-mix(in srgb, var(--panel) 96%, transparent);
   border-bottom: 1px solid var(--border);
@@ -5667,7 +5688,7 @@ hr,
 
 .selected-faculty {
   border: 1px solid var(--border);
-  border-inline-start: 3px solid var(--primary);
+  border-inline-start: 3px solid var(--brand-red);
   background: color-mix(in srgb, var(--primary) 6%, var(--panel));
 }
 
@@ -5697,8 +5718,8 @@ hr,
 }
 
 .count-badge {
-  background: var(--primary);
-  color: var(--on-primary);
+  background: var(--brand-red);
+  color: #fff;
 }
 
 .page-heading h1,
@@ -5714,7 +5735,7 @@ hr,
   height: 3px;
   margin-bottom: 10px;
   border-radius: 999px;
-  background: var(--primary);
+  background: var(--brand-red);
 }
 
 .public-page {
@@ -5729,5 +5750,238 @@ hr,
   .page-heading::before {
     width: 28px;
     margin-bottom: 8px;
+  }
+}
+
+
+/* FPT CampusLink type, spacing and component scale. */
+html {
+  font-family: var(--font-ui);
+}
+
+body,
+button,
+input,
+textarea,
+select {
+  font-family: var(--font-ui);
+}
+
+body {
+  font-size: 15px;
+  line-height: 1.6;
+  letter-spacing: -.005em;
+}
+
+h1,
+h2,
+h3,
+h4,
+p {
+  margin-block-start: 0;
+}
+
+.page-heading h1,
+.modal-heading h2,
+.empty-state h3,
+.admin-heading h1,
+.study-welcome h1,
+.hero-copy h1,
+.brand strong {
+  font-family: var(--font-display);
+  font-weight: 600;
+  letter-spacing: -.02em;
+}
+
+.page-heading h1 {
+  font-size: clamp(30px, 3vw, 42px);
+  line-height: 1.08;
+}
+
+.page-heading p {
+  max-width: 68ch;
+  margin-top: var(--space-2);
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1.7;
+}
+
+.section-label,
+.study-eyebrow {
+  color: var(--primary);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+}
+
+.btn {
+  min-height: var(--control-md);
+  padding: 9px 15px;
+  gap: 8px;
+  border-radius: 9px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.btn.large {
+  min-height: var(--control-lg);
+  padding: 11px 18px;
+  font-size: 15px;
+}
+
+.icon-button {
+  width: var(--control-md);
+  height: var(--control-md);
+  border-radius: 9px;
+}
+
+.field {
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+  font-size: 14px;
+}
+
+.field input,
+.field textarea,
+.field select,
+.input {
+  min-height: var(--control-md);
+  padding: 10px 12px;
+  border-radius: 9px;
+  font-size: 15px;
+}
+
+.panel,
+.resource-card,
+.study-category-card,
+.study-continue-card,
+.study-notification,
+.study-member-card,
+.admin-report-card,
+.admin-contact-card,
+.admin-channel-card,
+.admin-publish-panel {
+  border-radius: var(--card-radius);
+}
+
+.modal,
+.modal-card,
+.admin-dialog {
+  border-radius: var(--modal-radius);
+}
+
+.content-page,
+.study-page,
+.admin-page {
+  padding: var(--space-7) clamp(18px, 3vw, 40px) var(--space-8);
+}
+
+.page-heading {
+  gap: var(--space-5);
+  margin-bottom: var(--space-6);
+}
+
+.page-heading-actions {
+  gap: var(--space-2);
+}
+
+.global-nav-item,
+.faculty-nav-item,
+.channel-link {
+  min-height: 40px;
+  padding: 9px 10px;
+  border-radius: 8px;
+  font-size: 14px;
+}
+
+.resource-card {
+  overflow: hidden;
+}
+
+.resource-body {
+  padding: var(--space-4);
+}
+
+.resource-title {
+  font-size: 15px;
+  line-height: 1.45;
+  font-weight: 600;
+}
+
+.resource-meta,
+.resource-author,
+.resource-card-bottom {
+  font-size: 12px;
+}
+
+.badge {
+  min-height: 24px;
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.modal-heading {
+  margin-bottom: var(--space-4);
+}
+
+.modal-heading h2 {
+  font-size: clamp(27px, 3vw, 34px);
+  line-height: 1.12;
+}
+
+.brand strong {
+  letter-spacing: -.015em;
+}
+
+[dir="rtl"] .page-heading h1,
+[dir="rtl"] .modal-heading h2,
+[dir="rtl"] .empty-state h3,
+[dir="rtl"] .admin-heading h1,
+[dir="rtl"] .study-welcome h1,
+[dir="rtl"] .hero-copy h1 {
+  font-family: "Noto Sans Arabic", sans-serif;
+  letter-spacing: 0;
+  line-height: 1.45;
+}
+
+@media (max-width: 700px) {
+  body {
+    font-size: 14px;
+  }
+
+  .content-page,
+  .study-page,
+  .admin-page {
+    padding: 20px 12px 28px;
+  }
+
+  .page-heading {
+    margin-bottom: 18px;
+  }
+
+  .page-heading h1 {
+    font-size: 30px;
+  }
+
+  .page-heading p {
+    font-size: 14px;
+  }
+
+  .btn {
+    min-height: 44px;
+  }
+
+  .panel,
+  .resource-card,
+  .study-category-card,
+  .study-continue-card,
+  .study-notification,
+  .study-member-card {
+    border-radius: 10px;
   }
 }
