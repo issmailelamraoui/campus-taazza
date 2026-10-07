@@ -1989,3 +1989,24 @@
   border-color: color-mix(in srgb, var(--primary) 55%, var(--border));
   background: color-mix(in srgb, var(--primary) 10%, var(--panel));
 }
+
+
+/* Consistent study-page hover motion; avoid discrete background shorthand jumps. */
+.study-page :is(
+  button,
+  a,
+  [role="button"],
+  .study-stat,
+  .study-category-card,
+  .study-continue-card,
+  .study-announcement,
+  .study-discussion-preview,
+  .study-event-preview,
+  .study-module-tile,
+  .study-library-category,
+  .resource-card
+) {
+  transition-property: background-color, color, border-color, box-shadow, transform, opacity !important;
+  transition-duration: var(--motion-ui, 220ms) !important;
+  transition-timing-function: var(--motion-ease, cubic-bezier(.22, .61, .36, 1)) !important;
+}
