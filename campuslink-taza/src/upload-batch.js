@@ -7,7 +7,7 @@ export function prepareUploadFiles(files, folder = false) {
     const relativePath = folder ? file.webkitRelativePath || file.name : '';
     const extension = file.name.slice(file.name.lastIndexOf('.')).toLowerCase();
     const issue = !file.size ? 'uploadEmptyFile' : file.size > MAX_UPLOAD_BYTES ? 'uploadTooLarge' : !extensions.has(extension) ? 'uploadUnsupported' : '';
-    return { id: index, file, relativePath, title: file.name.replace(/\.[^.]+$/, '').slice(0, 180), status: issue ? 'skipped' : 'queued', issue };
+    return { id: index, file, relativePath, title: file.name.replace(/\.[^.]+$/, '').slice(0, 180), partNumber: index + 1, teacherName: '', status: issue ? 'skipped' : 'queued', issue };
   });
 }
 
