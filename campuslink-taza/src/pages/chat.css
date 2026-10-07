@@ -465,3 +465,83 @@
     inset-inline-end: auto;
   }
 }
+
+
+/* Compact reaction chips: visible only when a reaction exists.
+   First reactions are still available from the message actions menu. */
+.chat-page .message-reactions.visible-reactions {
+  width: fit-content;
+  max-width: 100%;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 5px;
+  padding: 0;
+}
+
+.chat-page .own-message .message-reactions.visible-reactions {
+  align-self: flex-end;
+}
+
+.chat-page .message-reactions.visible-reactions .reaction {
+  min-height: 28px;
+  padding: 3px 8px;
+  gap: 5px;
+  border-radius: 999px;
+  background: var(--chat-bubble);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1;
+  box-shadow: none;
+}
+
+.chat-page .message-reactions.visible-reactions .reaction:hover,
+.chat-page .message-reactions.visible-reactions .reaction.reacted {
+  background: var(--chat-own-bubble);
+  border-color: var(--chat-own-border);
+  color: var(--primary);
+}
+
+.chat-page .message-reactions.visible-reactions .heart svg,
+.chat-page .message-reactions.visible-reactions .heart.reacted {
+  color: var(--rose);
+}
+
+.chat-page .message-reply-status {
+  margin-top: 5px;
+}
+
+.chat-page .own-message .message-reply-status {
+  align-self: flex-end;
+}
+
+/* A reacted message inside a group gets just enough breathing room,
+   while unreacted bubbles still stay visually attached. */
+.chat-page .chat-message.message-grouped-next.message-has-reactions {
+  margin-bottom: 8px;
+}
+
+.chat-page .chat-message:not(.message-grouped-next).message-has-reactions {
+  margin-bottom: 18px;
+}
+
+@media (max-width: 760px) {
+  .chat-page .message-reactions.visible-reactions {
+    margin-top: 4px;
+    gap: 4px;
+  }
+
+  .chat-page .message-reactions.visible-reactions .reaction {
+    min-height: 30px;
+    padding: 4px 8px;
+  }
+
+  .chat-page .chat-message.message-grouped-next.message-has-reactions {
+    margin-bottom: 7px;
+  }
+
+  .chat-page .chat-message:not(.message-grouped-next).message-has-reactions {
+    margin-bottom: 15px;
+  }
+}
