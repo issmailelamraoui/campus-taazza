@@ -1541,3 +1541,19 @@
   stroke: currentColor;
   opacity: 1;
 }
+
+
+/* Smooth chat controls without animating non-interpolable background shorthands. */
+.chat-page :is(
+  button,
+  a,
+  [role="button"],
+  .reaction,
+  .attachment-file,
+  .reply-context,
+  .message-bubble
+) {
+  transition-property: background-color, color, border-color, box-shadow, transform, opacity !important;
+  transition-duration: var(--motion-ui, 220ms) !important;
+  transition-timing-function: var(--motion-ease, cubic-bezier(.22, .61, .36, 1)) !important;
+}
