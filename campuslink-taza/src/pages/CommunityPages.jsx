@@ -21,6 +21,8 @@ export function ChatMessage({message:m,groupedWithPrevious=false,groupedWithNext
   const parent=data.messages.find(p=>p.id===m.reply_to);
   const own=m.author.id===user.id,canModerate=user.role==='global_admin';
   const local=Boolean(m._status);
+  const visibleReactions=['like','heart'].filter(reaction=>(m.reactions?.[reaction]||0)>0||m.my_reactions?.includes(reaction));
+  const hasVisibleReactions=visibleReactions.length>0;
   useLayoutEffect(()=>{
     if(!menu)return;
     const element=menuRef.current,scroll=element?.closest('.chat-scroll');
@@ -51,7 +53,7 @@ export function ChatMessage({message:m,groupedWithPrevious=false,groupedWithNext
   });
   const react=reaction=>action(()=>optimisticAction({key:`reaction-${m.id}`,apply:base=>setReaction(base,m.id,reaction,!m.my_reactions?.includes(reaction)),request:()=>api(`/messages/${m.id}/reaction`,{method:'POST',body:{reaction}}),commit:(base,result)=>updateMessage(base,m.id,current=>({...current,reactions:result.message.reactions,my_reactions:result.message.my_reactions}))}));
   const copy=async()=>{try{await navigator.clipboard.writeText(location.origin+messagePath(m));toast(t('linkCopied','Lien copié.'));}catch{toast(t('copyFailed','Impossible de copier le lien.'),'error');}setMenu(false);};
-  return <article className={`chat-message ${own?'own-message':''} ${groupedWithPrevious?'message-grouped-prev':''} ${groupedWithNext?'message-grouped-next':''} ${menu?'message-menu-open':''} ${m.pinned?'pinned-message':''} ${local?`message-${m._status}`:''}`} id={`message-${m.id}`} data-client-id={m.client_id||undefined} data-status={m._status||'sent'}>
+  return <article className={`chat-message ${own?'own-message':''} ${groupedWithPrevious?'message-grouped-prev':''} ${groupedWithNext?'message-grouped-next':''} ${hasVisibleReactions?'message-has-reactions':''} ${menu?'message-menu-open':''} ${m.pinned?'pinned-message':''} ${local?`message-${m._status}`:''}`} id={`message-${m.id}`} data-client-id={m.client_id||undefined} data-status={m._status||'sent'}>
     {groupedWithPrevious?<span className="message-avatar-spacer" aria-hidden="true"/>:<Avatar user={m.author} size={37}/>} 
     <div className="message-content">
       <div className={`message-meta ${groupedWithPrevious?'message-meta-grouped':''}`}>
@@ -64,6 +66,8 @@ export function ChatMessage({message:m,groupedWithPrevious=false,groupedWithNext
           {menu&&<div ref={menuRef} id={`message-menu-${m.id}`} className="message-menu panel" aria-label={t('messageActions','Actions du message')} data-side={menuPlacement.up?'up':'down'} style={{maxHeight:menuPlacement.maxHeight,maxWidth:menuPlacement.maxWidth,insetInlineEnd:'auto',left:menuPlacement.left}}>
             <button onClick={()=>{onReply?.(m);setMenu(false);}}><Reply size={16}/>{t('reply','Répondre')}</button>
             <button className="message-menu-save" disabled={busy} onClick={()=>action(()=>toggleSave('message',m.id))}><Bookmark size={16} fill={isSaved?'currentColor':'none'}/>{t('save','Enregistrer')}</button>
+            <button disabled={busy} onClick={()=>react('like')}><ThumbsUp size={16} fill={m.my_reactions?.includes('like')?'currentColor':'none'}/>{t('like',"J'aime")}</button>
+            <button disabled={busy} onClick={()=>react('heart')}><Heart size={16} fill={m.my_reactions?.includes('heart')?'currentColor':'none'}/>{t('heart','Apprécier')}</button>
             {privileged&&<button onClick={pin} disabled={busy}><Pin size={16}/>{t(m.pinned?'unpinFromAnnouncements':'pinToAnnouncements',m.pinned?'Retirer des annonces':'Épingler dans les annonces')}</button>}
             <button onClick={copy}><Link2 size={16}/>{t('copyLink','Copier le lien')}</button>
             <button onClick={()=>{openModal('report',{target_type:'message',target_id:m.id});setMenu(false);}}><Flag size={16}/>{t('report','Signaler')}</button>
@@ -77,14 +81,13 @@ export function ChatMessage({message:m,groupedWithPrevious=false,groupedWithNext
         <p className="message-text" dir="auto">{m.content}</p>
         {r&&<Attachment resource={r}/>}
       </div>
-      {local?<div className={`message-delivery ${m._status}`} role="status">{m._status==='pending'?<><Clock3 size={13}/><span>{t('messageSending','Envoi en cours…')}</span></>:<><AlertCircle size={14}/><span>{t('messageSendFailed','Envoi échoué')}</span><button type="button" onClick={()=>sendMessage(m).catch(error=>toast(error.message,'error'))}><RotateCcw size={13}/>{t('retry','Réessayer')}</button><button type="button" onClick={()=>discardMessage(m)} aria-label={t('discardMessage','Retirer ce message')}><X size={14}/></button></>}</div>:<div className="message-reactions">
-        {['like','heart'].map(reaction=>{
+      {local?<div className={`message-delivery ${m._status}`} role="status">{m._status==='pending'?<><Clock3 size={13}/><span>{t('messageSending','Envoi en cours…')}</span></>:<><AlertCircle size={14}/><span>{t('messageSendFailed','Envoi échoué')}</span><button type="button" onClick={()=>sendMessage(m).catch(error=>toast(error.message,'error'))}><RotateCcw size={13}/>{t('retry','Réessayer')}</button><button type="button" onClick={()=>discardMessage(m)} aria-label={t('discardMessage','Retirer ce message')}><X size={14}/></button></>}</div>:<>{hasVisibleReactions&&<div className="message-reactions visible-reactions">
+        {visibleReactions.map(reaction=>{
           const count=m.reactions?.[reaction]||0,reacted=m.my_reactions?.includes(reaction);
           const Icon=reaction==='like'?ThumbsUp:Heart;
-          return <button key={reaction} className={`reaction ${reacted?'reacted':''} ${reaction}`} onClick={()=>react(reaction)} disabled={busy} aria-label={t(reaction,reaction==='like'?"J'aime":'Apprécier')} aria-pressed={reacted}><Icon size={15} fill={reacted?'currentColor':'none'}/><span>{count}</span></button>;
+          return <button key={reaction} className={`reaction ${reacted?'reacted':''} ${reaction}`} onClick={()=>react(reaction)} disabled={busy} aria-label={t(reaction,reaction==='like'?"J'aime":'Apprécier')} aria-pressed={reacted}><Icon size={14} fill={reacted?'currentColor':'none'}/><span>{count}</span></button>;
         })}
-        {m.reply_to&&<span className="reply-label"><Reply size={14}/>{t('reply','Réponse')}</span>}
-      </div>}
+      </div>}{m.reply_to&&<div className="message-reply-status"><span className="reply-label"><Reply size={14}/>{t('reply','Réponse')}</span></div>}</>}
     </div>
   </article>;
 }
