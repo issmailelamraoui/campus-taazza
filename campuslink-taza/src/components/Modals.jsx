@@ -66,10 +66,11 @@ export function ResourcePreviewModal({payload:r}){
     <div className="preview-modal-heading">
       <CategoryIcon category={r.category}/>
       <div>
-        <span className="section-label">{t(r.category,categoryNames[r.category])} {r.semester?`· S${r.semester}`:''} · {r.module}</span>
+        <span className="section-label">{t(r.category,categoryNames[r.category])} {r.semester?`· S${r.semester}`:''} · {r.module}{r.part_number?` · ${t('resourcePart','Partie')} ${r.part_number}`:''}</span>
         <h2 id="modal-title">{r.title}</h2>
         {r.relative_path&&<div className="resource-folder-path"><FolderOpen size={14}/><span dir="auto">{r.relative_path}</span></div>}
         {filiereName&&<p className="preview-study-meta"><bdi>{filiereName}</bdi>{r.resource_type&&['td','tp','correction','image','pdf','document','other'].includes(r.resource_type)&&<> · {t(({td:'resourceTD',tp:'resourceTP',correction:'resourceCorrection',image:'resourceImage',pdf:'resourcePDF',document:'resourceDocument',other:'resourceOther'})[r.resource_type],r.resource_type.toUpperCase())}</>}</p>}
+        {r.teacher_name&&<p className="preview-study-meta">{t('resourceTeacher','Professeur / auteur')} · <bdi>{r.teacher_name}</bdi></p>}
         <p>{r.author?.name} · {formatDate(r.created_at,lang,{year:'numeric'})} · {formatBytes(r.size,lang)}</p>
       </div>
     </div>
