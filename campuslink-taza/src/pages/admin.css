@@ -83,3 +83,126 @@
   .admin-dialog-overlay { padding: 12px; }
   .admin-dialog { padding: 25px 20px; max-height: calc(100dvh - 24px); }
 }
+
+
+/* Unified admin surface — same visual language as the student area. */
+.admin-heading,
+.admin-tab-content,
+.admin-publish-panel,
+.admin-report-card,
+.admin-contact-card,
+.admin-channel-card,
+.admin-user-list,
+.admin-dialog,
+.admin-stats > div {
+  color: var(--text);
+}
+
+.admin-stats > div,
+.admin-report-card,
+.admin-contact-card,
+.admin-channel-card,
+.admin-user-row,
+.admin-resource-row,
+.admin-publish-panel,
+.admin-dialog,
+.admin-search,
+.admin-filter-pills {
+  background: var(--panel);
+  border-color: var(--border);
+  box-shadow: none;
+}
+
+.admin-stats > div > svg,
+.admin-compose-icon,
+.admin-compose-icon.violet,
+.admin-channel-symbol,
+.admin-resource-icon,
+.admin-tabbar > button.active,
+.admin-text-button,
+.admin-create-user {
+  color: var(--primary);
+}
+
+.admin-compose-icon,
+.admin-compose-icon.violet,
+.admin-resource-icon,
+.admin-user-avatar {
+  background: var(--panel-2);
+  border-color: var(--border);
+}
+
+.admin-tabbar {
+  border-color: var(--border);
+}
+
+.admin-tabbar > button {
+  color: var(--muted);
+}
+
+.admin-tabbar > button:hover {
+  color: var(--text);
+}
+
+.admin-tabbar > button.active {
+  border-bottom-color: var(--primary);
+}
+
+.admin-badge,
+.admin-badge.reviewed,
+.admin-badge.resolved {
+  background: var(--panel-2);
+  border-color: var(--border);
+  color: var(--text);
+}
+
+.admin-badge.resolved {
+  color: var(--green);
+}
+
+.admin-filter-pills button.active,
+.admin-create-user:hover,
+.admin-text-button:hover {
+  color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 8%, var(--panel));
+}
+
+.admin-publish-panel .admin-gold-button,
+.admin-dialog .admin-gold-button {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+}
+
+.admin-publish-panel .admin-gold-button:hover,
+.admin-dialog .admin-gold-button:hover {
+  background: var(--primary-soft);
+  border-color: var(--primary-soft);
+}
+
+.admin-delete-confirm {
+  background: color-mix(in srgb, var(--rose) 7%, var(--panel));
+  border-color: color-mix(in srgb, var(--rose) 25%, var(--border));
+}
+
+.admin-danger-button,
+.admin-text-button.danger,
+.admin-resource-tools .danger {
+  color: var(--rose);
+}
+
+.admin-empty {
+  background: var(--panel);
+  border-color: var(--border);
+}
+
+@media (max-width: 620px) {
+  .admin-stats > div,
+  .admin-report-card,
+  .admin-contact-card,
+  .admin-channel-card,
+  .admin-publish-panel,
+  .admin-dialog {
+    border-radius: 10px;
+  }
+}
