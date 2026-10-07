@@ -1968,3 +1968,24 @@
     min-height: 102px;
   }
 }
+
+
+/* Make the compact resource "Ouvrir" action read as a real button. */
+.study-page .resource-card.compact .resource-actions > .subtle-link:first-child {
+  border: 1px solid color-mix(in srgb, var(--primary) 45%, var(--border));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--primary) 7%, var(--panel));
+  color: var(--primary);
+}
+
+.study-page .resource-card.compact .resource-actions > .subtle-link:first-child:hover,
+.study-page .resource-card.compact .resource-actions > .subtle-link:first-child:focus-visible {
+  border-color: color-mix(in srgb, var(--primary) 70%, var(--border));
+  background: color-mix(in srgb, var(--primary) 12%, var(--panel));
+  color: var(--text);
+}
+
+:root[data-theme="dark"] .study-page .resource-card.compact .resource-actions > .subtle-link:first-child {
+  border-color: color-mix(in srgb, var(--primary) 55%, var(--border));
+  background: color-mix(in srgb, var(--primary) 10%, var(--panel));
+}
