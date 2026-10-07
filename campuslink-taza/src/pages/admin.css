@@ -206,3 +206,146 @@
     border-radius: 10px;
   }
 }
+
+
+/* Match admin typography and rhythm to the FPT CampusLink system. */
+.admin-heading {
+  gap: 18px;
+  margin-bottom: 22px;
+}
+
+.admin-heading h1 {
+  font-family: var(--font-display);
+  font-size: clamp(30px, 3vw, 40px);
+  line-height: 1.08;
+  letter-spacing: -.02em;
+}
+
+.admin-stats {
+  gap: 10px;
+}
+
+.admin-stats > div {
+  min-height: 104px;
+  padding: 16px;
+  border-radius: var(--card-radius);
+}
+
+.admin-stats strong {
+  font-size: 28px;
+  line-height: 1.1;
+}
+
+.admin-stats > div > span,
+.admin-stats small {
+  font-size: 13px;
+}
+
+.admin-tabbar {
+  gap: 8px;
+}
+
+.admin-tabbar > button {
+  min-height: 42px;
+  padding: 8px 11px;
+  border-radius: 8px 8px 0 0;
+  font-size: 13px;
+}
+
+.admin-tabbar > button.active {
+  position: relative;
+}
+
+.admin-tabbar > button.active::after {
+  content: "";
+  position: absolute;
+  inset-inline: 12px;
+  bottom: -1px;
+  height: 2px;
+  border-radius: 999px;
+  background: var(--brand-red);
+}
+
+.admin-content-header {
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.admin-content-header h2,
+.admin-publish-panel h2 {
+  font-family: var(--font-ui);
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -.01em;
+}
+
+.admin-user-row,
+.admin-resource-row {
+  min-height: 68px;
+  padding: 12px 14px;
+}
+
+.admin-user-row strong,
+.admin-resource-row strong {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.admin-user-row > div > span,
+.admin-resource-row > div > span {
+  font-size: 12px;
+}
+
+.admin-text-button,
+.admin-create-user,
+.admin-danger-button {
+  min-height: 38px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+.admin-publish-panel,
+.admin-report-card,
+.admin-contact-card,
+.admin-channel-card {
+  padding: 18px;
+  border-radius: var(--card-radius);
+}
+
+.admin-dialog {
+  padding: 24px;
+}
+
+@media (max-width: 620px) {
+  .admin-heading h1 {
+    font-size: 30px;
+  }
+
+  .admin-stats > div {
+    min-height: 92px;
+    padding: 13px;
+  }
+
+  .admin-tabbar {
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    scrollbar-width: none;
+  }
+
+  .admin-tabbar > button {
+    flex: 0 0 auto;
+  }
+
+  .admin-user-row,
+  .admin-resource-row {
+    padding: 11px;
+  }
+
+  .admin-publish-panel,
+  .admin-report-card,
+  .admin-contact-card,
+  .admin-channel-card {
+    padding: 14px;
+  }
+}
