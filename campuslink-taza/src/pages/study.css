@@ -1571,3 +1571,114 @@
   }
 }
 /* CAMPUSLINK_HORIZONTAL_RESOURCE_TABS_END */
+
+
+/* Semester selector — compact grouped controls, no oversized empty boxes. */
+.study-library .study-semester-strip {
+  display: flex;
+  align-items: stretch;
+  flex-wrap: wrap;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 0;
+  margin-top: 14px;
+  border-radius: 0;
+  background: transparent;
+}
+
+.study-library .study-all-semesters {
+  flex: 0 0 auto;
+  align-self: stretch;
+  min-height: 54px;
+  padding: 0 14px;
+  border-radius: 7px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
+}
+
+.study-library .study-semester-group {
+  flex: 0 0 auto;
+  min-width: 190px;
+  width: auto;
+  padding: 8px 10px;
+  display: grid;
+  grid-template-columns: auto auto;
+  grid-template-areas:
+    "label label"
+    "buttons buttons";
+  align-content: center;
+  gap: 7px;
+  border: 1px solid var(--border);
+  border-inline-start: 1px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+}
+
+.study-library .study-semester-group > span {
+  grid-area: label;
+  text-align: center;
+  font-size: 12px;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.study-library .study-semester-group > div {
+  grid-area: buttons;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(48px, 1fr));
+  gap: 6px;
+  width: 100%;
+}
+
+.study-library .study-semester-group button {
+  width: 100%;
+  min-width: 48px;
+  height: 38px;
+  min-height: 38px;
+  padding: 0 10px;
+  border-radius: 6px;
+}
+
+@container study-library (max-width: 900px) {
+  .study-library .study-semester-strip {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .study-library .study-all-semesters {
+    grid-column: 1 / -1;
+    width: max-content;
+    min-height: 44px;
+  }
+
+  .study-library .study-semester-group {
+    min-width: 0;
+    width: 100%;
+  }
+}
+
+@container study-library (max-width: 560px) {
+  .study-library .study-semester-strip {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .study-library .study-all-semesters {
+    width: 100%;
+  }
+
+  .study-library .study-semester-group {
+    width: 100%;
+    padding: 8px;
+  }
+
+  .study-library .study-semester-group > div {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .study-library .study-semester-group button {
+    min-height: 40px;
+  }
+}
