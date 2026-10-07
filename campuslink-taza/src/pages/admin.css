@@ -83,3 +83,185 @@
   .admin-dialog-overlay { padding: 12px; }
   .admin-dialog { padding: 25px 20px; max-height: calc(100dvh - 24px); }
 }
+
+
+/* Charcoal admin rhythm. */
+.admin-page {
+  padding: 28px clamp(18px, 3vw, 34px) 38px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 14px;
+}
+
+.admin-heading {
+  margin-bottom: 22px;
+}
+
+.admin-heading h1 {
+  font-family: var(--sans);
+  font-size: clamp(28px, 2.7vw, 38px);
+  line-height: 1.12;
+  font-weight: 600;
+  letter-spacing: -.02em;
+}
+
+.admin-stats {
+  gap: 10px;
+}
+
+.admin-stats > div {
+  min-height: 96px;
+  padding: 14px;
+  border-radius: 11px;
+  background: var(--panel);
+  border-color: var(--border);
+}
+
+.admin-stats strong {
+  color: var(--text);
+  font-size: 27px;
+}
+
+.admin-stats > div > span,
+.admin-stats small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.admin-tabbar {
+  gap: 8px;
+  border-color: var(--border);
+}
+
+.admin-tabbar > button {
+  min-height: 40px;
+  padding: 8px 10px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.admin-tabbar > button.active {
+  color: var(--primary);
+}
+
+.admin-content-header {
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.admin-content-header h2,
+.admin-publish-panel h2 {
+  font-family: var(--sans);
+  color: var(--text);
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.admin-search {
+  min-height: 42px;
+  border-radius: 8px;
+  background: var(--panel-2);
+  border-color: var(--border);
+}
+
+.admin-search input {
+  color: var(--text);
+  font-size: 14px;
+}
+
+.admin-user-list,
+.admin-publish-panel,
+.admin-report-card,
+.admin-contact-card,
+.admin-channel-card {
+  background: var(--panel);
+  border-color: var(--border);
+}
+
+.admin-user-row,
+.admin-resource-row {
+  min-height: 64px;
+  padding: 11px 13px;
+  background: var(--panel);
+}
+
+.admin-user-row strong,
+.admin-resource-row strong {
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.admin-user-row > div > span,
+.admin-resource-row > div > span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.admin-text-button,
+.admin-create-user,
+.admin-danger-button {
+  min-height: 36px;
+  padding: 7px 9px;
+  border-radius: 7px;
+  font-size: 12px;
+}
+
+.admin-publish-panel,
+.admin-report-card,
+.admin-contact-card,
+.admin-channel-card {
+  padding: 16px;
+  border-radius: 11px;
+}
+
+.admin-publish-panel .input,
+.admin-dialog .input {
+  min-height: 42px;
+  border-radius: 8px;
+  background: var(--panel-2);
+  border-color: var(--border);
+  color: var(--text);
+  font-size: 14px;
+}
+
+.admin-publish-panel .admin-gold-button,
+.admin-dialog .admin-gold-button {
+  min-height: 42px;
+  border-radius: 8px;
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #17150e;
+  font-size: 13px;
+}
+
+.admin-dialog-overlay {
+  background: rgba(8,8,9,.78);
+}
+
+.admin-dialog {
+  background: var(--panel);
+  border-color: var(--border);
+  box-shadow: var(--shadow-float);
+}
+
+.admin-resource-icon,
+.admin-user-avatar,
+.admin-compose-icon {
+  background: var(--panel-2);
+  color: var(--primary);
+  border-color: var(--border);
+}
+
+@media (max-width: 620px) {
+  .admin-page {
+    padding: 20px 12px 28px;
+  }
+
+  .admin-publish-panel,
+  .admin-report-card,
+  .admin-contact-card,
+  .admin-channel-card {
+    padding: 14px;
+  }
+}
