@@ -4755,8 +4755,24 @@ em {
   *:before,
   *:after {
     animation-duration: 0.01ms !important;
-    transition-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
     scroll-behavior: auto !important;
+  }
+
+  button,
+  a,
+  [role="button"],
+  .btn,
+  .icon-button,
+  .subtle-link,
+  .global-nav-item,
+  .channel-link,
+  .resource-shortcut,
+  .resource-card,
+  .faculty-choice,
+  .theme-toggle {
+    transition-duration: 140ms !important;
+    transform: none !important;
   }
 }
 .attachment-image {
@@ -4864,13 +4880,15 @@ em {
   color: #fff;
 }
 .gold-btn {
-  background: linear-gradient(105deg, #174579, #16608b);
+  background-color: #174f7f;
+  background-image: none;
   color: #fff;
   border-color: #174579;
   box-shadow: 0 3px 12px #17457920;
 }
 .gold-btn:hover:not(:disabled) {
-  background: #133b68;
+  background-color: #133b68;
+  background-image: none;
   box-shadow: 0 5px 18px #17457930;
 }
 .btn.outline {
@@ -5498,7 +5516,7 @@ a:focus-visible {
   outline-offset: 2px;
 }
 
-/* Respect users who explicitly ask the OS for less motion. */
+/* Reduced-motion keeps calm color fades but removes spatial movement. */
 @media (prefers-reduced-motion: reduce) {
   button,
   a,
@@ -5512,6 +5530,32 @@ a:focus-visible {
   .resource-card,
   .faculty-choice,
   .theme-toggle {
-    transition-duration: 0.01ms !important;
+    transition-duration: 140ms !important;
+    transform: none !important;
   }
+}
+
+
+/* Final interaction guard: keep interactive surfaces on one paint layer. */
+button,
+.btn,
+.icon-button,
+.theme-toggle,
+.composer-attach,
+.composer-send,
+.study-page button,
+.chat-page button {
+  background-image: none;
+  will-change: background-color, color, border-color, box-shadow;
+}
+
+button:hover,
+.btn:hover,
+.icon-button:hover,
+.theme-toggle:hover,
+.composer-attach:hover,
+.composer-send:hover,
+.study-page button:hover,
+.chat-page button:hover {
+  background-image: none;
 }
