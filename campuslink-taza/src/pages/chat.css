@@ -1168,3 +1168,29 @@
     flex-basis: 30px;
   }
 }
+
+
+/* Slim message bubbles — tighter padding without changing the chat design. */
+.chat-page .message-bubble {
+  padding: 9px 12px;
+  border-radius: 15px;
+  border-start-start-radius: 5px;
+}
+
+.chat-page .own-message .message-bubble {
+  border-start-start-radius: 15px;
+  border-start-end-radius: 5px;
+}
+
+@media (max-width: 760px) {
+  .chat-page .message-bubble {
+    padding: 7px 10px;
+    border-radius: 14px;
+    border-start-start-radius: 5px;
+  }
+
+  .chat-page .own-message .message-bubble {
+    border-start-start-radius: 14px;
+    border-start-end-radius: 5px;
+  }
+}
