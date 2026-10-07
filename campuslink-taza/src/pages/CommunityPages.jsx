@@ -54,9 +54,8 @@ export function ChatMessage({message:m,groupedWithPrevious=false,groupedWithNext
   return <article className={`chat-message ${own?'own-message':''} ${groupedWithPrevious?'message-grouped-prev':''} ${groupedWithNext?'message-grouped-next':''} ${menu?'message-menu-open':''} ${m.pinned?'pinned-message':''} ${local?`message-${m._status}`:''}`} id={`message-${m.id}`} data-client-id={m.client_id||undefined} data-status={m._status||'sent'}>
     {groupedWithPrevious?<span className="message-avatar-spacer" aria-hidden="true"/>:<Avatar user={m.author} size={37}/>} 
     <div className="message-content">
-      <div className="message-meta">
-        <b>{m.author.name||m.author.username}</b>
-        <span className="message-timestamp"><span className="message-calendar-date">{formatDate(m.created_at,lang)} · </span><time dateTime={m.created_at} title={formatDate(m.created_at,lang,{day:'numeric',month:'long',year:'numeric',hour:'2-digit',minute:'2-digit'})}>{new Date(m.created_at).toLocaleTimeString(lang,{hour:'2-digit',minute:'2-digit',timeZone:'Africa/Casablanca'})}</time></span>
+      <div className={`message-meta ${groupedWithPrevious?'message-meta-grouped':''}`}>
+        {!groupedWithPrevious&&<><b>{m.author.name||m.author.username}</b><span className="message-timestamp"><span className="message-calendar-date">{formatDate(m.created_at,lang)} · </span><time dateTime={m.created_at} title={formatDate(m.created_at,lang,{day:'numeric',month:'long',year:'numeric',hour:'2-digit',minute:'2-digit'})}>{new Date(m.created_at).toLocaleTimeString(lang,{hour:'2-digit',minute:'2-digit',timeZone:'Africa/Casablanca'})}</time></span></>}
         {m.pinned&&<Pin size={14} className="gold"/>}
         {!local&&<div className="message-hover-actions">
           <button type="button" className="icon-button message-reply-action" onClick={()=>{onReply?.(m);setMenu(false);}} aria-label={t('reply','Répondre')} title={t('reply','Répondre')}><Reply size={18}/></button>
