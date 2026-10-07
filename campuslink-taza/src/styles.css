@@ -1069,7 +1069,7 @@ em {
 .semester-chips {
   display: grid;
   grid-template-columns: repeat(6, 1fr);
-  margin: 10px 8px 0;
+  margin: 22px -7px -9px;
   border: 1px solid var(--border);
   border-radius: 4px;
   overflow: hidden;

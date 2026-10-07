@@ -1770,8 +1770,8 @@
 
 .chat-page .own-message .attachment-location {
   color: rgba(255, 255, 255, 0.78);
-  border-color: rgba(255, 255, 255, 0.14);
-  background: rgba(255, 255, 255, 0.06);
+  border-color: rgb(255 255 255 / 25%);
+  background: rgb(0 0 0 / 52%);
 }
 
 :root[data-theme="dark"] .chat-page .attachment-file {
