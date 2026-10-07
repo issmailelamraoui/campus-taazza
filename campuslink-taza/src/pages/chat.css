@@ -1072,3 +1072,99 @@
     flex-basis: 36px;
   }
 }
+
+
+/* Slim reply cards — keep the refined look without making messages bulky. */
+.chat-page .reply-context {
+  grid-template-columns: 14px minmax(0, 1fr);
+  margin-bottom: 7px;
+  padding: 7px 9px 7px 10px;
+  gap: 1px 6px;
+  border-inline-start-width: 3px;
+  border-radius: 8px;
+  box-shadow: 0 3px 10px color-mix(in srgb, var(--text) 4%, transparent);
+}
+
+.chat-page .reply-context::after {
+  opacity: .4;
+}
+
+.chat-page .reply-context > svg {
+  width: 14px;
+  height: 14px;
+  margin-top: 1px;
+}
+
+.chat-page .reply-context b {
+  font-size: 12px;
+  line-height: 1.2;
+  font-weight: 700;
+}
+
+.chat-page .reply-context span {
+  font-size: 12px;
+  line-height: 1.25;
+}
+
+.chat-page .own-message .reply-context,
+:root[data-theme="dark"] .chat-page .own-message .reply-context {
+  box-shadow: none;
+}
+
+.chat-page .composer-reply {
+  min-height: 42px;
+  margin-bottom: 6px;
+  padding: 6px 6px 6px 9px;
+  gap: 7px;
+  border-inline-start-width: 3px;
+  border-radius: 9px;
+  box-shadow: 0 3px 10px color-mix(in srgb, var(--text) 4%, transparent);
+}
+
+.chat-page .composer-reply > svg:first-child {
+  width: 14px;
+  height: 14px;
+}
+
+.chat-page .composer-reply > span {
+  font-size: 12.5px;
+}
+
+.chat-page .composer-reply > .icon-button {
+  width: 32px;
+  height: 32px;
+  flex-basis: 32px;
+  border-radius: 8px;
+}
+
+@media (max-width: 760px) {
+  .chat-page .reply-context {
+    grid-template-columns: 13px minmax(0, 1fr);
+    margin-bottom: 6px;
+    padding: 6px 8px 6px 9px;
+    gap: 1px 5px;
+    border-radius: 8px;
+  }
+
+  .chat-page .reply-context > svg {
+    width: 13px;
+    height: 13px;
+  }
+
+  .chat-page .reply-context b,
+  .chat-page .reply-context span {
+    font-size: 11.5px;
+  }
+
+  .chat-page .composer-reply {
+    min-height: 40px;
+    padding: 5px 5px 5px 8px;
+    border-radius: 8px;
+  }
+
+  .chat-page .composer-reply > .icon-button {
+    width: 30px;
+    height: 30px;
+    flex-basis: 30px;
+  }
+}
