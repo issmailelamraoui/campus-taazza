@@ -725,3 +725,74 @@
   flex-shrink: 0;
   color: var(--library-accent, var(--primary));
 }
+
+
+/* Compact collapsible library filters; inherits the existing colors/design. */
+.study-filter-toggle > span {
+  min-width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding-inline: 5px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 11px;
+  line-height: 1;
+}
+
+.study-filter-panel {
+  margin-top: 12px;
+}
+
+.study-filter-panel .study-semester-strip {
+  gap: 12px;
+  padding: 12px 0;
+  flex-wrap: wrap;
+}
+
+.study-filter-panel .study-all-semesters {
+  padding: 8px 10px;
+}
+
+.study-filter-panel .study-semester-group {
+  gap: 7px;
+  padding-inline-start: 12px;
+}
+
+.study-filter-panel .study-semester-group > span {
+  font-size: 12px;
+}
+
+.study-filter-panel .study-semester-group button {
+  min-width: 34px;
+  height: 32px;
+}
+
+.study-filter-panel .study-filters {
+  padding-top: 12px;
+}
+
+@media (max-width: 760px) {
+  .study-filter-panel .study-semester-strip {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .study-filter-panel .study-all-semesters {
+    width: auto;
+    flex: 0 0 auto;
+  }
+
+  .study-filter-panel .study-semester-group {
+    flex: 0 0 auto;
+    flex-direction: row;
+    align-items: center;
+    padding: 0 0 0 8px;
+  }
+
+  .study-filter-panel .study-semester-group > div {
+    width: auto;
+  }
+}
