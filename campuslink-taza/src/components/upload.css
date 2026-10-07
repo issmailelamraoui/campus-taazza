@@ -42,3 +42,28 @@
   .upload-batch-list { padding-inline: 8px; max-height: 310px; }
   .upload-batch-row { padding: 10px; }
 }
+
+.upload-file-classification {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 105px minmax(150px, .8fr);
+  gap: 9px;
+  align-items: end;
+}
+.upload-file-classification label {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+.upload-file-classification .upload-file-title {
+  min-width: 0;
+}
+@media (max-width: 620px) {
+  .upload-file-classification {
+    grid-template-columns: 1fr 90px;
+  }
+  .upload-file-classification label:last-child {
+    grid-column: 1 / -1;
+  }
+}
