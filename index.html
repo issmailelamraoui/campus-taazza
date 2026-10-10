@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="fr" data-theme="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#121210" />
+    <script>
+      try {
+        const theme = JSON.parse(localStorage.getItem('campuslink-prototype-v1:theme'));
+        const language = JSON.parse(localStorage.getItem('campuslink-prototype-v1:language'));
+        if (theme === 'light' || theme === 'dark') document.documentElement.dataset.theme = theme;
+        document.querySelector('meta[name="theme-color"]').content = document.documentElement.dataset.theme === 'light' ? '#f7f5f1' : '#121210';
+        if (['fr', 'en', 'ar'].includes(language)) {
+          document.documentElement.lang = language;
+          document.documentElement.dir = language === 'ar' ? 'rtl' : 'ltr';
+        }
+      } catch {}
+    </script>
+    <meta name="description" content="CampusLink Taza : vos ressources universitaires et votre communauté étudiante." />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="CampusLink" />
+    <title>CampusLink Taza — Votre campus, connecté.</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>

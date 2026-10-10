@@ -1,0 +1,23 @@
+.modal.install-modal { width: min(440px, 100%); }
+.install-intro { display: flex; align-items: flex-start; gap: 14px; }
+.install-intro img { flex: 0 0 60px; border-radius: 14px; }
+.install-intro h3 { margin: 0 0 8px; font-size: 17px; line-height: 1.4; }
+.install-intro p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.7; }
+.install-profile-hint { margin: 20px 0 0; color: var(--faint); font-size: 12px; line-height: 1.6; }
+.install-instructions { margin-top: 20px; border-top: 1px solid var(--lineSoft); padding-top: 18px; }
+.install-instructions h3 { display: flex; align-items: center; gap: 8px; margin: 0 0 12px; font-size: 14px; }
+.install-instructions ol { margin: 0; padding-inline-start: 23px; font-size: 13px; line-height: 1.7; }
+.install-instructions li { padding-inline-start: 4px; margin-bottom: 9px; }
+.install-instructions li::marker { color: var(--accent-ink); font-weight: 600; }
+.install-instructions > p, .install-status { margin: 14px 0 0; font-size: 12px; line-height: 1.6; }
+.install-status { color: var(--accent-ink); }
+.install-modal .modal-footer { flex-wrap: wrap; gap: 8px; }
+.install-modal .modal-footer .btn { min-height: 44px; }
+.install-settings-card h3 { display: flex; align-items: center; gap: 9px; }
+.install-settings-card > p { margin: 0 0 15px; font-size: 12px; line-height: 1.7; }
+@media (max-width: 380px) {
+  .install-intro { gap: 11px; }
+  .install-intro img { width: 48px; height: 48px; flex-basis: 48px; border-radius: 11px; }
+  .install-intro h3 { font-size: 16px; }
+  .install-modal .modal-footer .btn { flex: 1 1 auto; }
+}
