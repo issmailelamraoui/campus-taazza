@@ -52,5 +52,8 @@
     "@playwright/test": "^1.55.1",
     "vite": "^7.1.9",
     "concurrently": "^9.2.1"
+  },
+  "engines": {
+    "node": "22.x"
   }
 }
