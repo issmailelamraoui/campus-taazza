@@ -7,8 +7,39 @@ import { fileURLToPath } from 'node:url';
 
 export const digest = value => createHash('sha256').update(value).digest('hex');
 const identityTables = new Set(['users', 'modules', 'messages', 'resources', 'resource_versions', 'announcements', 'notifications', 'events', 'reports', 'contacts']);
-const applicationTables = new Set([...identityTables, 'faculties', 'filieres', 'semesters', 'reactions', 'channels', 'chat_bans', 'saved', 'history', 'schema_migrations', 'legacy_imports']);
+const applicationTables = new Set([...identityTables, 'faculties', 'filieres', 'semesters', 'reactions', 'channels', 'chat_bans', 'saved', 'history', 'schema_migrations', 'legacy_imports', 'message_attachments', 'resource_folders', 'folder_items']);
 const migrationDirectory = new URL('./migrations/', import.meta.url);
+const connectionCodes = new Set(['ECONNRESET', 'ECONNREFUSED', 'ETIMEDOUT', 'EPIPE', 'ENETUNREACH', 'EHOSTUNREACH', 'ENOTFOUND', 'EAI_AGAIN', '57P01', '57P02', '57P03', '53300']);
+function connectionFailure(error) {
+  return error?.code === 'DATABASE_UNAVAILABLE' || connectionCodes.has(error?.code) || /^08/.test(error?.code || '') ||
+    /^(Query read timeout|Connection terminated(?: unexpectedly| due to connection timeout)?|timeout exceeded when trying to connect|timeout expired|Client has encountered a connection error and is not queryable)$/.test(error?.message || '');
+}
+function databaseError(error) {
+  if (!connectionFailure(error) || error.code === 'DATABASE_UNAVAILABLE') return error;
+  return Object.assign(new Error('La base de données est temporairement indisponible. Réessayez.', { cause: error }), { status: 503, code: 'DATABASE_UNAVAILABLE' });
+}
+
+// A remote PostgreSQL TLS peer can stop acknowledging a graceful disconnect.
+// pg removes such a client from its pool before the socket actually closes, so
+// pool.end() alone may leave the process alive indefinitely during shutdown.
+export class ClosingPostgresClient extends pg.Client {
+  constructor(config) {
+    super(config);
+    this.shutdownTimeoutMillis = config?.shutdownTimeoutMillis ?? 3000;
+  }
+  end(callback) {
+    const connection = this.connection;
+    if (!this._ending && !this._ended && connection?._connecting && !connection.stream.destroyed) {
+      const timer = setTimeout(() => connection.stream.destroy(), this.shutdownTimeoutMillis);
+      timer.unref();
+      connection.once('end', () => clearTimeout(timer));
+    }
+    return super.end(callback);
+  }
+}
+export function createPostgresPool(options) {
+  return new pg.Pool({ ...options, Client: ClosingPostgresClient });
+}
 
 function number(value) {
   const result = Number(value);
@@ -50,13 +81,19 @@ function inSchema(sql, schema) {
       (match, table) => applicationTables.has(table) ? `pg_get_serial_sequence('${schema}.${table}'` : match);
 }
 
-export async function openDatabase({ connectionString = process.env.DATABASE_URL, schema = 'campuslink', migrate = true, max = 8 } = {}) {
+export async function openDatabase({ connectionString = process.env.DATABASE_URL, schema = process.env.CAMPUS_DB_SCHEMA || 'campuslink', migrate = true, max = 8, queryTimeoutMillis = 10000, connectionTimeoutMillis = 10000 } = {}) {
   if (!connectionString) throw new Error('DATABASE_URL is required for PostgreSQL persistence.');
   if (!/^[a-z][a-z0-9_]{0,62}$/.test(schema)) throw new Error('Invalid application database schema.');
-  const pool = new pg.Pool({
+  const pool = createPostgresPool({
     connectionString,
     max,
-    connectionTimeoutMillis: 15000,
+    connectionTimeoutMillis,
+    // A silent TCP/TLS stall must release the borrowed client instead of
+    // exhausting the pool and blocking every later login indefinitely.
+    query_timeout: queryTimeoutMillis,
+    keepAlive: true,
+    keepAliveInitialDelayMillis: 10000,
+    maxLifetimeSeconds: 60,
     types: { getTypeParser: (oid, format) => oid === 20 && format !== 'binary' ? number : pg.types.getTypeParser(oid, format) },
   });
   // pg removes failed idle clients itself. Handle its background error event
@@ -67,10 +104,19 @@ export async function openDatabase({ connectionString = process.env.DATABASE_URL
   const query = (sql, values = []) => {
     if (closed) throw new Error('The database connection is closed.');
     const transaction = context.getStore();
-    if (!transaction) return pool.query(sql, values);
+    if (!transaction) return pool.query(sql, values).catch(error => { throw databaseError(error); });
     // A transaction owns one client. Promise.all in the existing DTO builders
     // must queue its statements rather than execute concurrently on that client.
-    const result = transaction.queue.then(() => transaction.client.query(sql, values));
+    const result = transaction.queue.then(() => {
+      if (transaction.failure) throw transaction.failure;
+      return transaction.client.query(sql, values);
+    }).catch(error => {
+      const failure = databaseError(error);
+      // Once a transport is dead, skip the remaining queued statements rather
+      // than spending another timeout on every member of a Promise.all batch.
+      if (connectionFailure(failure)) transaction.failure ??= failure;
+      throw failure;
+    });
     transaction.queue = result.then(() => undefined, () => undefined);
     return result;
   };
@@ -101,24 +147,32 @@ export async function openDatabase({ connectionString = process.env.DATABASE_URL
           await query(`RELEASE SAVEPOINT ${savepoint}`);
           return result;
         } catch (error) {
-          await query(`ROLLBACK TO SAVEPOINT ${savepoint}`);
+          if (!connectionFailure(error)) await query(`ROLLBACK TO SAVEPOINT ${savepoint}`);
           throw error;
         }
       }
-      const client = await pool.connect();
+      const client = await pool.connect().catch(error => { throw databaseError(error); });
       const state = { client, depth: 0, queue: Promise.resolve() };
+      let discard = false;
       try {
         await client.query('BEGIN');
         await client.query(`SET LOCAL search_path TO "${schema}", public`);
         const result = await context.run(state, () => callback(db));
         await state.queue;
+        if (state.failure) throw state.failure;
         await client.query('COMMIT');
         return result;
       } catch (error) {
         await state.queue;
-        await client.query('ROLLBACK');
-        throw error;
-      } finally { client.release(); }
+        discard = connectionFailure(error);
+        if (!discard) {
+          try { await client.query('ROLLBACK'); }
+          catch (rollbackError) { discard = true; throw databaseError(rollbackError); }
+        }
+        // A timed-out transaction cannot safely return its still-active client
+        // to the pool. Destroy it; never retry an uncertain write or COMMIT.
+        throw databaseError(error);
+      } finally { client.release(discard); }
     },
     async close() { if (!closed) { closed = true; await pool.end(); } },
   };

@@ -1,134 +1,1132 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import { ArrowRight, ArrowUpRight, CheckCircle2, FileText, FolderOpen, RotateCw, ShieldCheck, UploadCloud, X } from 'lucide-react';
-import { useApp } from '../context';
-import { api } from '../api';
-import { getFilieres, getChatSemester } from '../../shared/studies.js';
-import { formatBytes, messagePath, resourcePath } from '../utils';
-import { prepareUploadFiles, runUploadBatch, UPLOAD_ACCEPT } from '../upload-batch.js';
-import './upload.css';
+import React, { useEffect, useRef, useState } from "react";
+import {
+  ArrowLeft,
+  ArrowRight,
+  Check,
+  CheckCircle2,
+  ChevronDown,
+  ChevronUp,
+  FileText,
+  Folder,
+  FolderOpen,
+  LoaderCircle,
+  Plus,
+  Trash2,
+  UploadCloud,
+} from "lucide-react";
+import { useApp } from "../context";
+import { getFilieres, getFiliere } from "../data/studies";
+import {
+  SUPPORTED_FILE_ACCEPT,
+  isSupportedFile,
+  fileTypeLabel,
+  sizeLabel,
+  filesFromDrop,
+  fileKey,
+} from "../lib/files";
+import {
+  moduleSuggestions,
+  moduleDisplayName,
+  normalizePart,
+  partLabel,
+  findResourceConflicts,
+} from "../lib/resources";
+import { Button, Field, Modal } from "./ui";
+import { Select, Autocomplete } from "./Select";
+import "../pages/library.css";
 
-export function UploadClassificationModal({ payload }) {
-  const { t, lang, user, data, toast, refresh, closeModal } = useApp();
-  const navigate = useNavigate();
-  const facultyFilieres = data?.filieres || getFilieres(user?.faculty_id);
-  const filieres = user?.role === 'student' ? facultyFilieres.filter(item => item.id === user?.filiere_id) : facultyFilieres;
-  const [entries, setEntries] = useState(() => prepareUploadFiles(payload.file ? [payload.file] : []));
-  const [batch, setBatch] = useState(false), [attempted, setAttempted] = useState(false);
-  const [filiere, setFiliere] = useState(user?.filiere_id || '');
-  const [semester, setSemester] = useState(Number(String(payload.semester || user?.current_semester || 1).replace(/^s/i, '')));
-  const [module, setModule] = useState(''), [resourceType, setResourceType] = useState(payload.category === 'general' ? 'document' : payload.category || '');
-  const [busy, setBusy] = useState(false), [error, setError] = useState(''), [duplicate, setDuplicate] = useState(null), [notice, setNotice] = useState('');
-  const [persistedModules, setPersistedModules] = useState([]);
-  const filesInput = useRef(null), folderInput = useRef(null), completed = useRef(false);
-  const types = [['courses','courses','Cours'],['exams','exams','Anciens examens'],['exercises','exercises','Exercices'],['td','resourceTD','TD'],['tp','resourceTP','TP'],['correction','resourceCorrection','Correction'],['rattrapage','rattrapage','Rattrapage'],['image','resourceImage','Image'],['pdf','resourcePDF','PDF'],['document','resourceDocument','Document'],['other','resourceOther','Autre ressource']];
-  const category = ({ courses:'courses',exercises:'exercises',exams:'exams',rattrapage:'rattrapage',td:'exercises',tp:'exercises',correction:'exercises',image:'general',pdf:'general',document:'general',other:'general' })[resourceType];
-  const locked = busy || (batch && attempted);
+const categoryKeys = [
+  "courses",
+  "exercises",
+  "td",
+  "tp",
+  "corrections",
+  "exams",
+  "rattrapage",
+];
+const semesterNumber = (value) =>
+  Number(String(value ?? "").replace(/^s/i, ""));
+export { collectDirectoryEntry } from "../lib/files";
+
+function SuggestedField({
+  label,
+  value,
+  onChange,
+  options,
+  required = false,
+  hint,
+  showOnEmpty = false,
+  disabled = false,
+}) {
+  return (
+    <Field label={label} hint={hint}>
+      <Autocomplete
+        className="input"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        options={options}
+        showOnEmpty={showOnEmpty}
+        required={required}
+        disabled={disabled}
+      />
+    </Field>
+  );
+}
+
+export default function UploadModal({
+  onClose,
+  mode = "library",
+  initialEntries = [],
+  existingAttachments = [],
+  onConfirm,
+}) {
+  const {
+    t,
+    tr,
+    language,
+    user,
+    selection: accountSelection,
+    faculty,
+    isAdmin,
+    resources,
+    allResources,
+    uploadResource,
+    closeDialog,
+  } = useApp();
+  const [program, setProgram] = useState(accountSelection?.filiereId || "");
+  const selection = { ...accountSelection, filiereId: isAdmin ? program : accountSelection?.filiereId };
+  const filiere = getFiliere(selection.filiereId);
+  const isChat = mode === "chat";
+  const initialSemester = semesterNumber(selection?.semester || 1);
+  const modulesFor = (semester, query = "") =>
+    moduleSuggestions(resources, { ...selection, semester }, query);
+  const initialFiles = () =>
+    initialEntries
+      .filter((item) => isSupportedFile(item.file))
+      .map(({ file, path }) => ({
+        file,
+        path: path || file.name,
+        key: fileKey(file, path),
+        meta: {
+          semester: initialSemester,
+          module: "",
+          category: "courses",
+          author: "",
+          part: "",
+          title: file.name.replace(/\.[^.]+$/, ""),
+        },
+      }));
+  const [step, setStep] = useState(isChat && initialEntries.length ? 1 : 0);
+  const [files, setFiles] = useState(initialFiles);
+  const [batch, setBatch] = useState({
+    semester: initialSemester,
+    module: "",
+    category: "courses",
+    author: "",
+    part: "",
+  });
+  const [editing, setEditing] = useState(
+    isChat && initialEntries.length
+      ? fileKey(initialEntries[0].file, initialEntries[0].path)
+      : null,
+  );
+  const [dragging, setDragging] = useState(false);
+  const [reading, setReading] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [uploadedCount, setUploadedCount] = useState(0);
+  const uploaded = useRef(new Set());
+  const [error, setError] = useState("");
+  const [batchApplied, setBatchApplied] = useState(false);
+  const fileInput = useRef(null);
+  const directoryInput = useRef(null);
+  const closed = useRef(false);
+  const dragDepth = useRef(0);
+  const directorySupported =
+    typeof document !== "undefined" &&
+    "webkitdirectory" in document.createElement("input");
   useEffect(() => {
-    setPersistedModules([]);
-    if (!filiere) return;
-    const controller = new AbortController();
-    api(`/modules?${new URLSearchParams({ filiere_id:filiere,semester:String(semester) })}`, { signal:controller.signal }).then(result => setPersistedModules(result.modules || [])).catch(e => { if (e.name !== 'AbortError') setError(e.message); });
-    return () => controller.abort();
-  }, [filiere, semester]);
-  const modules = [...new Set([...persistedModules.map(m => m.name), ...(data?.resources || []).filter(r => r.filiere_id === filiere && Number(r.semester) === semester).map(r => r.module)].filter(Boolean))];
-  const pending = entries.filter(entry => ['queued', 'error'].includes(entry.status));
-  const eligible = entries.filter(entry => entry.status !== 'skipped');
-  const done = eligible.filter(entry => ['uploaded', 'duplicate', 'error'].includes(entry.status)).length;
-  const uploaded = entries.filter(entry => entry.status === 'uploaded').length;
-  const duplicates = entries.filter(entry => entry.status === 'duplicate').length;
-  const failures = entries.filter(entry => entry.status === 'error').length;
-  const skipped = entries.length - eligible.length;
-  const update = (id, patch) => setEntries(rows => rows.map(row => row.id === id ? { ...row, ...patch } : row));
-  const selectFiles = (event, folder) => {
-    if (!event.target.files?.length) return;
-    const rows = prepareUploadFiles(event.target.files, folder);
-    setEntries(rows); setBatch(folder || rows.length > 1); setAttempted(false); setError(''); setDuplicate(null); setNotice(''); completed.current = false;
-    event.target.value = '';
+    closed.current = false;
+    return () => {
+      closed.current = true;
+    };
+  }, []);
+  const close = () => {
+    if (uploading) return;
+    closed.current = true;
+    (onClose || closeDialog)();
   };
-  const upload = async entry => {
-    const form = new FormData();
-    form.append('file', entry.file, entry.file.name); form.append('title', entry.title.trim()); form.append('part_number', String(entry.partNumber || '')); form.append('teacher_name', entry.teacherName.trim()); form.append('category', category); form.append('filiere_id', filiere); form.append('semester', String(semester)); form.append('module', module.trim()); form.append('resource_type', resourceType); form.append('channel', payload.channel || 'general');
-    if (entry.relativePath) form.append('relative_path', entry.relativePath);
-    if (payload.channel === 'filiere') form.append('chat_semester', String(getChatSemester(payload.chat_semester || user.current_semester || 1)));
-    form.append('content', payload.content || t('resourceShared', 'Je partage cette ressource avec vous.'));
-    if (payload.reply_to) form.append('reply_to', payload.reply_to);
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 120000);
-    try { return await api('/uploads', { method:'POST',body:form,signal:controller.signal }); }
-    catch (e) { if (e.name === 'AbortError') throw new Error(t('La connexion a expiré. Réessayez.')); throw e; }
-    finally { clearTimeout(timeout); }
+  const totalBytes = files.reduce((sum, item) => sum + item.file.size, 0);
+  // The shared form is the single source of classification for pending files.
+  // Keep each original/custom single-file title in state so removing files from
+  // a batch restores it. Completed uploads keep the metadata actually sent.
+  const classifiedFiles = files.map((item) =>
+    uploaded.current.has(item.key)
+      ? item
+      : {
+          ...item,
+          meta: {
+            ...item.meta,
+            semester: batch.semester,
+            module: batch.module,
+            category: batch.category,
+            author: batch.author,
+            title: files.length > 1 ? moduleDisplayName(batch.module) : item.meta.title,
+          },
+        },
+  );
+  const folderCount = new Set(
+    files
+      .map((item) => item.path.split("/").slice(0, -1).join("/"))
+      .filter(Boolean),
+  ).size;
+  const steps = [
+    tr("Documents", "Documents", "الوثائق"),
+    tr("Classement", "Classification", "التصنيف"),
+    tr("Confirmation", "Review", "التأكيد"),
+  ];
+
+  const addFiles = (selected) => {
+    if (closed.current) return;
+    const valid = selected.filter((item) => isSupportedFile(item.file));
+    const skipped = selected.length - valid.length;
+    setFiles((current) => {
+      const existing = new Set(current.map((item) => item.key));
+      const additions = valid
+        .map(({ file, path }) => ({
+          file,
+          path: path || file.name,
+          key: fileKey(file, path),
+          meta: {
+            ...batch,
+            part: "",
+            title: file.name.replace(/\.[^.]+$/, ""),
+          },
+        }))
+        .filter((item) => {
+          if (existing.has(item.key)) return false;
+          existing.add(item.key);
+          return true;
+        });
+      return [...current, ...additions].sort((a, b) =>
+        a.path.localeCompare(b.path),
+      );
+    });
+    setError(
+      skipped
+        ? tr(
+            `${skipped} fichier(s) ignoré(s) : format non pris en charge.`,
+            `${skipped} file(s) skipped: unsupported format.`,
+            `تم تجاهل ${skipped} ملف: صيغة غير مدعومة.`,
+          )
+        : "",
+    );
   };
-  const submit = async event => {
+
+  const handleDrop = async (event) => {
     event.preventDefault();
-    if (busy || !pending.length || !filiere || !category || !module.trim() || pending.some(entry => !entry.title.trim() || !entry.teacherName.trim() || !Number.isInteger(Number(entry.partNumber)) || Number(entry.partNumber) < 1)) return;
-    setBusy(true); setError(''); setDuplicate(null); setNotice('');
+    dragDepth.current = 0;
+    setDragging(false);
+    setReading(true);
     try {
-      if (batch) {
-        setAttempted(true);
-        let newUploads = 0;
-        await runUploadBatch(entries, async entry => { const result = await upload(entry); newUploads++; return result; }, update);
-        if (newUploads) {
-          if (!completed.current) { completed.current = true; payload.onComplete?.(); }
-          try { await refresh(); } catch { setNotice(t('uploadRefreshLater', 'Les fichiers sont envoyés. La bibliothèque se mettra à jour à la reconnexion.')); }
-        }
-      } else {
-        const result = await upload(pending[0]);
-        // A successful upload stays successful even if the follow-up refresh fails.
-        await refresh().catch(() => {});
-        payload.onComplete?.(); closeModal();
-        navigate(payload.channel ? messagePath(result.message) : resourcePath(result.resource));
-        toast(t('resourcePublished', 'Ressource partagée et classée dans la bibliothèque.'));
-      }
-    } catch (e) {
-      setError(t(e.message, e.message));
-      if (e.status === 409) setDuplicate(e.data?.resource || e.data?.existing);
-    } finally { setBusy(false); }
+      const selected = await filesFromDrop(event.dataTransfer);
+      addFiles(selected);
+    } catch {
+      setError(
+        tr(
+          "Ce dossier ne peut pas être lu. Essayez le bouton « Choisir un dossier ».",
+          "This folder could not be read. Try the “Choose folder” button.",
+          "تعذرت قراءة المجلد. جرّب زر «اختيار مجلد».",
+        ),
+      );
+    } finally {
+      if (!closed.current) setReading(false);
+    }
   };
-  if (!user?.filiere_id && payload.channel === 'filiere') return <><h2 id="modal-title">{t('selectFiliere', 'Sélectionner ma filière')}</h2><Link className="btn gold-btn full" to="/onboarding/studies" onClick={closeModal}>{t('completeSetup', 'Compléter mon compte')}<ArrowRight size={16}/></Link></>;
-  return <>
-    <div className="modal-heading"><span className="modal-heading-icon"><UploadCloud size={24} strokeWidth={1.4}/></span><h2 id="modal-title">{t('classifyResource', 'Quel type de ressource est-ce ?')}</h2><p>{batch ? t('uploadFolderDescription', 'Classez les fichiers ensemble. Les sous-dossiers et les titres de chaque fichier sont conservés.') : t('classifyDescription', 'Un instant pour bien classer, du temps gagné pour tout le monde.')}</p></div>
-    <form className="upload-study-form" aria-busy={busy} onSubmit={submit}>
-      <div className="upload-classification-grid">
-        <label className="field upload-wide"><span>{t('filiere', 'Filière')}</span><select required aria-label={t('filiere', 'Filière')} value={filiere} onChange={e => { setFiliere(e.target.value); setModule(''); setDuplicate(null); }} disabled={locked}><option value="">{t('chooseFiliere', 'Choisir une filière')}</option>{filieres.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}</select></label>
-        <label className="field"><span>{t('semester', 'Semestre')}</span><select required aria-label={t('semester', 'Semestre')} value={semester} disabled={!filiere || locked} onChange={e => { setSemester(Number(e.target.value)); setModule(''); setDuplicate(null); }}>{[1,2,3,4,5,6].map(s => <option key={s} value={s}>S{s}</option>)}</select></label>
-        <label className="field"><span>{t('contentType', 'Type de contenu')}</span><select required aria-label={t('contentType', 'Type de contenu')} value={resourceType} disabled={locked} onChange={e => { setResourceType(e.target.value); setDuplicate(null); }}><option value="">{t('selectContentType', 'Choisir un type de contenu')}</option>{types.map(([value,key,label]) => <option key={value} value={value}>{t(key,label)}</option>)}</select></label>
-        <label className="field upload-wide"><span>{t('module', 'Module')}</span><input required aria-label={t('module', 'Module')} list="upload-module-suggestions" value={module} onChange={e => setModule(e.target.value)} disabled={!filiere || locked} placeholder={t('selectModule', 'Sélectionner ou saisir un module')} maxLength={120}/><datalist id="upload-module-suggestions">{modules.map(m => <option key={m} value={m}/>)}</datalist></label>
-        {!batch && entries.length > 0 && <>
-          <label className="field upload-wide"><span>{t('resourceTitle', 'Titre de la ressource')}</span><input required aria-label={t('resourceTitle', 'Titre de la ressource')} value={entries[0].title} disabled={busy} onChange={e => update(entries[0].id, { title:e.target.value })} placeholder={t('clearResourceTitle', 'Un titre clair et utile')} maxLength={180}/></label>
-          <label className="field"><span>{t('resourcePart', 'Partie')}</span><input required type="number" min="1" max="999" value={entries[0].partNumber} disabled={busy} onChange={e => update(entries[0].id, { partNumber:e.target.value })} placeholder="1"/></label>
-          <label className="field"><span>{t('resourceTeacher', 'Professeur / auteur')}</span><input required value={entries[0].teacherName} disabled={busy} onChange={e => update(entries[0].id, { teacherName:e.target.value })} placeholder={t('resourceTeacherPlaceholder', 'Nom du professeur')} maxLength={120}/></label>
-        </>}
+  const pickFiles = (event) => {
+    addFiles(
+      Array.from(event.target.files || []).map((file) => ({
+        file,
+        path: file.webkitRelativePath || file.name,
+      })),
+    );
+    event.target.value = "";
+  };
+  const updateFile = (key, field, value) => {
+    if (uploaded.current.has(key)) return;
+    setFiles((current) =>
+      current.map((item) =>
+        item.key !== key
+          ? item
+          : { ...item, meta: { ...item.meta, [field]: value } },
+      ),
+    );
+    setError("");
+  };
+  const changeBatch = (field, value) => {
+    setBatch((current) => ({ ...current, [field]: value }));
+    setBatchApplied(false);
+    setError("");
+  };
+  const applyBatch = () => {
+    setError("");
+    setBatchApplied(true);
+  };
+  const candidates = classifiedFiles.map((item) => ({
+    ...item.meta,
+    facultyId: selection?.facultyId,
+    filiereId: selection?.filiereId,
+    originalName: item.file.name,
+  }));
+  const conflicts = findResourceConflicts(
+    candidates,
+    isChat ? existingAttachments : allResources,
+  ).filter((item) => !uploaded.current.has(files[item.index]?.key));
+  const conflictByIndex = new Map(conflicts.map((item) => [item.index, item]));
+  const validate = () => {
+    const invalid = classifiedFiles.find(
+      (item) =>
+        !uploaded.current.has(item.key) && (
+        !item.meta.title.trim() ||
+        !item.meta.module.trim() ||
+        ![1, 2, 3, 4, 5, 6].includes(Number(item.meta.semester)) ||
+        !categoryKeys.includes(item.meta.category) ||
+        !normalizePart(item.meta.part)),
+    );
+    if (
+      !selection?.facultyId ||
+      !selection?.filiereId ||
+      !files.length ||
+      invalid
+    ) {
+      setError(
+        tr(
+          "Renseignez le classement commun, puis un Part/Chapitre positif ou Complet pour chaque fichier.",
+          "Complete the shared classification and enter a positive Part/Chapitre or Complete for each file.",
+          "أكمل التصنيف المشترك ثم أدخل جزءاً/فصلاً موجباً أو Complet لكل ملف.",
+        ),
+      );
+      if (invalid) setEditing(invalid.key);
+      return false;
+    }
+    if (conflicts.length) {
+      const first = conflicts[0];
+      setError(
+        tr(
+          `Conflit : ${first.resource.originalName} utilise le même ${partLabel(first.resource.part)} que ${first.conflict.originalName || first.conflict.title} dans ce module, semestre et catégorie.`,
+          `Conflict: ${first.resource.originalName} shares ${partLabel(first.resource.part, "en")} with ${first.conflict.originalName || first.conflict.title} in this module, semester and category.`,
+          `تعارض: ${first.resource.originalName} و${first.conflict.originalName || first.conflict.title} يستخدمان نفس ${partLabel(first.resource.part, "ar")} داخل نفس الوحدة والفصل والفئة.`,
+        ),
+      );
+      setEditing(files[first.index].key);
+      return false;
+    }
+    setError("");
+    return true;
+  };
+  const review = () => {
+    if (validate()) setStep(2);
+  };
+  const confirmSharing = async () => {
+    if (closed.current || uploading) return;
+    if (!validate()) {
+      setStep(1);
+      return;
+    }
+    const now = new Date().toISOString();
+    if (isChat) {
+      onConfirm?.(
+        classifiedFiles.map((item) => ({
+          file: item.file,
+          path: item.path,
+          meta: {
+            title: item.meta.title.trim(),
+            semester: Number(item.meta.semester),
+            module: item.meta.module.trim().replace(/\s+/g, " "),
+            category: item.meta.category,
+            part: normalizePart(item.meta.part),
+            author: item.meta.author.trim(),
+            facultyId: selection.facultyId,
+            filiereId: selection.filiereId,
+            facultyName: faculty?.name || selection.facultyId,
+            filiereName: filiere?.name || selection.filiereId,
+            uploader: user?.displayName || user?.name || user?.username,
+            date: now,
+          },
+        })),
+      );
+      close();
+      return;
+    }
+    setUploading(true);
+    setError("");
+    setStep(3);
+    try {
+      // Send one file at a time to keep memory use bounded on phones. Retain
+      // completed entries so retrying a partially failed folder sends only
+      // the files that still need to be uploaded.
+      for (const item of classifiedFiles) {
+        if (uploaded.current.has(item.key)) continue;
+        await uploadResource({
+          file: item.file,
+          path: item.path,
+          meta: {
+            title: item.meta.title.trim(),
+            semester: Number(item.meta.semester),
+            module: item.meta.module.trim().replace(/\s+/g, " "),
+            category: item.meta.category,
+            part: normalizePart(item.meta.part),
+            author: item.meta.author.trim(),
+            facultyId: selection.facultyId,
+            filiereId: selection.filiereId,
+          },
+        });
+        uploaded.current.add(item.key);
+        setFiles((current) => current.map((file) =>
+          file.key === item.key ? { ...file, meta: { ...item.meta } } : file,
+        ));
+        setUploadedCount(uploaded.current.size);
+      }
+      setStep(4);
+    } catch (error) {
+      setError(error.message || tr("L’envoi a échoué. Réessayez.", "Upload failed. Try again.", "تعذر الرفع. حاول مجدداً."));
+      setStep(2);
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const metadataFields = (meta, change, individual = false, disabled = false) => (
+    individual ? (
+      <SuggestedField
+        label={tr("Part/Chapitre *", "Part/Chapitre *", "جزء/فصل *")}
+        value={meta.part}
+        onChange={(value) => change("part", value)}
+        options={["1", "2", "3", "4", "5", "Complet"]}
+        showOnEmpty
+        required
+        disabled={disabled}
+        hint={tr(
+          "Un nombre entier positif sans limite, ou Complet. Un seul fichier par emplacement.",
+          "Any positive integer, or Complete. One file per slot.",
+          "أي عدد صحيح موجب أو Complet (كامل). ملف واحد لكل جزء.",
+        )}
+      />
+    ) : (
+      <div className="upload-metadata-grid">
+        <Field label={`${t("semester")} *`}>
+          <Select
+            className="input"
+            value={meta.semester}
+            onChange={(event) => change("semester", Number(event.target.value))}
+          >
+            {[1, 2, 3, 4, 5, 6].map((value) => (
+              <option value={value} key={value}>
+                S{value}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        <SuggestedField
+          label={`${t("module")} *`}
+          value={meta.module}
+          onChange={(value) => change("module", value)}
+          options={modulesFor(meta.semester, meta.module)}
+          required
+          hint={tr(
+            "Tapez un nom librement ou choisissez une suggestion issue des fichiers existants.",
+            "Type any name or choose a suggestion from existing files.",
+            "اكتب أي اسم أو اختر اقتراحاً من الملفات الموجودة.",
+          )}
+        />
+        <Field label={tr("Catégorie *", "Category *", "الفئة *")}>
+          <Select
+            className="input"
+            value={meta.category}
+            onChange={(event) => change("category", event.target.value)}
+          >
+            {categoryKeys.map((key) => (
+              <option key={key} value={key}>
+                {t(key)}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        <Field
+          label={tr(
+            "Professeur / auteur",
+            "Professor / author",
+            "الأستاذ / المؤلف",
+          )}
+        >
+          <input
+            className="input"
+            value={meta.author}
+            onChange={(event) => change("author", event.target.value)}
+            placeholder={tr("Facultatif", "Optional", "اختياري")}
+            maxLength={100}
+          />
+        </Field>
       </div>
-      <div className="upload-pickers">
-        <button type="button" className="btn outline" disabled={locked} onClick={() => filesInput.current?.click()}><FileText size={18}/>{t('chooseFile', 'Choisir un fichier')}</button>
-        <button type="button" className="btn outline upload-folder-picker" disabled={locked} onClick={() => folderInput.current?.click()}><FolderOpen size={18}/>{t('chooseFolder', 'Choisir un dossier')}</button>
-        <input ref={filesInput} data-testid="upload-files-input" aria-label={t('file', 'Fichier')} type="file" hidden multiple disabled={locked} accept={UPLOAD_ACCEPT} onChange={e => selectFiles(e, false)}/>
-        <input ref={folderInput} data-testid="upload-folder-input" aria-label={t('folder', 'Dossier')} type="file" hidden multiple webkitdirectory="" disabled={locked} onChange={e => selectFiles(e, true)}/>
+    )
+  );
+
+  const classificationCopy = (meta) => (
+    <span className="upload-file-classification">
+      <span className="upload-classification-module">
+        <bdi>
+          {meta.module ||
+            tr("Module à renseigner", "Module required", "الوحدة مطلوبة")}
+        </bdi>
+        <span>S{meta.semester}</span>
+      </span>
+      <span className="upload-classification-labels">
+        <span>{t(meta.category)}</span>
+        <bdi>
+          {normalizePart(meta.part)
+            ? partLabel(meta.part, language)
+            : tr(
+                "Part/Chapitre à choisir",
+                "Choose Part/Chapitre",
+                "اختر الجزء/الفصل",
+              )}
+        </bdi>
+      </span>
+      <bdi className="upload-classification-program">{filiere?.name}</bdi>
+    </span>
+  );
+
+  const fileList = (individual) => (
+    <div
+      className="upload-file-list"
+      aria-label={tr(
+        "Documents sélectionnés",
+        "Selected documents",
+        "الوثائق المختارة",
+      )}
+    >
+      {classifiedFiles.map((item, index) => {
+        const pathParts = item.path.split("/");
+        const depth = Math.min(4, pathParts.length - 1);
+        return (
+          <div
+            className={`upload-file ${editing === item.key ? "expanded" : ""} ${individual && conflictByIndex.has(index) ? "has-conflict" : ""}`}
+            key={item.key}
+          >
+            <div
+              className="upload-file-row"
+              style={{ "--folder-depth": depth }}
+            >
+              <div className="upload-file-symbol">
+                <FileText size={19} />
+              </div>
+              <div className="upload-file-info">
+                <strong dir="auto">{item.file.name}</strong>
+                {pathParts.length > 1 && (
+                  <span className="upload-file-path" dir="auto">
+                    <Folder size={12} />
+                    {pathParts.slice(0, -1).join(" / ")}
+                  </span>
+                )}
+                <span className="muted">
+                  {fileTypeLabel(item.file)} · {sizeLabel(item.file.size)}
+                </span>
+                {individual && (
+                  <>
+                    {classificationCopy(item.meta)}
+                    {item.meta.author && (
+                      <span className="muted" dir="auto">
+                        {item.meta.author}
+                      </span>
+                    )}
+                    {conflictByIndex.has(index) && (
+                      <span className="upload-file-conflict" role="status">
+                        {tr("Conflit avec", "Conflict with", "تعارض مع")}{" "}
+                        {conflictByIndex.get(index).conflict.originalName ||
+                          conflictByIndex.get(index).conflict.title}
+                      </span>
+                    )}
+                  </>
+                )}
+              </div>
+              {individual && (
+                <button
+                  type="button"
+                  className="upload-icon-button"
+                  onClick={() =>
+                    setEditing(editing === item.key ? null : item.key)
+                  }
+                  aria-expanded={editing === item.key}
+                  aria-label={tr(
+                    `Modifier ${item.file.name}`,
+                    `Edit ${item.file.name}`,
+                    `تعديل ${item.file.name}`,
+                  )}
+                >
+                  {editing === item.key ? (
+                    <ChevronUp size={18} />
+                  ) : (
+                    <ChevronDown size={18} />
+                  )}
+                </button>
+              )}
+              <button
+                type="button"
+                className="upload-icon-button"
+                aria-label={tr(
+                  `Retirer ${item.file.name}`,
+                  `Remove ${item.file.name}`,
+                  `إزالة ${item.file.name}`,
+                )}
+                disabled={uploaded.current.has(item.key)}
+                onClick={() => {
+                  setFiles((current) =>
+                    current.filter((file) => file.key !== item.key),
+                  );
+                  setError("");
+                }}
+              >
+                <Trash2 size={17} />
+              </button>
+            </div>
+            {individual && editing === item.key && (
+              <div className="upload-file-editor">
+                {metadataFields(
+                  item.meta,
+                  (field, value) => updateFile(item.key, field, value),
+                  true,
+                  uploaded.current.has(item.key),
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+
+  const footer = (
+    <div className="upload-footer">
+      <span className="muted">
+        {tr(
+          "Partage sécurisé dans votre faculté",
+          "Secure sharing within your faculty",
+          "مشاركة آمنة داخل كليتك",
+        )}
+      </span>
+      <div>
+        {step < 3 && (
+          <Button variant="ghost" onClick={close}>
+            {t("cancel")}
+          </Button>
+        )}
+        {step === 0 && (
+          <Button
+            variant="primary"
+            disabled={!files.length || reading}
+            onClick={() => {
+              setStep(1);
+              setError("");
+            }}
+          >
+            {tr("Classer les documents", "Classify documents", "تصنيف الوثائق")}{" "}
+            {language === "ar" ? "←" : "→"}
+          </Button>
+        )}
+        {step === 1 && (
+          <>
+            <Button
+              variant="secondary"
+              icon={language === "ar" ? ArrowRight : ArrowLeft}
+              onClick={() => {
+                setStep(0);
+                setError("");
+              }}
+            >
+              {tr("Retour", "Back", "رجوع")}
+            </Button>
+            <Button variant="primary" disabled={!files.length} onClick={review}>
+              {tr("Vérifier", "Review", "مراجعة")}{" "}
+              {language === "ar" ? "←" : "→"}
+            </Button>
+          </>
+        )}
+        {step === 2 && (
+          <>
+            <Button
+              variant="secondary"
+              icon={language === "ar" ? ArrowRight : ArrowLeft}
+              onClick={() => setStep(1)}
+            >
+              {tr("Modifier", "Edit", "تعديل")}
+            </Button>
+            <Button variant="primary" icon={Check} disabled={uploading} onClick={confirmSharing}>
+              {isChat
+                ? tr(
+                    "Joindre au message",
+                    "Attach to message",
+                    "إرفاق بالرسالة",
+                  )
+                : tr(
+                    "Confirmer le partage",
+                    "Confirm sharing",
+                    "تأكيد المشاركة",
+                  )}
+            </Button>
+          </>
+        )}
+        {step === 3 && (
+          <div className="upload-progress-screen" role="status" aria-live="polite">
+            <LoaderCircle size={32} className="upload-spinner" />
+            <h3>{tr("Envoi des documents…", "Uploading documents…", "جارٍ رفع الوثائق…")}</h3>
+            <p className="muted">{uploadedCount} / {files.length}</p>
+            <progress value={uploadedCount} max={files.length} aria-label={tr("Documents envoyés", "Uploaded documents", "الوثائق المرفوعة")} />
+          </div>
+        )}
+        {step === 4 && (
+          <Button variant="primary" onClick={close}>
+            {tr("Terminer", "Done", "إنهاء")}
+          </Button>
+        )}
       </div>
-      <p className="upload-picker-hint">{t('uploadFolderHint', 'Sous-dossiers inclus · 20 Mo par fichier. Sur mobile, vous pouvez aussi sélectionner plusieurs fichiers.')}</p>
-      {batch ? <section className="upload-batch" aria-label={t('selectedFiles', 'Fichiers sélectionnés')}>
-        <div className="upload-batch-heading"><FolderOpen size={20}/><strong dir="auto">{entries[0]?.relativePath?.split('/').slice(0, -1)[0] || t('selectedFiles', 'Fichiers sélectionnés')}</strong><span>{entries.length} {t('files', 'fichiers')}</span></div>
-        <div className="upload-batch-summary" role="status" aria-live="polite">{attempted ? <><span>{uploaded} {t('uploadSent', 'envoyés')}</span>{duplicates > 0 && <span>{duplicates} {t('uploadExisting', 'déjà présents')}</span>}{failures > 0 && <span>{failures} {t('uploadFailed', 'en échec')}</span>}</> : <span>{eligible.length} {t('uploadReady', 'prêts à envoyer')}</span>}{skipped > 0 && <span>{skipped} {t('uploadSkipped', 'ignorés')}</span>}{busy && <span>{t('uploading', 'Envoi en cours…')}</span>}</div>
-        {attempted && <progress className="upload-batch-progress" value={done} max={eligible.length || 1} aria-label={t('uploadProgress', 'Progression de l’envoi')}/>}
-        <div className="upload-batch-list">{entries.map(entry => <article key={entry.id} className="upload-batch-row" data-status={entry.status} data-upload-path={entry.relativePath || entry.file.name}>
-          <div className="upload-file-heading"><FileText size={18}/><span className="upload-file-path" dir="auto">{entry.relativePath || entry.file.name}</span>{!locked && <button type="button" className="upload-remove" aria-label={`${t('removeFile', 'Retirer le fichier')} : ${entry.file.name}`} onClick={() => setEntries(rows => rows.filter(row => row.id !== entry.id))}><X size={16}/></button>}</div>
-          <div className="upload-file-details"><span>{formatBytes(entry.file.size, lang)}</span><span className="upload-file-status">{t(({ queued:'uploadQueued',uploading:'uploading',uploaded:'uploadFileSent',duplicate:'uploadFileExisting',error:'uploadFileFailed',skipped:'uploadFileSkipped' })[entry.status], ({ queued:'À envoyer',uploading:'Envoi en cours…',uploaded:'Envoyé',duplicate:'Déjà présent',error:'Échec',skipped:'Ignoré' })[entry.status])}</span></div>
-          {entry.status !== 'skipped' && <div className="upload-file-classification">
-            <label className="upload-file-title"><span>{t('resourceTitle', 'Titre de la ressource')}</span><input data-upload-title required={['queued','error'].includes(entry.status)} aria-label={`${t('title', 'Titre')} : ${entry.relativePath || entry.file.name}`} value={entry.title} maxLength={180} disabled={busy || ['uploaded','duplicate'].includes(entry.status)} onChange={e => update(entry.id, { title:e.target.value })}/></label>
-            <label><span>{t('resourcePart', 'Partie')}</span><input required type="number" min="1" max="999" value={entry.partNumber} disabled={busy || ['uploaded','duplicate'].includes(entry.status)} onChange={e => update(entry.id, { partNumber:e.target.value })}/></label>
-            <label><span>{t('resourceTeacher', 'Professeur / auteur')}</span><input required value={entry.teacherName} maxLength={120} disabled={busy || ['uploaded','duplicate'].includes(entry.status)} onChange={e => update(entry.id, { teacherName:e.target.value })} placeholder={t('resourceTeacherPlaceholder', 'Nom du professeur')}/></label>
-          </div>}
-          {entry.issue && <p className="upload-file-error">{t(entry.issue, ({ uploadEmptyFile:'Fichier vide.',uploadTooLarge:'Ce fichier dépasse 20 Mo.',uploadUnsupported:'Format non pris en charge.' })[entry.issue])}</p>}
-          {entry.error && <p className="upload-file-error" role="alert">{t(entry.error, entry.error)}</p>}
-          {!busy && entry.result?.resource && <Link className="upload-result-link" to={resourcePath(entry.result.resource)} onClick={closeModal}><CheckCircle2 size={14}/>{t(entry.status === 'duplicate' ? 'viewExisting' : 'open', entry.status === 'duplicate' ? 'Voir la ressource existante' : 'Ouvrir')}<ArrowUpRight size={14}/></Link>}
-        </article>)}</div>
-      </section> : entries.length > 0 && <div className="selected-file"><FileText size={25}/><div><b dir="auto">{entries[0].file.name}</b><span>{formatBytes(entries[0].file.size, lang)}</span>{entries[0].issue && <p className="upload-file-error">{t(entries[0].issue, ({ uploadEmptyFile:'Fichier vide.',uploadTooLarge:'Ce fichier dépasse 20 Mo.',uploadUnsupported:'Format non pris en charge.' })[entries[0].issue])}</p>}</div><button type="button" className="upload-remove" disabled={busy} onClick={() => { setEntries([]); setDuplicate(null); }} aria-label={t('removeFile', 'Retirer le fichier')}><X size={16}/></button></div>}
-      <p className="upload-info"><ShieldCheck size={15}/>{batch ? t('uploadBatchBothPlaces', 'Chaque fichier sera accessible dans la conversation et dans la bibliothèque.') : t('uploadBothPlaces', 'Un seul fichier, accessible dans la conversation et dans votre bibliothèque.')}</p>
-      {error && <div className="form-error" role="alert">{t(error,error)}{duplicate && <Link to={resourcePath(duplicate)} onClick={closeModal}>{t('viewExisting', 'Voir la ressource existante')}<ArrowUpRight size={14}/></Link>}</div>}
-      {notice && <p className="upload-picker-hint" role="status">{notice}</p>}
-      {(!batch || pending.length > 0) && <button className="btn gold-btn full" disabled={!pending.length || !filiere || !category || !module.trim() || pending.some(entry => !entry.title.trim() || !entry.teacherName.trim() || !Number.isInteger(Number(entry.partNumber)) || Number(entry.partNumber) < 1) || busy}>{t(busy ? 'uploading' : batch ? attempted ? 'uploadRetryFailed' : 'uploadPublishFiles' : 'publishResource', busy ? 'Envoi en cours…' : batch ? attempted ? 'Réessayer les fichiers en échec' : 'Partager les fichiers' : 'Partager la ressource')}{attempted ? <RotateCw size={16}/> : <ArrowRight size={16}/>}</button>}
-      {batch && attempted && <button type="button" className="btn outline full upload-done" disabled={busy} onClick={closeModal}>{t('done', 'Terminé')}</button>}
-    </form>
-  </>;
+    </div>
+  );
+
+  return (
+    <Modal
+      title={
+        isChat
+          ? tr(
+              "Classer les fichiers du message",
+              "Classify message files",
+              "تصنيف ملفات الرسالة",
+            )
+          : tr("Partager des documents", "Share documents", "مشاركة الوثائق")
+      }
+      onClose={close}
+      wide
+      footer={footer}
+    >
+      <div className="upload-workflow">
+        {step < 3 && (
+          <ol className="upload-steps">
+            {steps.map((label, index) => (
+              <li
+                key={label}
+                className={
+                  step === index ? "current" : step > index ? "complete" : ""
+                }
+              >
+                <span>{step > index ? <Check size={14} /> : index + 1}</span>
+                {label}
+              </li>
+            ))}
+          </ol>
+        )}
+        {error && (
+          <div className="upload-error" role="alert">
+            {error}
+          </div>
+        )}
+        {step === 0 && (
+          <>
+            <p className="muted upload-intro">
+              {tr(
+                "Sélectionnez vos fichiers ou dossiers, puis vérifiez le classement de chaque document.",
+                "Choose files or folders, then review each document’s classification.",
+                "اختر الملفات أو المجلدات ثم راجع تصنيف كل وثيقة.",
+              )}
+            </p>
+            <input
+              ref={fileInput}
+              type="file"
+              accept={SUPPORTED_FILE_ACCEPT}
+              multiple
+              hidden
+              onChange={pickFiles}
+              aria-label={tr(
+                "Sélectionner des fichiers",
+                "Select files",
+                "اختيار ملفات",
+              )}
+            />
+            <input
+              ref={directoryInput}
+              type="file"
+              accept={SUPPORTED_FILE_ACCEPT}
+              multiple
+              webkitdirectory=""
+              directory=""
+              hidden
+              onChange={pickFiles}
+              aria-label={tr(
+                "Sélectionner un dossier",
+                "Select a folder",
+                "اختيار مجلد",
+              )}
+            />
+            <div
+              className={`upload-dropzone ${dragging ? "dragging" : ""} ${reading ? "reading" : ""}`}
+              onDragEnter={(event) => {
+                event.preventDefault();
+                dragDepth.current += 1;
+                setDragging(true);
+              }}
+              onDragOver={(event) => event.preventDefault()}
+              onDragLeave={(event) => {
+                event.preventDefault();
+                dragDepth.current -= 1;
+                if (dragDepth.current <= 0) setDragging(false);
+              }}
+              onDrop={handleDrop}
+            >
+              {reading ? (
+                <LoaderCircle size={32} className="upload-spinner" />
+              ) : (
+                <UploadCloud size={32} />
+              )}
+              <strong>
+                {reading
+                  ? tr(
+                      "Lecture des dossiers…",
+                      "Reading folders…",
+                      "جارٍ قراءة المجلدات…",
+                    )
+                  : tr(
+                      "Glissez vos fichiers ou dossiers ici",
+                      "Drop files or folders here",
+                      "اسحب الملفات أو المجلدات هنا",
+                    )}
+              </strong>
+              <span className="muted">
+                {tr(
+                  "PDF · Images · Word · PowerPoint · Excel · TXT · Sous-dossiers inclus",
+                  "PDF · Images · Word · PowerPoint · Excel · TXT · Nested folders included",
+                  "PDF · صور · Word · PowerPoint · Excel · TXT · يشمل المجلدات المتداخلة",
+                )}
+              </span>
+              <div>
+                <Button
+                  variant="secondary"
+                  icon={Plus}
+                  disabled={reading}
+                  onClick={() => fileInput.current?.click()}
+                >
+                  {tr("Choisir des fichiers", "Choose files", "اختيار ملفات")}
+                </Button>
+                <Button
+                  variant="ghost"
+                  icon={FolderOpen}
+                  disabled={reading}
+                  onClick={() =>
+                    (directorySupported
+                      ? directoryInput
+                      : fileInput
+                    ).current?.click()
+                  }
+                >
+                  {directorySupported
+                    ? tr("Choisir un dossier", "Choose a folder", "اختيار مجلد")
+                    : tr(
+                        "Ajouter plusieurs fichiers",
+                        "Add multiple files",
+                        "إضافة عدة ملفات",
+                      )}
+                </Button>
+              </div>
+            </div>
+            {!directorySupported && (
+              <p className="muted upload-fallback">
+                {tr(
+                  "Votre navigateur ne propose pas la sélection de dossier. Sélectionnez plusieurs fichiers ou glissez un dossier si disponible.",
+                  "Your browser does not support folder selection. Choose multiple files, or drop a folder if available.",
+                  "لا يدعم المتصفح اختيار المجلدات. اختر عدة ملفات أو اسحب مجلداً إن أمكن.",
+                )}
+              </p>
+            )}
+            {files.length > 0 && (
+              <>
+                <div className="upload-list-heading">
+                  <strong>
+                    {files.length}{" "}
+                    {tr(
+                      "document(s) sélectionné(s)",
+                      "document(s) selected",
+                      "وثيقة مختارة",
+                    )}
+                  </strong>
+                  <span className="muted">
+                    {folderCount > 0 &&
+                      `${folderCount} ${tr("dossier(s)", "folder(s)", "مجلد")} · `}
+                    {sizeLabel(totalBytes)}
+                  </span>
+                  <button type="button" onClick={() => setFiles((current) => current.filter((item) => uploaded.current.has(item.key)))}>
+                    {tr("Tout retirer", "Remove all", "إزالة الكل")}
+                  </button>
+                </div>
+                {fileList(false)}
+              </>
+            )}
+          </>
+        )}
+        {step === 1 && (
+          <>
+            <div className="upload-assignment">
+              <Field
+                label={tr(
+                  "Faculté attribuée",
+                  "Assigned faculty",
+                  "الكلية المخصصة",
+                )}
+              >
+                <input className="input" value={faculty?.name || ""} disabled />
+              </Field>
+              <Field
+                label={tr(
+                  isAdmin ? "Filière de destination" : "Filière attribuée",
+                  isAdmin ? "Destination program" : "Assigned program",
+                  isAdmin ? "المسلك المستهدف" : "المسلك المخصص",
+                )}
+                hint={
+                  isChat
+                    ? tr(
+                        "Le classement accompagne le fichier dans cette discussion.",
+                        "Classification stays with the file in this conversation.",
+                        "يرافق التصنيف الملف في هذه المناقشة.",
+                      )
+                    : tr(
+                        "Vos documents seront partagés uniquement dans votre filière.",
+                        "Documents will be shared only within your program.",
+                        "ستتم مشاركة وثائقك داخل مسلكك فقط.",
+                      )
+                }
+              >
+                {isAdmin ? <Select className="input" value={program} disabled={uploading || uploaded.current.size > 0} onChange={(event) => { setProgram(event.target.value); setError(""); }} aria-label={tr("Filière de destination", "Destination program", "المسلك المستهدف")}><option value="">{tr("Choisir une filière", "Choose a program", "اختر مسلكاً")}</option>{getFilieres(accountSelection?.facultyId || user?.facultyId).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</Select> : <input className="input" value={filiere?.name || ""} disabled />}
+              </Field>
+            </div>
+            <section className="upload-batch">
+              <div className="upload-section-title">
+                <div>
+                  <h3>
+                    {tr(
+                      " 1) Classement commun",
+                      " 1) Common classification",
+                      "التصنيف المشترك (1",
+                    )}
+                  </h3>
+                  <p className="muted">
+                    {tr(
+                      "Ces informations sont communes à tous les fichiers. Renseignez ensuite le Part/Chapitre de chacun.",
+                      "These details apply to every file. Then enter each file’s Part/Chapitre.",
+                      "تُطبّق هذه المعلومات على جميع الملفات. أدخل بعدها الجزء/الفصل لكل ملف.",
+                    )}
+                  </p>
+                </div>
+              </div>
+              {files.length === 1 && (
+                <Field label={tr("Titre du document *", "Document title *", "عنوان الوثيقة *")}>
+                  <input
+                    className="input"
+                    value={classifiedFiles[0].meta.title}
+                    onChange={(event) => updateFile(files[0].key, "title", event.target.value)}
+                    maxLength={180}
+                    required
+                    disabled={uploaded.current.has(files[0].key)}
+                  />
+                </Field>
+              )}
+              {metadataFields(batch, changeBatch)}
+              {files.length > 1 && (
+                <p className="muted">
+                  {tr(
+                    "Le titre de chaque document reprend automatiquement le nom du module en MAJUSCULES.",
+                    "Each document title automatically uses the module name in UPPERCASE.",
+                    "يُستخدم اسم الوحدة بالأحرف الكبيرة تلقائياً عنواناً لكل وثيقة.",
+                  )}
+                  {batch.module.trim() && <> <strong dir="auto">{moduleDisplayName(batch.module)}</strong></>}
+                </p>
+              )}
+              <Button
+                variant="secondary"
+                icon={Check}
+                onClick={applyBatch}
+                disabled={!files.length}
+              >
+                {tr(
+                  `Appliquer aux ${files.length} documents`,
+                  `Apply to ${files.length} documents`,
+                  `تطبيق على ${files.length} وثيقة`,
+                )}
+              </Button>
+              {batchApplied && (
+                <p className="muted" role="status">
+                  {tr(
+                    "Classement appliqué. Choisissez le Part/Chapitre de chaque fichier.",
+                    "Classification applied. Choose each file’s Part/Chapitre.",
+                    "تم تطبيق التصنيف. اختر الجزء/الفصل لكل ملف.",
+                  )}
+                </p>
+              )}
+            </section>
+            <div className="upload-section-title">
+              <div>
+                <h3>
+                  {tr(
+                    "2) Vérifier chaque document",
+                    "2) Review each document",
+                    "مراجعة كل وثيقة (2",
+                  )}
+                </h3>
+                <p className="muted">
+                  {tr(
+                    "Ouvrez chaque ligne pour renseigner uniquement son Part/Chapitre obligatoire.",
+                    "Expand each row to enter its required Part/Chapitre.",
+                    "افتح كل صف لإدخال الجزء/الفصل الإلزامي فقط.",
+                  )}
+                </p>
+              </div>
+              <span className="muted">
+                {files.length} {tr("fichier(s)", "file(s)", "ملف")}
+              </span>
+            </div>
+            {files.length ? (
+              fileList(true)
+            ) : (
+              <p className="muted">
+                {tr(
+                  "Aucun document sélectionné. Revenez à la première étape.",
+                  "No documents selected. Return to the first step.",
+                  "لم يتم اختيار وثائق. عد إلى الخطوة الأولى.",
+                )}
+              </p>
+            )}
+          </>
+        )}
+        {step === 2 && (
+          <>
+            <div className="upload-review-header">
+              <CheckCircle2 size={26} />
+              <div>
+                <h3>
+                  {tr(
+                    "Prêt à partager ?",
+                    "Ready to share?",
+                    "هل أنت مستعد للمشاركة؟",
+                  )}
+                </h3>
+                <p className="muted">
+                  {tr(
+                    "Vérifiez le classement de vos documents une dernière fois.",
+                    "Check your document classification one last time.",
+                    "راجع تصنيف وثائقك مرة أخيرة.",
+                  )}
+                </p>
+              </div>
+            </div>
+            <div className="upload-summary">
+              <div>
+                <span className="muted">
+                  {tr("Documents", "Documents", "الوثائق")}
+                </span>
+                <strong>
+                  {files.length} {tr("fichier(s)", "file(s)", "ملف")}
+                </strong>
+              </div>
+              <div>
+                <span className="muted">
+                  {tr("Taille totale", "Total size", "الحجم الإجمالي")}
+                </span>
+                <strong>{sizeLabel(totalBytes)}</strong>
+              </div>
+              <div>
+                <span className="muted">
+                  {tr("Classement", "Classification", "التصنيف")}
+                </span>
+                <strong>
+                  {faculty?.name} · {filiere?.name}
+                </strong>
+              </div>
+            </div>
+            <div className="upload-review-list">
+              {classifiedFiles.map((item) => (
+                <div key={item.key}>
+                  <FileText size={18} />
+                  <div>
+                    <strong dir="auto">{item.meta.title}</strong>
+                    <span className="upload-review-filename" dir="auto">
+                      {item.file.name}
+                    </span>
+                    {classificationCopy(item.meta)}
+                    {item.meta.author && (
+                      <span className="muted" dir="auto">
+                        {tr(
+                          "Professeur / auteur",
+                          "Professor / author",
+                          "الأستاذ / المؤلف",
+                        )}{" "}
+                        · {item.meta.author}
+                      </span>
+                    )}
+                    {item.path.includes("/") && (
+                      <span className="upload-file-path" dir="auto">
+                        {item.path}
+                      </span>
+                    )}
+                  </div>
+                  <span className="muted">
+                    {fileTypeLabel(item.file)} · {sizeLabel(item.file.size)}
+                  </span>
+                </div>
+              ))}
+            </div>
+            <p className="upload-local-notice">
+              {isChat
+                ? tr(
+                    "Ces fichiers seront joints au brouillon, puis envoyés avec votre message. Leur classement restera accessible dans cette discussion.",
+                    "These files will be attached to your draft, then uploaded with your message. Their classification will stay available in this conversation.",
+                    "ستُرفق الملفات بالمسودة ثم تُرفع مع الرسالة. يبقى تصنيفها متاحاً في هذه المناقشة.",
+                  )
+                : tr(
+                    "Les fichiers seront envoyés et conservés dans la bibliothèque de votre filière.",
+                    "Files will be uploaded and saved in your program’s library.",
+                    "ستُرفع الملفات وتُحفظ في مكتبة مسلكك.",
+                  )}
+            </p>
+          </>
+        )}
+
+        {step === 3 && (
+          <div className="upload-progress-screen" role="status" aria-live="polite">
+            <LoaderCircle size={32} className="upload-spinner" />
+            <h3>{tr("Envoi des documents…", "Uploading documents…", "جارٍ رفع الوثائق…")}</h3>
+            <p className="muted">{uploadedCount} / {files.length}</p>
+            <progress value={uploadedCount} max={files.length} aria-label={tr("Documents envoyés", "Uploaded documents", "الوثائق المرفوعة")} />
+          </div>
+        )}
+        {step === 4 && (
+          <div className="upload-progress-screen">
+            <div className="upload-success-icon">
+              <Check size={32} />
+            </div>
+            <h3>
+              {tr("Documents ajoutés", "Documents added", "تمت إضافة الوثائق")}
+            </h3>
+            <p className="muted">
+              {tr(
+                `${files.length} document(s) sont disponibles dans votre bibliothèque.`,
+                `${files.length} document(s) are now available in your library.`,
+                `${files.length} وثيقة متاحة الآن في مكتبتك.`,
+              )}
+            </p>
+            <p className="upload-local-notice">
+              {tr(
+                "Vos documents et leur classement sont enregistrés. Vous pourrez les retrouver après votre prochaine connexion.",
+                "Your documents and classification have been saved. They will remain available when you sign in again.",
+                "تم حفظ وثائقك وتصنيفها. ستجدها عند تسجيل الدخول مرة أخرى.",
+              )}
+            </p>
+          </div>
+        )}
+      </div>
+    </Modal>
+  );
 }

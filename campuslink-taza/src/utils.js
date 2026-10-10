@@ -1,11 +1,11 @@
-import {slug} from '../shared/paths.js';
-import {getChatSemester} from '../shared/studies.js';
-export {slug};
-export const resourcePath = r => `/app/resources/${r.category}${r.semester ? `/s${r.semester}` : ''}${r.module ? `/${slug(r.module)}` : ''}#resource-${r.id}`;
-export const messagePath = m => `/app/chat/${m.channel || 'general'}${m.channel==='filiere'&&getChatSemester(m.chat_semester||m.semester)?`?semester=${getChatSemester(m.chat_semester||m.semester)}`:''}#message-${m.message_id || m.id}`;
-export const formatBytes = (size,lang='fr') => {const large=size>=1048576;const units=({fr:['Ko','Mo'],en:['KB','MB'],ar:['كيلوبايت','ميغابايت']})[lang]||['KB','MB'];return `${new Intl.NumberFormat(lang,{maximumFractionDigits:large?1:0}).format(large?size/1048576:Math.ceil(size/1024))} ${units[large?1:0]}`;};
-export const formatDate = (date, lang = 'fr', options = {}) => new Intl.DateTimeFormat(lang === 'ar' ? 'ar-MA' : lang === 'en' ? 'en-GB' : 'fr-FR', {day:'numeric', month:'short', timeZone:'Africa/Casablanca', ...options}).format(new Date(date));
-export const categoryKeys = ['courses', 'exercises', 'exams', 'rattrapage'];
-export const categoryNames = { courses: 'Cours', exercises: 'Exercices', exams: 'Anciens examens', rattrapage: 'Rattrapage', general: 'Document général' };
-export const fileLabel = resource => resource.mime?.startsWith('image/') ? 'IMG' : resource.mime === 'application/pdf' ? 'PDF' : resource.mime === 'text/plain' ? 'TXT' : resource.filename?.split('.').pop()?.toUpperCase().slice(0,4) || 'DOC';
-export const roleNames = { student: 'Étudiant', moderator: 'Modérateur', faculty_admin: 'Administrateur', global_admin: 'Administrateur global' };
+// Create an actual small PDF in the browser, without a document service.
+export function makeDemoPdf(title,moduleName='') {
+ const ascii=s=>String(s).normalize('NFKD').replace(/[\u0300-\u036f]/g,'').replace(/[^\x20-\x7E]/g,'-').replace(/[\\()]/g,'\\$&');
+ const lines=['CampusLink Taza - Document de demonstration',title,moduleName,'','Ce PDF illustre la consultation et le telechargement local.','Il ne constitue pas un cours officiel de l universite.','','1. Relire les notions essentielles de ce module.','2. Relever les questions a poser a votre enseignant.','3. Echanger avec les etudiants dans le Chat de filiere.'];
+ const content='BT /F1 12 Tf 50 780 Td '+lines.map((line,i)=>`${i?'0 -28 Td ':''}(${ascii(line).slice(0,95)}) Tj`).join(' ')+' ET';
+ const objects=['<< /Type /Catalog /Pages 2 0 R >>','<< /Type /Pages /Kids [3 0 R] /Count 1 >>','<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>','<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',`<< /Length ${content.length} >>\nstream\n${content}\nendstream`];
+ let pdf='%PDF-1.4\n';const offsets=[];objects.forEach((obj,i)=>{offsets.push(pdf.length);pdf+=`${i+1} 0 obj\n${obj}\nendobj\n`;});const xref=pdf.length;
+ pdf+=`xref\n0 6\n0000000000 65535 f \n${offsets.map(n=>`${String(n).padStart(10,'0')} 00000 n \n`).join('')}trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;return pdf;
+}
+export function matchesScope(item,selection){return Boolean(selection&&item.facultyId===selection.facultyId&&(!item.filiereId||item.filiereId===selection.filiereId));}
+export const normalizeSearch=text=>String(text).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim();

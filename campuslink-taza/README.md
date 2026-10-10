@@ -1,88 +1,97 @@
 # CampusLink Taza
 
-The existing React/React Router/Vite frontend and Express 5 backend now use **Neon PostgreSQL**, **Neon Auth**, and **private Cloudflare R2** storage. The current layout, faculty colors, dark/light appearance, French/Arabic/English translations, RTL behavior and mobile settings are preserved.
+CampusLink garde l’interface actuelle de ce projet et utilise désormais le backend Express/PostgreSQL du projet original. L’authentification passe par Neon Auth et les fichiers par le stockage privé Cloudflare R2. Les comptes, documents, discussions, favoris, historique, annonces, notifications et préférences sont persistants.
 
-## Run
+## Démarrer
 
-Requires Node 22.13+ and npm. Server configuration is loaded from the existing ignored `.env.local`; variable names are documented in [.env.example](.env.example). Never add client prefixes to credentials.
+Node.js 22 ou plus récent est nécessaire.
 
 ```sh
-npm ci
-npm run db:migrate
-npm run db:seed
+npm install
 npm run dev
 ```
 
-Frontend: http://localhost:5173. API: http://localhost:3001.
+Ouvrir **http://localhost:5180**. Cette commande lance l’API sur le port 3001 et Vite sur le port 5180, avec un proxy `/api`. Le frontend et ses appels API partagent la même origine et les cookies de session sont HttpOnly.
 
 ```sh
 npm run build
 npm start
 ```
 
-Production serves the SPA and API together on port 3001. `./start.sh` discovers the workspace's Node runtime, builds and starts the application. Startup applies reproducible migrations and idempotent reference seeding; it does not silently create demo users.
+En production locale, Express sert le build `dist` et les routes de l’application sur **http://localhost:3001**. Régler `APP_ORIGIN` sur l’origine réelle avant publication et activer `COOKIE_SECURE=true` en HTTPS.
 
-## Existing data and account identities
+Sur cette machine, le runtime Node se trouve dans `/home/issmail/.local/share/sanaa-runtime/node-v22.23.3-linux-x64/bin` si le shell ne trouve pas `node` ou `npm`.
 
-The read-only importer preserves existing numeric IDs, account roles and academic selections, messages, replies, pins, saved items, notifications and resource/version references. It transfers local files to private R2; the original SQLite database and files remain untouched.
+## Configuration et migration
+
+La configuration serveur est dans `.env.local`, exclu de Git. Aucun secret serveur ne doit recevoir de préfixe `VITE_`. `.env.example` contient les noms des paramètres sans leurs valeurs : PostgreSQL, URLs Neon Auth et credentials R2.
+
+Le projet utilise le schéma PostgreSQL **`campuslink_prj`**, distinct de **`campuslink`** utilisé par le projet original. Les métadonnées originales ont été copiées une seule fois, avec les relations, identifiants et séquences. Les identités Neon et références aux fichiers R2 existants sont conservées. Les comptes déjà liés à Neon Auth conservent leurs identifiants. Les anciens profils non liés doivent être associés à une identité réelle avec `npm run auth:link`, comme dans le projet source. Les mots de passe des comptes existants restent ceux de Neon Auth ; les anciens comptes fictifs `sara.demo`/`admin.demo` du frontend ne permettent plus de se connecter.
+
+Les nouveaux fichiers utilisent le préfixe R2 **`campuslink-prj/`**. La suppression ou le remplacement dans ce projet ne supprime pas les objets importés du projet original. Le schéma et les fichiers sources ne sont pas déplacés ni supprimés. Neon Auth reste le fournisseur d’identité commun : modifier son propre mot de passe modifie le compte Neon correspondant.
 
 ```sh
-npm run db:import-local
+npm run db:migrate
+npm run db:seed
+npm run db:clone -- --source-schema campuslink --target-schema campuslink_prj
 ```
 
-Import requires an empty application content schema and records its source checksum. Repeating the same import does not create duplicate rows or files. Legacy unclassified resources retain their metadata; no major or module assignment is guessed.
+`db:migrate` applique les migrations du schéma configuré. `db:seed` insère les références académiques ; les données de démonstration nécessitent explicitement `--demo`. `db:clone` copie les métadonnées du schéma source vers une destination vide et refuse d’écraser une destination existante. Une installation déjà migrée n’a pas besoin de relancer le clonage.
 
-Existing local accounts have no email identity. They remain securely unlinked until a trusted operator associates them with a real Neon Auth account. Local passwords and sessions are no longer accepted. To provision and link an existing profile:
+Le démarrage local lit `CAMPUS_DB_SCHEMA`, `CAMPUS_DB_MIGRATE`, `CAMPUS_DB_SEED`, `CAMPUS_STORAGE_PREFIX`, `APP_ORIGIN`, `PORT` et `COOKIE_SECURE`. Les scripts de migration, d’import local et de liaison des identités sont conservés dans `server/`.
+
+## Déploiement Vercel
+
+Le dépôt conserve le dossier **`campuslink-taza/`**, attendu par le paramètre Root Directory du projet Vercel existant. Les commandes de ce README s’exécutent depuis ce dossier. `vercel.json` construit Vite dans `dist`, dirige `/api/*` vers `api/backend.js` et conserve les liens directs de l’application React.
+
+Configurer côté serveur `DATABASE_URL`, `NEON_AUTH_BASE_URL`, `NEON_AUTH_JWKS_URL`, `R2_ENDPOINT`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET_NAME` et `R2_REGION`. Ces secrets restent dans les variables d’environnement Vercel et ne sont jamais publiés dans Git ou le frontend.
+
+L’entrée Vercel utilise exclusivement le schéma existant **`campuslink_prj`** et le préfixe **`campuslink-prj/`**, même si les paramètres du projet Vercel ont été hérités de la version originale. Elle ne lance ni migration ni seed au démarrage. Le schéma doit donc avoir été préparé avec les migrations actuelles avant déploiement ; celui de ce projet est déjà migré. L’origine de chaque aperçu est déduite de `VERCEL_URL`, les cookies utilisent HTTPS et le proxy Vercel est pris en compte pour les vérifications d’origine.
+
+Les connexions PostgreSQL sont renouvelées et les requêtes disposent d’une limite de 10 secondes pour empêcher une connexion bloquée de saturer le serveur. Une interruption temporaire renvoie une indisponibilité explicite et ne consomme pas les tentatives de connexion. Les clients de transaction défaillants sont retirés du pool ; les écritures ne sont pas relancées automatiquement.
+
+## Comptes et administration
+
+L’inscription réelle demande les informations académiques et reste en attente de validation. L’administrateur global accepte ou refuse les demandes. Un compte en attente ou refusé ne peut pas accéder au campus. Les comptes créés par l’administration passent également par Neon Auth.
+
+Les capacités migrées et leurs limites par rôle sont détaillées dans [docs/admin-capabilities.md](docs/admin-capabilities.md). Les huit onglets existants restent en place : vue d’ensemble, comptes, organisation, ressources, annonces, signalements, communauté et assistance. L’administrateur global, l’administrateur de faculté et le modérateur sont distingués à la fois dans l’interface et sur chaque route serveur.
+
+Les réponses d’assistance deviennent des notifications dans CampusLink. Elles n’envoient pas d’e-mail externe. Le changement personnel de mot de passe utilise Neon Auth ; la réinitialisation arbitraire du mot de passe d’un autre compte n’est pas une capacité du backend original.
+
+Le profil permet de modifier le nom, la présentation, la photo, les préférences, la filière et le semestre actuel. La faculté reste fixe. Un changement de parcours recharge les données du nouveau contexte et ferme les brouillons et aperçus associés à l’ancien.
+
+## Interface conservée
+
+Les thèmes chauds clair/sombre, le français/anglais/arabe, les sélecteurs personnalisés, les bulles de discussion et le menu par appui prolongé restent en place. Sur mobile, les quatre onglets du bas restent Accueil, Discussions, Library et Annonces. Le calendrier et l’administration utilisent les destinations secondaires.
+
+La pile de ressources sur Accueil reste limitée au mobile. Le déplacement suit le doigt à la même vitesse, les hauteurs des documents s’adaptent progressivement et une seule animation termine chaque geste. Cinq cartes au maximum sont préchargées, avec une sixième conservée temporairement si un long geste en a encore besoin. Le défilement de la page reste disponible hors de la pile et à ses extrémités. L’affichage desktop d’Accueil et les pages sauvegardées conservent leur organisation.
+
+Library regroupe automatiquement les anciens et nouveaux documents par module, dans leur faculté, filière et semestre. Les variantes de casse et les espaces superflus partagent le même dossier. La migration 011 rattache les anciens fichiers à leur module sans toucher aux octets, aux noms de fichiers ou aux versions. L’ouverture d’un dossier conserve les cartes existantes et affiche au maximum 24 documents par page ; la recherche couvre tous les documents et les liens directs ouvrent la page du document concerné.
+
+Le partage de fichiers ou dossiers conserve les noms et chemins imbriqués. Le semestre, le module, la catégorie et le professeur facultatif restent des paramètres généraux. Pour plusieurs fichiers, le titre est automatiquement le nom du module en majuscules ; seul le Part/Chapitre (entier positif sans limite ou Complet) se renseigne individuellement. Un fichier unique conserve son titre personnalisable dans les paramètres généraux. Les fichiers sont réellement téléversés ; après une erreur partielle, seuls les fichiers restants sont renvoyés, avec les métadonnées déjà enregistrées conservées. Les pièces jointes de chat sont enregistrées avec le message, accessibles après reconnexion, sans être ajoutées automatiquement à Library. Les aperçus et téléchargements passent par les routes privées contrôlées par le serveur.
+
+Le thème, la langue et le fait d’avoir déjà vu la proposition d’installation utilisent le localStorage du frontend. Les anciennes données de démonstration ne sont jamais utilisées pour établir une session ou autoriser une action.
+
+CampusLink peut être installé comme application web. La proposition apparaît une seule fois par navigateur, puis l’installation reste accessible dans le profil. Chrome et Edge utilisent leur dialogue natif lorsqu’il est disponible ; les autres navigateurs affichent les étapes adaptées, notamment « Sur l’écran d’accueil » sur iPhone/iPad. La publication doit utiliser HTTPS pour permettre l’installation native sur téléphone ; HTTP sur localhost reste utilisable pour les vérifications locales. Le service worker conserve seulement les icônes et une page de reconnexion hors ligne : les données API, les pages authentifiées et les fichiers privés ne sont pas mis en cache.
+
+## Vérification
 
 ```sh
-npm run auth:link -- --username admin --email REAL_EMAIL --confirm-role global_admin --create
-```
-
-The command prompts privately for a new Neon password. Omit `--create` when the email already has a Neon identity, and enter that identity's password. It validates the provider session/JWKS and preserves the existing profile ID and role. Repeat for other existing profiles with their actual email and stored role. Passwords are never passed as command arguments.
-
-New students can use **Créer un compte** at `/register` and enter their name, username, email, password, faculty, Filière and current semester. Their account stays pending on `/account-review` until the global administrator accepts it in **Administration → Demandes d’inscription**. Pending and rejected accounts have no access to community data, chats or files. Existing accounts and accounts created directly by the administrator retain approved access. **Administration → Utilisateurs → Gérer → Supprimer l’étudiant** removes a student’s account access after confirmation and anonymizes their attribution; shared academic resources are preserved.
-
-For an explicitly requested empty demonstration setup, `npm run db:seed -- --demo` uses the existing sample dataset and private R2. These profiles also need explicit identity linking; demo passwords are confined to injected test fixtures.
-
-## Working flows
-
-- Account completion asks for Filière and current semester using the student's already selected faculty. The exact source catalog stays in [shared/studies.js](shared/studies.js).
-- Faculty-wide general chat remains shared by all majors. The Community Filière section has three study-year chats: S1/S2, S3/S4 and S5/S6. Students can visit any of those groups inside their own major. Old even-semester links open the corresponding group. Messages, replies, pins, search and live updates enforce this on the backend.
-- Upload classification remains Filière → semester → module → resource type → title → file. Modules load from persisted rows and can use an existing user-entered name. No faculty is requested again.
-- **Bibliothèque → Partager une ressource → Choisir un dossier** uploads a whole folder, including nested folders. One academic classification applies to the selection; each file keeps an editable title and its original folder path. Progress and per-file results stay visible, and retries send only failed files. **Choisir un fichier** also supports multiple documents when a phone's picker cannot select folders. Each document keeps the existing 20 MB limit and supported formats.
-- The academic library keeps its existing faculty scope. A resource's academic semester can differ from its private source chat semester. Inaccessible source chat links are hidden without changing library access.
-- The server validates classification, signatures and the 20 MB limit before uploading. Safe UUID object keys and PostgreSQL metadata keep the original filename as metadata only. Exact duplicate bytes return the existing resource.
-- Authenticated backend routes stream previews/downloads from the private R2 bucket with permission checks, private caching and safe content headers. No permanent public object URLs are issued.
-- Resource replacements preserve IDs and version history. Upload, avatar and replacement failures attempt object cleanup if metadata cannot commit.
-- On phones, language/theme stay in Settings and semester selection stays compact inside the existing chat header. Desktop/tablet navigation and faculty panels remain collapsible.
-- Message replies remain directly accessible beside the three-dot menu on phones, tablets and desktops. Light-mode message text is readable while the existing dark chat colors are retained. Library categories, study years and member cards have distinct surfaces and accents.
-- New reports, contact requests and registration requests show a temporary popup to their authorized administrators while connected. Existing notices and ordinary chat messages stay quiet. Opening the popup selects the matching administration tab; muted administrative notifications still refresh the request queue.
-- **Settings → Application** offers installation when the browser supports it, or instructions to add CampusLink to the home screen. Full PWA installation requires HTTPS or localhost; the phone's local HTTP address supports a browser shortcut. The public offline page never stores private messages, account data or academic files.
-- Existing search, saved items, calendar, notifications, profile settings, password changes, contacts and scoped administration remain available.
-
-## Verification
-
-```sh
+npm run build
 npm test
-npm run test:browser
-npm run test:r2
-npm run test:infrastructure
+npm run test:integration
+npm run test:admin-ui
+npm run test:resource-stack
+npm run test:context-sync
+npm run test:module-library
+npm run test:install-app
+node tests/install-worker.browser.mjs
 ```
 
-Regression suites use disposable schemas in the configured real PostgreSQL database, with explicitly injected identity/storage fixtures for bounded UI/API checks. Live checks exercise the configured Neon Auth and private R2, then remove their temporary accounts, objects and schema. Browser tests use Chromium; `CAMPUS_CHROMIUM` can point to an installed executable.
+Les tests d’intégration utilisent les véritables routes API et un schéma PostgreSQL temporaire, avec des doubles explicites pour l’identité et les octets des fichiers. Ils ne modifient pas les comptes Neon ou les fichiers du projet original. Les schémas temporaires sont supprimés à la fin. `CAMPUS_TEST_DATABASE_URL` peut fournir une base PostgreSQL de test ; à défaut la connexion configurée est utilisée avec un schéma isolé.
 
-See [tests/README.md](tests/README.md), [ARCHITECTURE.md](ARCHITECTURE.md), and [server/README.md](server/README.md) for contracts and validation details.
+Le test de pile mobile utilise des réponses API contrôlées pour mesurer l’interaction et la performance indépendamment du réseau. Il nécessite Vite démarré sur 5180 et Chromium installé (`npx playwright install chromium`). Les anciennes suites du prototype restent disponibles dans `tests/` comme références de l’interface ; les suites ci-dessus vérifient l’application reliée au serveur.
 
-## Deployment
+Le test de synchronisation retarde une réponse de rafraîchissement pour vérifier qu’elle ne peut pas annuler un favori déjà confirmé par le serveur. Il utilise aussi Vite et des réponses API contrôlées.
 
-Keep `DATABASE_URL`, `NEON_AUTH_BASE_URL`, `NEON_AUTH_JWKS_URL` and the five `R2_*` variables server-side. Application storage deliberately ignores Neon Object Storage `AWS_*` variables. The existing `neon.ts` bucket configuration is not used for application uploads.
-
-Set `APP_ORIGIN` to the deployed browser origin, allow that origin in Neon Auth, and set `COOKIE_SECURE=true` behind HTTPS. Back up Neon and R2 together. Contact forms persist administrator requests; they do not send email or automatically reset passwords.
-
-## Design assets
-
-Locally hosted DM Sans, Cormorant Garamond and Noto Sans Arabic fonts provide the UI typography. Seed portraits are illustrative Unsplash assets saved locally in `public/avatars/`. `public/favicon.svg` and the brand mark are native SVG drawings.
-
-The campus-inspired image is saved in `public/campus-gateway.png`. It was created with the built-in imagegen tool, following the [imagegen skill](/home/issmail/.codex/skills/.system/imagegen/SKILL.md). It is an illustration of a possible campus atmosphere, not an official photograph of FPT/USMBA. Final generation prompt:
-
-> Use case: photorealistic-natural. Asset type: panoramic hero and small faculty banner for a premium Moroccan university portal. Create a beautiful realistic editorial architectural photograph of a Moroccan university-inspired grand cream sandstone horseshoe arch gateway and symmetrical low academic buildings, viewed at a slight angle, palm trees and cypress trees in a serene manicured courtyard. Late afternoon golden sunlight, amber stone highlights, deep soft shadows. Rich tasteful cinematic palette warm cream, antique champagne gold, subdued olive greenery, charcoal. The gateway occupies center-right, a foreground path leads toward it. Wide landscape 16:9 composition cropped well as banner. Inspired by elegant Moroccan institutional architecture in Taza, without claiming to depict an actual campus. No people, no writing, no signage, no letters, no logos, no watermark. Fine material detail and realistic lens capture, not fantasy or illustration.
+Le test de bibliothèque utilise Vite et des réponses API contrôlées pour vérifier le regroupement des modules existants, la navigation, les noms Unicode et les anciens fichiers sans module, la pagination mobile, le partage multiple dans Library et les discussions, ainsi que la reprise après un échec partiel. Les tests PostgreSQL vérifient également la migration des anciens fichiers et les uploads concurrents de variantes d’un même module.

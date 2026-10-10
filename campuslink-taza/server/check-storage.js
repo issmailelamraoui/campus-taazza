@@ -1,9 +1,9 @@
 import './env.js';
 import { randomUUID } from 'node:crypto';
-import { createStorage } from './storage.js';
+import { createStorage, storageObjectKey } from './storage.js';
 
 const storage = createStorage();
-const key = `_integration-tests/campuslink-${randomUUID()}.txt`;
+const key = storageObjectKey(`_integration-tests/campuslink-${randomUUID()}.txt`);
 const content = Buffer.from('CampusLink bounded R2 integration check.\n');
 let attempted = false;
 try {

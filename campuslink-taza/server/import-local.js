@@ -6,8 +6,9 @@ import { basename, extname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { openDatabase, digest } from './db.js';
 import { seedDatabase } from './seed.js';
-import { createStorage, resourceObjectKey } from './storage.js';
+import { createStorage, resourceObjectKey, storageObjectKey } from './storage.js';
 import { applyStudentCommunityProfiles } from './community-profiles.js';
+import { moduleName, resolveModule } from './modules.js';
 
 const tables = ['faculties', 'users', 'messages', 'resources', 'resource_versions', 'reactions', 'announcements', 'notifications', 'events', 'channels', 'saved', 'history', 'reports', 'contacts'];
 const identityTables = ['users', 'messages', 'resources', 'resource_versions', 'announcements', 'notifications', 'events', 'reports', 'contacts'];
@@ -61,7 +62,7 @@ export async function importLocal({ dataDir = resolve('data'), db, storage, sche
       if (!match) throw new Error('Legacy embedded avatar type is not supported.');
       const buffer = Buffer.from(match[2], 'base64');
       if (!buffer.length || buffer.length > 2 * 1024 * 1024) throw new Error('Legacy embedded avatar size is invalid.');
-      avatars.set(row.id, { buffer, mime: match[1], key: `avatars/${row.id}/${randomUUID()}.${match[1].split('/')[1].replace('jpeg', 'jpg')}` });
+      avatars.set(row.id, { buffer, mime: match[1], key: storageObjectKey(`avatars/${row.id}/${randomUUID()}.${match[1].split('/')[1].replace('jpeg', 'jpg')}`) });
     }
     await db.transaction(async () => {
       await db.prepare('SELECT pg_advisory_xact_lock(hashtext(?))').get(`campuslink:legacy-import:${db.schema}`);
@@ -74,15 +75,17 @@ export async function importLocal({ dataDir = resolve('data'), db, storage, sche
         await db.prepare(`INSERT INTO faculties (${columns.join(',')}) VALUES (${columns.map(() => '?').join(',')}) ON CONFLICT(id) DO UPDATE SET ${columns.filter(key => key !== 'id').map(key => `${key}=excluded.${key}`).join(',')}`).run(...columns.map(key => faculty[key]));
       }
       for (const row of source.resources) if (row.module?.trim()) {
-        const moduleKey = JSON.stringify([row.faculty_id, row.filiere_id || null, row.semester || null, row.module]);
-        if (!modules.has(moduleKey)) modules.set(moduleKey, (await db.prepare('INSERT INTO modules (faculty_id,filiere_id,semester,name) VALUES (?,?,?,?) ON CONFLICT(faculty_id,filiere_id,semester,name) DO UPDATE SET name=excluded.name RETURNING id').run(row.faculty_id, row.filiere_id || null, row.semester || null, row.module)).lastInsertRowid);
-        row.module_id = modules.get(moduleKey);
+        const moduleKey = JSON.stringify([row.faculty_id, row.filiere_id || null, row.semester || null, moduleName(row.module).toLocaleLowerCase()]);
+        if (!modules.has(moduleKey)) modules.set(moduleKey, await resolveModule(db, { facultyId: row.faculty_id, filiereId: row.filiere_id || null, semester: row.semester || null, name: row.module }));
+        const module = modules.get(moduleKey);
+        row.module_id = module.id;
+        row.module = module.name;
       }
       for (const { kind, row, buffer, extension } of files) {
         const resource = kind === 'resources' ? row : resourceById.get(row.resource_id);
         const key = resource?.filiere_id && resource.semester && resource.module_id
           ? resourceObjectKey({ filiereId: resource.filiere_id, semester: resource.semester, moduleId: resource.module_id, filename: row.filename, prefix: kind })
-          : `legacy/${kind}/${row.id}/${randomUUID()}${extension}`;
+          : storageObjectKey(`legacy/${kind}/${row.id}/${randomUUID()}${extension}`);
         uploaded.push(key);
         await storage.put(key, buffer, row.mime || 'application/octet-stream');
         keys.set(row.stored_name, key);

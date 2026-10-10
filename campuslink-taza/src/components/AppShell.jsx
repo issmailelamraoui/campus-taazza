@@ -1,68 +1,501 @@
-import React,{useState,useEffect,useRef,useCallback} from 'react';
-import {createPortal} from 'react-dom';
-import {Link,NavLink,Outlet,useLocation} from 'react-router-dom';
-import {Home,Users,CalendarDays,BookOpen,Bell,Settings,Bookmark,Hash,Megaphone,MessagesSquare,LifeBuoy,Coffee,Info,ChevronDown,ChevronRight,ArrowUpRight,Search,Menu,X,LockKeyhole,Mail,ShieldCheck,PanelRightOpen,GraduationCap,LogOut,Moon,Sun} from 'lucide-react';
-import {useApp} from '../context';
-import {Avatar,BrandMark,CategoryIcon} from './ui';
-import {categoryKeys,categoryNames,formatDate} from '../utils';
-import './shell.css';
-export function Brand(){const{user}=useApp();return <Link to={user?.faculty_id?'/app':'/'} className="brand"><span className="brand-mark"><BrandMark/></span><span><strong>CampusLink <em>Taza</em></strong><small>USMBA <i/> FPT TAZA</small></span></Link>}
-export function LanguageSelector(){const{lang,setLang,t}=useApp();return <div className="language-selector" aria-label={t('language','Langue')}>{['fr','ar','en'].map(l=><button key={l} onClick={()=>setLang(l)} aria-pressed={l===lang} className={l===lang?'selected':''}>{l.toUpperCase()}</button>)}</div>}
-export function ThemeToggle(){const{theme,toggleTheme,t}=useApp();const dark=theme==='dark';const label=t(dark?'activateLightMode':'activateDarkMode',dark?'Activer le mode clair':'Activer le mode sombre');return <button type="button" className="icon-button theme-toggle" onClick={toggleTheme} aria-label={label} title={label} aria-pressed={dark}>{dark?<Sun size={19}/>:<Moon size={19}/>}</button>}
-function useWideScreen(){const[wide,setWide]=useState(()=>window.matchMedia('(min-width: 1280px)').matches);useEffect(()=>{const media=window.matchMedia('(min-width: 1280px)');const update=()=>setWide(media.matches);media.addEventListener('change',update);return()=>media.removeEventListener('change',update);},[]);return wide;}
-function useSavedPanel(key){const[value,setValue]=useState(()=>{try{return localStorage.getItem(key)==='true';}catch{return false;}});const update=useCallback(next=>setValue(current=>{const result=typeof next==='function'?next(current):next;try{localStorage.setItem(key,String(result));}catch{}return result;}),[key]);return[value,update];}
-function useDrawerFocus(open,ref,onClose){useEffect(()=>{if(!open)return;const previous=document.activeElement;const focusable=()=>[...(ref.current?.querySelectorAll('button:not([disabled]),a[href],input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex="0"]')||[])].filter(el=>el.getClientRects().length);const timer=setTimeout(()=>{(focusable()[0]||ref.current)?.focus();},0);const key=e=>{if(e.key==='Escape'){e.preventDefault();onClose();return;}if(e.key!=='Tab')return;const items=focusable();const first=items[0],last=items[items.length-1];if(!first){e.preventDefault();ref.current?.focus();}else if(e.shiftKey&&(document.activeElement===first||!ref.current?.contains(document.activeElement))){e.preventDefault();last.focus();}else if(!e.shiftKey&&(document.activeElement===last||!ref.current?.contains(document.activeElement))){e.preventDefault();first.focus();}};document.addEventListener('keydown',key,true);const overflow=document.body.style.overflow;document.body.style.overflow='hidden';return()=>{clearTimeout(timer);document.removeEventListener('keydown',key,true);document.body.style.overflow=overflow;if(previous?.isConnected&&previous.getClientRects().length&&!previous.closest('[inert]'))previous.focus();else document.querySelector('.mobile-menu,.public-menu')?.focus();};},[open,ref,onClose]);}
-export function PublicHeader(){
-  const{user,t}=useApp();const[settings,setSettings]=useState(false);const ref=useRef(null);const close=useCallback(()=>setSettings(false),[]);const location=useLocation();
-  useEffect(close,[location.pathname,close]);useDrawerFocus(settings,ref,close);
-  return <><header className="public-header"><Brand/><nav className="public-links"><a href="/#experience">{t('thePlatform','La plateforme')}</a><a href="/#community">{t('ourCommunity','Notre communauté')}</a></nav><div className="header-actions"><ThemeToggle/><LanguageSelector/><Link className="btn outline header-login" aria-label={t(user?'myCampus':'login',user?'Mon campus':'Se connecter')} to={user?'/app':'/login'}>{t(user?'myCampus':'login',user?'Mon campus':'Se connecter')}<ArrowUpRight size={15}/></Link><button type="button" className="icon-button public-menu" onClick={()=>setSettings(true)} aria-label={t('openSettings','Ouvrir les paramètres')} aria-expanded={settings} aria-controls="public-settings"><Menu size={23}/></button></div></header>{settings&&createPortal(<div className="public-settings-backdrop" onMouseDown={e=>{if(e.target===e.currentTarget)close();}}><section className="public-settings-drawer" ref={ref} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="public-settings-title" id="public-settings"><div className="public-settings-heading"><h2 id="public-settings-title">{t('settings','Paramètres')}</h2><button className="icon-button" onClick={close} aria-label={t('close','Fermer')}><X size={23}/></button></div><nav className="public-drawer-links"><Link onClick={close} to={user?'/app':'/login'}>{t(user?'myCampus':'login',user?'Mon campus':'Se connecter')}<ArrowUpRight size={18}/></Link><a onClick={close} href="/#experience">{t('thePlatform','La plateforme')}</a><a onClick={close} href="/#community">{t('ourCommunity','Notre communauté')}</a></nav><div className="public-setting-row"><b>{t('language','Langue')}</b><LanguageSelector/></div><div className="public-setting-row"><b>{t('appearance','Apparence')}</b><ThemeToggle/></div></section></div>,document.body)}</>;
-}
-const globalItems=[['/app',Home,'home','Accueil'],['/app/chat/general',Users,'chats','Chats'],['/app/calendar',CalendarDays,'calendar','Calendrier'],['/app/resources',BookOpen,'library','Bibliothèque'],['/app/notifications',Bell,'notifications','Notifications'],['/app/saved',Bookmark,'saved','Enregistrés']];
-const channels=[['general',Hash,'generalChat','Chat général'],['filiere',GraduationCap,'filiereChats','Chats de filière'],['announcements',Megaphone,'announcements','Annonces'],['important',MessagesSquare,'importantDiscussions','Discussions importantes'],['help',LifeBuoy,'help','Entraide'],['life',Coffee,'studentLife','Vie étudiante']];
-function GlobalSidebar({close,onInfo}){const{t,user,data}=useApp();const unread=data.notifications?.filter(n=>!n.read).length||0;return <aside className="global-sidebar"><div className="sidebar-nav">{globalItems.map(([path,Icon,key,label])=><NavLink key={key} to={path} end={path==='/app'} onClick={close} className={({isActive})=>'global-nav-item '+(isActive?'active':'')}><Icon size={20} strokeWidth={1.65}/><span>{t(key,label)}</span>{key==='notifications'&&unread>0&&<span className="count-badge">{unread}</span>}</NavLink>)}<NavLink to="/app/settings" onClick={close} className={({isActive})=>'global-nav-item '+(isActive?'active':'')}><Settings size={20}/><span>{t('settings','Paramètres')}</span></NavLink>{user.role!=='student'&&<NavLink to="/app/admin" onClick={close} className={({isActive})=>'global-nav-item '+(isActive?'active':'')}><ShieldCheck size={20}/><span>{t('administration','Administration')}</span></NavLink>}</div>{onInfo&&<button type="button" className="global-nav-item drawer-faculty-info" onClick={onInfo}><Info size={20}/><span>{t('facultyInfo','Informations de la faculté')}</span></button>}<div className="university-aside"><img src="/campus-gateway.png" alt=""/><div className="university-aside-copy"><BrandMark size={29}/><h2>USMBA Taza</h2><p lang="ar" dir="rtl">جامعة سيدي محمد بن عبد الله<br/>تازة</p><i/><span>{t('universityMotto',"Savoir aujourd'hui,\nun meilleur demain")}</span></div></div><Link className="sidebar-profile" to="/app/profile" onClick={close}><Avatar user={user} size={37} online/><div><b>{user.name||user.username}</b><small>{t('student','Étudiant')}</small></div><ChevronRight size={15}/></Link></aside>}
-function FacultySidebar({close}){const{t,data}=useApp();const f=data.faculty;return <aside className="faculty-sidebar"><div className="faculty-sidebar-heading"><span className="section-label">{t('yourSpace','VOTRE ESPACE')}</span><span className="green-dot"/></div><Link to="/app" className="selected-faculty" onClick={close}><span className="faculty-emblem"><BookOpen size={27} strokeWidth={1.2}/></span><b>{t('facultyName'+f.code,f.name)}</b><small lang="ar" dir="rtl">{f.arabic}</small><span className="faculty-code">{f.code}<span>·</span>{t('privateSpace','Espace privé')}<LockKeyhole size={10}/></span></Link><div className="channel-group"><span className="section-label">{t('community','COMMUNAUTÉ')}<ChevronDown size={13}/></span>{channels.map(([channel,Icon,key,label])=><NavLink key={channel} to={channel==='announcements'?'/app/announcements':`/app/chat/${channel}`} onClick={close} className={({isActive})=>`channel-link ${isActive?'active':''} ${channel==='important'?'important-channel':''}`}><Icon size={17} strokeWidth={1.6}/><span>{channel!=='filiere'&&data.channels?.find(c=>c.id===channel)?.name&&data.channels.find(c=>c.id===channel).name!==label?t(data.channels.find(c=>c.id===channel).name,data.channels.find(c=>c.id===channel).name):t(key,label)}</span>{data.channels?.find(c=>c.id===channel)?.read_only&&<LockKeyhole size={10}/>} {channel==='announcements'&&data.notifications?.some(n=>!n.read&&n.type==='announcements')&&<i className="gold-dot"/>}{channel==='important'&&data.notifications?.some(n=>!n.read&&n.type==='important')&&<i className="red-dot"/>}</NavLink>)}</div><div className="channel-group"><span className="section-label">{t('resources','RESSOURCES')}<ChevronDown size={13}/></span>{categoryKeys.map(cat=><NavLink to={`/app/resources/${cat}`} onClick={close} key={cat} className={({isActive})=>'channel-link '+(isActive?'active':'')}><CategoryIcon category={cat} size={17}/><span>{t(cat,categoryNames[cat])}</span></NavLink>)}<div className="semester-chips">{[1,2,3,4,5,6].map(s=><Link onClick={close} key={s} to={`/app/resources/courses/s${s}`}>S{s}</Link>)}</div></div><div className="channel-group other-links"><NavLink to="/app/members" onClick={close} className="channel-link"><Users size={17}/>{t('members','Membres')}</NavLink><NavLink to="/app/about" onClick={close} className="channel-link"><Info size={17}/>{t('about','À propos')}</NavLink></div><div className="faculty-lock"><LockKeyhole size={17}/><p>{t('facultyLocked','Un espace qui vous ressemble.')}<small>{t('facultyLockedCaption','Votre faculté, votre communauté.')}</small></p></div></aside>}
-export function UpcomingEvents({compact=true}){const{data,t,lang}=useApp();const events=[...(data.events||[])].filter(e=>e.date>=new Intl.DateTimeFormat('sv-SE',{timeZone:'Africa/Casablanca'}).format(new Date())).sort((a,b)=>a.date.localeCompare(b.date)).slice(0,3);return <div className="upcoming-events"><div className="sidebar-section-heading"><b>{t('upcomingEvents','Prochains événements')}</b><Link to="/app/calendar" aria-label={t('viewAll','Tout voir')}><ArrowUpRight size={15}/></Link></div>{events.map(e=><Link to={`/app/calendar#event-${e.id}`} className="upcoming-event" key={e.id}><div className={`event-date ${e.type==='exam'?'rose':''}`}><strong>{new Date(e.date).getDate()}</strong><span>{formatDate(e.date,lang,{day:undefined,month:'short'}).replace('.','').toUpperCase()}</span></div><div><b>{t(e.title,e.title)}</b><span>{t(e.type,e.type==='exam'?'Session d’examens':'Événement universitaire')}</span><small>{e.time}</small></div><CalendarDays size={15}/></Link>)}</div>}
-function RightSidebar({close}){const{data,t,openModal}=useApp();const f=data.faculty;return <aside className="right-sidebar"><div className="faculty-info panel"><div className="faculty-cover"><img src="/campus-gateway.png" alt={t('campusBanner','Architecture de campus marocain')}/><span><BrandMark size={32}/></span></div><div className="faculty-info-body"><div className="official-eyebrow"><span>{f.code}</span><GraduationCap size={13}/>{t('studentCommunity','COMMUNAUTÉ ÉTUDIANTE')}</div><h2>{t('facultyName'+f.code,f.name)}</h2><p className="faculty-arabic" lang="ar" dir="rtl">{f.arabic}</p><div className="faculty-tags">{[t('university','Université'),f.code,t('taza','Taza')].map(x=><span key={x}>{x}</span>)}</div><div className="faculty-stats"><div><Users size={17}/><b>{f.members||data.members?.length||0}</b><span>{t('members','Membres')}</span></div><div><i className="green-dot"/><b>{f.online||0}</b><span>{t('online','En ligne')}</span></div><div><GraduationCap size={17}/><b>6</b><span>{t('semesters','Semestres')}</span></div></div><button className="btn gold-btn full" onClick={()=>{close?.();requestAnimationFrame(()=>openModal('contact'));}}><Mail size={16}/>{t('contactAdmin',"Contacter l'admin")}</button></div></div><section className="sidebar-resources panel"><div className="sidebar-section-heading"><b>{t('resourceShortcuts','Votre bibliothèque')}</b><BookOpen size={14}/></div>{categoryKeys.map(cat=><Link key={cat} to={`/app/resources/${cat}`} onClick={close} className="resource-shortcut"><CategoryIcon category={cat} size={23}/><div><b>{t(cat,categoryNames[cat])}</b><span>{t(cat+'Caption',({courses:'Les essentiels de vos modules',exercises:'Pratiquer, comprendre, progresser',exams:'Les sujets des années précédentes',rattrapage:'Une nouvelle chance de réussir'})[cat])}</span></div><ChevronRight size={15}/></Link>)}</section><section className="panel events-panel"><UpcomingEvents/></section><div className="sidebar-footer"><span className="green-dot"/>{t('communityConnected','Votre communauté, connectée.')}<span>FPT · USMBA</span></div></aside>}
-export default function AppShell(){
-  const{user,data,t,openModal,logout}=useApp();
-  const[drawer,setDrawer]=useState(null),[profile,setProfile]=useState(false);
-  const[navExpanded,setNavExpanded]=useSavedPanel('campus-navigation-expanded');
-  const[infoExpanded,setInfoExpanded]=useSavedPanel('campus-faculty-panel-expanded');
-  const wide=useWideScreen(),location=useLocation();
-  const navRef=useRef(null),infoRef=useRef(null),profileRef=useRef(null);
-  const closeDrawer=useCallback(()=>setDrawer(null),[]);
-  const shownNav=wide&&navExpanded,shownInfo=wide&&infoExpanded;
-  useEffect(()=>{setDrawer(null);setProfile(false);},[location.pathname,location.hash,wide]);
-  useDrawerFocus(drawer==='nav',navRef,closeDrawer);
-  useDrawerFocus(drawer==='info',infoRef,closeDrawer);
-  useEffect(()=>{if(!profile)return;const dismiss=e=>{if(e.key==='Escape')setProfile(false);if(e.type==='pointerdown'&&!profileRef.current?.contains(e.target))setProfile(false);};document.addEventListener('keydown',dismiss);document.addEventListener('pointerdown',dismiss);return()=>{document.removeEventListener('keydown',dismiss);document.removeEventListener('pointerdown',dismiss);};},[profile]);
-  const toggleNav=()=>{setProfile(false);wide?setNavExpanded(v=>!v):setDrawer(v=>v==='nav'?null:'nav');};
-  const toggleInfo=()=>{setProfile(false);wide?setInfoExpanded(v=>!v):setDrawer(v=>v==='info'?null:'info');};
-  const unread=data.notifications?.filter(n=>!n.read).length||0;
-  const navLabel=t(shownNav||drawer==='nav'?'closeNavigation':'openNavigation',shownNav||drawer==='nav'?'Fermer la navigation':'Ouvrir la navigation');
-  const infoLabel=t(shownInfo||drawer==='info'?'closeFacultyInfo':'facultyInfo',shownInfo||drawer==='info'?'Fermer les informations de la faculté':'Informations de la faculté');
-  return <div className={`app-shell responsive-shell ${shownNav?'navigation-expanded':''} ${shownInfo?'faculty-panel-expanded':''}`}>
-    <header className="app-header" inert={drawer?true:undefined}>
-      <button type="button" className="icon-button mobile-menu" onClick={toggleNav} aria-label={navLabel} title={navLabel} aria-expanded={shownNav||drawer==='nav'} aria-controls="campus-navigation"><Menu size={24}/></button>
-      <Brand/>
-      <button type="button" className="global-search" onClick={()=>openModal('search')} aria-label={t('globalSearch','Recherche globale')}><Search size={20}/><span>{t('searchPlaceholder','Rechercher des messages, des cours, des membres…')}</span><kbd>⌘ K</kbd></button>
-      <div className="header-actions"><ThemeToggle/><LanguageSelector/><span className="header-divider"/>
-        <Link to="/app/notifications" className="notification-bell icon-button" aria-label={t('notifications','Notifications')}><Bell size={22}/>{unread>0&&<i className="red-dot"/>}</Link>
-        <div className="profile-area" ref={profileRef}><button type="button" className="header-profile" onClick={()=>setProfile(v=>!v)} aria-expanded={profile} aria-label={t('myProfile','Mon profil')}><Avatar user={user} size={38} online/><span><b>{user.name||user.username}</b><small>{t('student','Étudiant')} · USMBA</small></span><ChevronDown size={15}/></button>{profile&&<div className="profile-menu panel"><Link to="/app/profile"><Settings size={17}/>{t('myProfile','Mon profil')}</Link><Link to="/app/settings"><Settings size={17}/>{t('settings','Paramètres')}</Link><Link to="/app/saved"><Bookmark size={17}/>{t('saved','Enregistrés')}</Link><button onClick={logout}><LogOut size={17}/>{t('logout','Se déconnecter')}</button></div>}</div>
-        <button type="button" className="icon-button mobile-info" onClick={toggleInfo} aria-label={infoLabel} title={infoLabel} aria-expanded={shownInfo||drawer==='info'} aria-controls="campus-faculty-info"><PanelRightOpen size={23}/></button>
+import { Select } from './Select';
+import React, { useEffect, useRef, useState } from "react";
+import {
+  Link,
+  NavLink,
+  Outlet,
+  useLocation,
+  useNavigate,
+} from "react-router-dom";
+import {
+  Home,
+  BookOpen,
+  MessageSquare,
+  Megaphone,
+  Bell,
+  Bookmark,
+  UserRound,
+  ShieldCheck,
+  Search,
+  Sun,
+  Moon,
+  ChevronsUpDown,
+  ChevronRight,
+  Menu,
+  X,
+  ArrowRight,
+  HelpCircle,
+  LogOut,
+  Lock,
+  CheckCheck,
+  LoaderCircle,
+} from "lucide-react";
+import { useApp } from "../context";
+import { Logo, Avatar, Button } from "./ui";
+import { NotificationItem } from "../pages/StudentPages";
+export default function AppShell() {
+  const {
+    t,
+    tr,
+    user,
+    faculty,
+    filiere,
+    selection,
+    notifications,
+    theme,
+    setTheme,
+    language,
+    setLanguage,
+    setDialog,
+    logout,
+    markAllRead,
+    isAdmin,
+    connectionError,
+    refresh,
+    networkActivity = { reads: 0, writes: 0 },
+  } = useApp();
+  const [drawer, setDrawer] = useState(false);
+  const [panel, setPanel] = useState(false);
+  const [menu, setMenu] = useState(false);
+  const [notificationTab, setNotificationTab] = useState('unread');
+  const [logoutBusy, setLogoutBusy] = useState(false);
+  const [readBusy, setReadBusy] = useState(false);
+  const location = useLocation();
+  const navigate = useNavigate();
+  const panelRef = useRef(null);
+  const menuRef = useRef(null);
+  const drawerRef = useRef(null);
+  const nav = [
+    ["home", "/app", Home],
+    ["library", "/app/library", BookOpen],
+    ["community", "/app/community", MessageSquare],
+    ["announcements", "/app/announcements", Megaphone],
+    ["notifications", "/app/notifications", Bell],
+    ["saved", "/app/saved", Bookmark],
+    ["profile", "/app/profile", UserRound],
+    ...(isAdmin ? [["admin", "/app/admin", ShieldCheck]] : []),
+  ];
+  const mobileNav = [nav[0], nav[2], nav[1], nav[3]];
+  const mobileNavLabel = (key) =>
+    key === "community" ? tr("Discussions", "Discussions", "النقاشات") : t(key);
+  const current = nav.find((x) => x[1] === location.pathname)?.[0] || "home";
+  const unread = notifications.filter((n) => !n.read).length;
+  const panelNotifications = notifications.filter(n => notificationTab === 'read' ? n.read : !n.read);
+  useEffect(() => {
+    setDrawer(false);
+    setPanel(false);
+    setMenu(false);
+    document.title = `${t(current)} · CampusLink Taza`;
+  }, [location.pathname, language]);
+  useEffect(() => {
+    function handler(e) {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setDialog({ type: "search" });
+      }
+      if (e.key === "Escape") {
+        setDrawer(false);
+        setPanel(false);
+        setMenu(false);
+      }
+    }
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [setDialog]);
+  useEffect(() => {
+    function outside(e) {
+      if (
+        panel &&
+        panelRef.current &&
+        !panelRef.current.contains(e.target) &&
+        !e.target.closest(".notification-button")
+      )
+        setPanel(false);
+      if (
+        menu &&
+        menuRef.current &&
+        !menuRef.current.contains(e.target) &&
+        !e.target.closest(".header-avatar")
+      )
+        setMenu(false);
+    }
+    document.addEventListener("pointerdown", outside);
+    return () => document.removeEventListener("pointerdown", outside);
+  }, [panel, menu]);
+  useEffect(() => {
+    if (!drawer) return;
+    const prev = document.activeElement;
+    const old = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const node = drawerRef.current;
+    node?.querySelector("button")?.focus();
+    function trap(e) {
+      if (e.key !== "Tab") return;
+      const items = [...node.querySelectorAll("a,button")].filter(
+        (x) => x.getClientRects().length,
+      );
+      const first = items[0],
+        last = items.at(-1);
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    }
+    node?.addEventListener("keydown", trap);
+    return () => {
+      document.body.style.overflow = old;
+      node?.removeEventListener("keydown", trap);
+      prev?.focus();
+    };
+  }, [drawer]);
+  return (
+    <div
+      className={`app-shell ${location.pathname.replace(/\/$/, "") === "/app/community" ? "app-shell--community" : ""}`}
+    >
+      <a href="#main-content" className="skip-link">
+        {tr("Aller au contenu", "Skip to content", "انتقل إلى المحتوى")}
+      </a>
+      <div
+        className={`drawer-overlay ${drawer ? "open" : ""}`}
+        onClick={() => setDrawer(false)}
+      />
+      <aside
+        ref={drawerRef}
+        className={`sidebar ${drawer ? "open" : ""}`}
+        aria-label={tr(
+          "Navigation principale",
+          "Main navigation",
+          "التنقل الرئيسي",
+        )}
+      >
+        <button
+          className="icon-btn sidebar-mobile-close"
+          aria-label={t("close")}
+          onClick={() => setDrawer(false)}
+        >
+          <X size={19} />
+        </button>
+        <Link to="/app" aria-label="CampusLink Taza">
+          <Logo />
+        </Link>
+        <div className="sidebar-context">
+          <span className="context-mark">
+            <BookOpen size={16} />
+          </span>
+          <div className="context-copy">
+            <strong>
+              {faculty?.code}
+              <span className="muted"> · S{selection?.semester}</span>
+            </strong>
+            <p dir="auto" title={filiere?.name}>
+              {filiere?.name}
+            </p>
+          </div>
+          <Lock
+            size={11}
+            className="muted"
+            style={{ marginInlineStart: "auto" }}
+            aria-label={t("locked")}
+          />
+        </div>
+        <p className="sidebar-label">
+          {tr("VOTRE CAMPUS", "YOUR CAMPUS", "حرمك الجامعي")}
+        </p>
+        <nav>
+          {nav.map(([key, path, Icon], i) => (
+            <React.Fragment key={key}>
+              {i === 4 && <div className="nav-divider" />}
+              <NavLink
+                aria-label={t(key)}
+                title={t(key)}
+                onClick={() => setDrawer(false)}
+                end={key === "home"}
+                to={path}
+                className={({ isActive }) =>
+                  `nav-item ${i < 4 ? "mobile-primary-nav-link" : ""} ${isActive ? "active" : ""}`
+                }
+              >
+                <Icon size={18} strokeWidth={1.6} />
+                <span>{t(key)}</span>
+                {key === "notifications" && unread > 0 && (
+                  <span className="nav-count">{unread}</span>
+                )}
+              </NavLink>
+            </React.Fragment>
+          ))}
+        </nav>
+        <div className="sidebar-bottom">
+          <div className="sidebar-help">
+            <strong>
+              {tr(
+                "On est là pour vous.",
+                "We’re here to help.",
+                "نحن هنا لمساعدتك.",
+              )}
+            </strong>
+            <p>
+              {tr(
+                "Une question sur votre compte ?",
+                "A question about your account?",
+                "سؤال حول حسابك؟",
+              )}
+            </p>
+            <button onClick={() => setDialog({ type: "contact" })}>
+              {t("contact")}
+              <ArrowRight size={11} />
+            </button>
+          </div>
+          <Link
+            to="/app/profile"
+            className="sidebar-user"
+            onClick={() => setDrawer(false)}
+          >
+            <Avatar name={user.name} src={user.avatar} />
+            <span>
+              {user.name}
+              <small>
+                {isAdmin
+                  ? tr(
+                      "Compte administrateur",
+                      "Administrator account",
+                      "حساب الإدارة",
+                    )
+                  : tr(
+                      "Compte étudiant",
+                      "Student account",
+                      "حساب طالب",
+                    )}
+              </small>
+            </span>
+            <ChevronsUpDown size={13} className="muted" />
+          </Link>
+        </div>
+      </aside>
+      <div className="app-main">
+        <header className="app-header">
+          <button
+            className="icon-btn mobile-menu-button"
+            aria-label={t("menu")}
+            aria-expanded={drawer}
+            onClick={() => setDrawer(true)}
+          >
+            <Menu size={21} />
+          </button>
+          <div className="header-breadcrumb">
+            <span>Campus</span>
+            <ChevronRight size={13} className="muted" />
+            <span>{t(current)}</span>
+          </div>
+          <div className="header-actions">
+            {networkActivity.writes > 0 && <span className="app-write-status" role="status" aria-live="polite"><LoaderCircle size={13}/>{tr('Enregistrement…', 'Saving…', 'جارٍ الحفظ…')}</span>}
+            <button
+              className="global-search-button"
+              onClick={() => setDialog({ type: "search" })}
+              aria-label={t("search")}
+            >
+              <Search size={15} />
+              <span>
+                {tr(
+                  "Rechercher dans CampusLink",
+                  "Search CampusLink",
+                  "ابحث في CampusLink",
+                )}
+              </span>
+              <kbd className="key-hint">⌘ K</kbd>
+            </button>
+            <button
+              className="icon-btn notification-button"
+              aria-label={`${t("notifications")} (${unread})`}
+              aria-expanded={panel}
+              onClick={() => {
+                setPanel(!panel);
+                setNotificationTab('unread');
+                setMenu(false);
+              }}
+            >
+              <Bell size={18} strokeWidth={1.7} />
+              {unread > 0 && <span className="notification-dot">{unread}</span>}
+            </button>
+            <Select
+              className="language-select"
+              aria-label={t("language")}
+              value={language}
+              onChange={(e) => setLanguage(e.target.value)}
+            >
+              <option value="fr">FR</option>
+              <option value="en">EN</option>
+              <option value="ar">عربي</option>
+            </Select>
+            <button
+              className="icon-btn"
+              aria-label={t("theme")}
+              onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+            >
+              {theme === "dark" ? (
+                <Sun size={18} strokeWidth={1.6} />
+              ) : (
+                <Moon size={18} strokeWidth={1.6} />
+              )}
+            </button>
+            <span className="header-separator" />
+            <button
+              className="icon-btn header-avatar"
+              aria-label={t("account")}
+              aria-expanded={menu}
+              onClick={() => {
+                setMenu(!menu);
+                setPanel(false);
+              }}
+            >
+              <Avatar name={user.name} size="sm" src={user.avatar} />
+            </button>
+          </div>
+          {panel && (
+            <section
+              ref={panelRef}
+              className="notification-popover"
+              aria-label={t("notifications")}
+            >
+              <div className="notification-popover-header">
+                <h2>{t("notifications")}</h2>
+                <button
+                  className="icon-btn"
+                  title={t("markAllRead")}
+                  aria-label={t("markAllRead")}
+                  disabled={!unread || readBusy}
+                  aria-busy={readBusy}
+                  onClick={async () => { setReadBusy(true); try { await markAllRead(); } catch {} finally { setReadBusy(false); } }}
+                >
+                  {readBusy ? <LoaderCircle size={17}/> : <CheckCheck size={17} />}
+                </button>
+              </div>
+              <div className="notification-filter-tabs" aria-label={tr('Filtrer les notifications', 'Filter notifications', 'تصفية الإشعارات')}>
+                <button type="button" aria-pressed={notificationTab === 'unread'} onClick={() => setNotificationTab('unread')}>{t('unread')} ({unread})</button>
+                <button type="button" aria-pressed={notificationTab === 'read'} onClick={() => setNotificationTab('read')}>{t('read')}</button>
+              </div>
+              {panelNotifications.slice(0, 3).map((n) => (
+                <NotificationItem key={n.id} notification={n} />
+              ))}
+              {!panelNotifications.length && <p className="notification-popover-empty" role="status">{notificationTab === 'read' ? tr('Aucune notification lue.', 'No read notifications.', 'لا توجد إشعارات مقروءة.') : tr('Aucune notification non lue.', 'No unread notifications.', 'لا توجد إشعارات غير مقروءة.')}</p>}
+              <footer>
+                <Link
+                  className="text-link"
+                  to="/app/notifications"
+                  onClick={() => setPanel(false)}
+                >
+                  {tr(
+                    "Voir toutes les notifications",
+                    "View all notifications",
+                    "عرض كل الإشعارات",
+                  )}
+                  <ArrowRight size={13} />
+                </Link>
+              </footer>
+            </section>
+          )}
+          {menu && (
+            <div
+              ref={menuRef}
+              className="user-popover"
+              style={{
+                position: "absolute",
+                top: 65,
+                insetInlineEnd: 30,
+                width: 220,
+                background: "var(--surface)",
+                border: "1px solid var(--border)",
+                borderRadius: 10,
+                padding: 12,
+                boxShadow: "var(--shadow)",
+              }}
+            >
+              <div
+                style={{
+                  padding: "7px 10px 13px",
+                  borderBottom: "1px solid var(--border)",
+                  marginBottom: 8,
+                }}
+              >
+                <strong style={{ fontSize: 13 }}>{user.name}</strong>
+                <p className="muted" style={{ fontSize: 11 }}>
+                  @{user.username}
+                </p>
+              </div>
+              <Link className="nav-item" to="/app/profile">
+                <UserRound size={16} />
+                {t("profile")}
+              </Link>
+              <button
+                className="nav-item"
+                style={{ width: "100%", background: "none" }}
+                disabled={logoutBusy}
+                aria-busy={logoutBusy}
+                onClick={async () => {
+                  setLogoutBusy(true);
+                  try { await logout(); navigate("/login"); } catch {} finally { setLogoutBusy(false); }
+                }}
+              >
+                <LogOut size={16} />
+                {logoutBusy ? tr('Déconnexion…', 'Signing out…', 'جارٍ تسجيل الخروج…') : t("logout")}
+              </button>
+            </div>
+          )}
+        </header>
+        <div className="academic-context-bar">
+          <strong>
+            {faculty?.code} · S{selection?.semester}
+          </strong>
+          <span>·</span>
+          <bdi>{filiere?.name}</bdi>
+          <Lock size={10} aria-label={t("locked")} />
+        </div>
+        <main
+          id="main-content"
+          className="content"
+          aria-label={t(current)}
+          tabIndex={-1}
+        >
+          {connectionError && <div className="notice" role="alert" style={{marginBottom:16}}><span>{connectionError}</span> <button className="text-link" onClick={()=>refresh().catch(()=>{})}>{tr("Réessayer", "Retry", "إعادة المحاولة")}</button></div>}
+          <Outlet />
+        </main>
+        <footer className="app-footer">
+          <span className="footer-demo">
+            <span className="footer-dot" />
+            {tr("Votre campus, connecté.", "Your campus, connected.", "حرمك الجامعي متصل.")}
+          </span>
+          <span>
+            CampusLink Taza <span style={{ marginInline: 8 }}>·</span>{" "}
+            {tr(
+              "Apprendre. Partager. Avancer.",
+              "Learn. Share. Grow.",
+              "تعلّم. شارك. تقدّم.",
+            )}
+          </span>
+        </footer>
       </div>
-    </header>
-    <div className="app-columns">
-      <div className={`navigation-columns ${drawer==='nav'?'drawer-open':''}`} ref={navRef} id="campus-navigation" role={drawer==='nav'?'dialog':undefined} aria-modal={drawer==='nav'?true:undefined} aria-labelledby={drawer==='nav'?'campus-navigation-title':undefined} tabIndex={drawer==='nav'?-1:undefined} inert={drawer==='info'?true:undefined}>
-        <div className="drawer-top"><b id="campus-navigation-title">{t('myCampus','Mon campus')}</b><button type="button" className="icon-button" onClick={closeDrawer} aria-label={t('close','Fermer')}><X size={23}/></button></div>
-        <GlobalSidebar close={closeDrawer} onInfo={()=>setDrawer('info')}/><FacultySidebar close={closeDrawer}/>
-      </div>
-      <main className="app-main" id="main-content" inert={drawer?true:undefined}><Outlet/></main>
-      <div className={`info-column ${drawer==='info'?'drawer-open':''}`} ref={infoRef} id="campus-faculty-info" role={drawer==='info'?'dialog':undefined} aria-modal={drawer==='info'?true:undefined} aria-labelledby={drawer==='info'?'campus-faculty-title':undefined} tabIndex={drawer==='info'?-1:undefined} inert={drawer==='nav'?true:undefined}>
-        <div className="drawer-top"><b id="campus-faculty-title">{t('facultyInfo','Votre faculté')}</b><button type="button" className="icon-button" onClick={closeDrawer} aria-label={t('close','Fermer')}><X size={23}/></button></div><RightSidebar close={closeDrawer}/>
-      </div>
+      <nav
+        className="mobile-bottom-nav"
+        aria-label={tr("Navigation rapide", "Quick navigation", "التنقل السريع")}
+      >
+        {mobileNav.map(([key, path, Icon]) => (
+          <NavLink
+            key={key}
+            end={key === "home"}
+            to={path}
+            title={mobileNavLabel(key)}
+            aria-label={mobileNavLabel(key)}
+            className={({ isActive }) =>
+              `mobile-bottom-nav-link ${isActive ? "active" : ""}`
+            }
+          >
+            <Icon size={18} strokeWidth={1.7} aria-hidden="true" />
+            <span>{mobileNavLabel(key)}</span>
+          </NavLink>
+        ))}
+      </nav>
     </div>
-    {drawer&&<button type="button" className="drawer-backdrop" aria-label={t('close','Fermer')} onClick={closeDrawer} tabIndex={-1}/>}
-    <nav className="mobile-bottom-nav" aria-label={t('mainNavigation','Navigation principale')} inert={drawer?true:undefined}>{[globalItems[0],globalItems[1],globalItems[3],globalItems[5]].map(([path,Icon,key,label])=><NavLink key={key} to={path} end={path==='/app'}><Icon size={22}/><span>{t(key,label)}</span></NavLink>)}</nav>
-  </div>;
+  );
 }
