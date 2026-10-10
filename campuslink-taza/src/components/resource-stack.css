@@ -53,7 +53,8 @@
     box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
   }
   .resource-stack-card.is-active > .document-card {
-    border-color: rgba(255, 174, 121, 0.142);
+    border-color: rgba(102, 46, 8, 0.289);
+    box-shadow: 1px 1px 10px rgba(0, 0, 0, 0.9);
   }
   .resource-stack-controls {
     display: flex;

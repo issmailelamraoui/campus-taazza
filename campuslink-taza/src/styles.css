@@ -955,7 +955,6 @@ hr {
 }
 .home-section {
   margin-bottom: 31px;
-  background: rgb(76 66 48 / 6%);
   padding: 10px 20px;
   border-radius: 10px;
 }
@@ -1019,13 +1018,15 @@ hr {
   flex-direction: column;
   background: var(--surface);
   border: 1px solid #b6b6b645;
+  box-shadow: 1px 1px 10px #00000030;
   border-radius: 10px;
   min-width: 0;
   overflow: hidden;
   transition: border-color var(--transition);
 }
 .document-card:hover {
-  border-color: #44382b;
+  border-color: #44382b45;
+  box-shadow: 1px 1px 10px #0000003b;
 }
 .document-main {
   width: 100%;

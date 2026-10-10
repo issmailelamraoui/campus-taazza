@@ -10,6 +10,7 @@ import {
   ChevronDown,
   Filter,
   Folder,
+  FolderOpen,
   Search,
   Upload,
   X,
@@ -18,7 +19,6 @@ import { useApp } from "../context";
 import {
   groupResourcesByModule,
   moduleDisplayName,
-  moduleSuggestions,
   normalizeModule,
   normalizePart,
   compareParts,
@@ -79,6 +79,8 @@ export default function LibraryPage() {
   const location = useLocation();
   const handledResourceLink = useRef(null);
   const resultsHeading = useRef(null);
+  const modulePicker = useRef(null);
+  const pendingModuleScroll = useRef(false);
   // The URL is the single source of filter state, including native Back/Forward.
   const requestedSemester = semesterNumber(
     searchParams.get("semester") || selection?.semester || 1,
@@ -100,11 +102,9 @@ export default function LibraryPage() {
   const date = searchParams.get("date") || "all";
   const [showFilters, setShowFilters] = useState(false);
   const [showUpload, setShowUpload] = useState(false);
+  const [showModulePicker, setShowModulePicker] = useState(false);
+  const [moduleQuery, setModuleQuery] = useState("");
   const [documentPage, setDocumentPage] = useState(0);
-  const moduleNames = useMemo(
-    () => moduleSuggestions(resources, { ...selection, semester }),
-    [semester, selection?.facultyId, selection?.filiereId, resources],
-  );
 
   const semesterResources = useMemo(
     () =>
@@ -116,6 +116,40 @@ export default function LibraryPage() {
       ),
     [resources, semester, selection?.facultyId, selection?.filiereId],
   );
+  const semesterFolders = useMemo(
+    () => groupResourcesByModule(semesterResources),
+    [semesterResources],
+  );
+  const matchingModuleFolders = useMemo(
+    () => {
+      const search = normalizeModule(moduleQuery);
+      return semesterFolders.filter((folder) =>
+        folder.key.includes(search) ||
+        normalizeModule(folder.name || tr("Sans module", "Unclassified", "بدون وحدة"))
+          .includes(search),
+      );
+    },
+    [semesterFolders, moduleQuery, language],
+  );
+  useEffect(() => {
+    setShowModulePicker(false);
+    setModuleQuery("");
+  }, [semester, module]);
+  useEffect(() => {
+    if (!showModulePicker) return;
+    const frame = requestAnimationFrame(() =>
+      modulePicker.current?.scrollIntoView({ block: "nearest", behavior: "auto" }),
+    );
+    return () => cancelAnimationFrame(frame);
+  }, [showModulePicker]);
+  useEffect(() => {
+    if (!pendingModuleScroll.current) return;
+    const frame = requestAnimationFrame(() => {
+      pendingModuleScroll.current = false;
+      resultsHeading.current?.scrollIntoView({ block: "start", behavior: "auto" });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [module, showModulePicker]);
   const authors = useMemo(
     () =>
       [
@@ -234,13 +268,10 @@ export default function LibraryPage() {
     setSearchParams(params, options);
   };
   const openModule = (name) => {
+    pendingModuleScroll.current = true;
+    setShowModulePicker(false);
+    setModuleQuery("");
     navigateLibrary({ module: name });
-    requestAnimationFrame(() =>
-      resultsHeading.current?.scrollIntoView({
-        block: "start",
-        behavior: "auto",
-      }),
-    );
   };
   const changeDocumentPage = (page) => {
     setDocumentPage(Math.max(0, Math.min(page, lastDocumentPage)));
@@ -279,6 +310,46 @@ export default function LibraryPage() {
       count: filteredBase.filter((item) => categoryMatches(item, id)).length,
     })),
   ];
+
+  const resultsContext = (
+      <div ref={resultsHeading} className={`library-results-heading ${module === null ? "is-overview" : "is-module"}`}>
+        {module !== null && (
+            <Button
+              variant="ghost"
+              icon={ArrowLeft}
+              className="library-back-to-modules"
+              onClick={() => openModule(null)}
+            >
+              {tr("Tous les modules", "All modules", "كل الوحدات")}
+            </Button>
+        )}
+        <div className="library-results-context">
+          {module === null && <span className="library-folder-symbol"><FolderOpen size={25} strokeWidth={1.6} /></span>}
+          <div className="library-results-title">
+            <span className="library-section-label library-results-eyebrow">
+              {module !== null && <FolderOpen size={17} strokeWidth={1.6} aria-hidden="true" />}
+              {module === null
+              ? tr("Dossiers du semestre", "Semester folders", "مجلدات الفصل الدراسي")
+              : tr("Vous êtes dans le module", "You are in this module", "أنت في هذه الوحدة")}</span>
+            <h2 dir="auto">
+            {module === null
+              ? tr("Modules", "Modules", "الوحدات")
+              : folderLabel(moduleDisplayName(module))}
+            </h2>
+            <span className="library-results-count muted">
+          {visible.length}{" "}
+          {tr(
+            visible.length === 1 ? "document" : "documents",
+            visible.length === 1 ? "document" : "documents",
+            "وثيقة",
+          )}{" "}
+          · S{semester}
+            </span>
+          </div>
+        </div>
+        {module === null && <p className="library-module-guide muted">{tr("Ouvrez un dossier pour retrouver ses documents.", "Open a folder to find its documents.", "افتح مجلداً للاطلاع على وثائقه.")}</p>}
+      </div>
+  );
 
   return (
     <div className="library-page page-enter">
@@ -361,35 +432,80 @@ export default function LibraryPage() {
         </div>
         <div className="library-module-heading">
           <span className="library-step">02</span>
-          <span>{tr("LES MODULES", "MODULES", "الوحدات")}</span>
-          <span className="muted">S{semester}</span>
+          <span>{tr("Choisissez un module", "Choose a module", "اختر الوحدة")}</span>
+          <span className="muted">{semesterFolders.length} {tr(
+            semesterFolders.length === 1 ? "module" : "modules",
+            semesterFolders.length === 1 ? "module" : "modules",
+            "وحدات",
+          )}</span>
         </div>
-        <div className="library-modules" aria-label={t("module")}>
-          <button
-            type="button"
-            className={`module-choice ${module === null ? "selected" : ""}`}
-            aria-pressed={module === null}
-            onClick={() => openModule(null)}
-          >
-            {tr("Tous les modules", "All modules", "كل الوحدات")}
-          </button>
-          {moduleNames.map((name) => (
-            <button
-              type="button"
-              className={`module-choice ${module !== null && normalizeModule(module) === normalizeModule(name) ? "selected" : ""}`}
-              key={normalizeModule(name)}
-              title={moduleDisplayName(name)}
-              aria-pressed={
-                module !== null &&
-                normalizeModule(module) === normalizeModule(name)
-              }
-              onClick={() => openModule(name)}
-            >
-              {moduleDisplayName(name)}
-            </button>
-          ))}
-        </div>
-        {!moduleNames.length && (
+        <button
+          type="button"
+          className={`library-module-trigger ${showModulePicker ? "is-open" : ""}`}
+          aria-label={module === null
+            ? tr("Choisir un module", "Choose a module", "اختر الوحدة")
+            : tr("Changer de module", "Change module", "تغيير الوحدة")}
+          aria-expanded={showModulePicker}
+          aria-controls="library-module-picker"
+          onClick={() => setShowModulePicker((value) => !value)}
+        >
+          <span className="library-folder-symbol"><FolderOpen size={22} strokeWidth={1.6} /></span>
+          <span className="library-module-trigger-copy">
+            <span>{module === null
+              ? tr("Parcourir les dossiers", "Browse module folders", "تصفح مجلدات الوحدات")
+              : tr("Module ouvert", "Current module", "الوحدة المفتوحة")}</span>
+            <strong dir="auto">{module === null
+              ? tr("Tous les modules", "All modules", "كل الوحدات")
+              : folderLabel(moduleDisplayName(module))}</strong>
+            <span className="library-module-trigger-action">{module === null
+              ? tr("Choisir un module", "Choose a module", "اختر الوحدة")
+              : tr("Changer de module", "Change module", "تغيير الوحدة")}</span>
+          </span>
+          <ChevronDown size={19} className="library-module-trigger-chevron" aria-hidden="true" />
+        </button>
+        {showModulePicker && (
+          <div ref={modulePicker} className="library-module-picker" id="library-module-picker">
+            <label className="library-search library-module-search">
+              <Search size={17} aria-hidden="true" />
+              <input
+                value={moduleQuery}
+                onChange={(event) => setModuleQuery(event.target.value)}
+                placeholder={tr("Rechercher un module…", "Search modules…", "ابحث عن وحدة…")}
+                aria-label={tr("Rechercher un module", "Search modules", "البحث عن وحدة")}
+              />
+              {moduleQuery && <button type="button" onClick={() => setModuleQuery("")} aria-label={t("clear")}><X size={16} /></button>}
+            </label>
+            <div className="library-modules" aria-label={t("module")}>
+              <button
+                type="button"
+                className={`module-choice ${module === null ? "selected" : ""}`}
+                aria-pressed={module === null}
+                onClick={() => openModule(null)}
+              >
+                <Folder size={17} aria-hidden="true" />
+                <span>{tr("Tous les modules", "All modules", "كل الوحدات")}</span>
+                <span className="library-module-choice-count" aria-hidden="true">{semesterResources.length}</span>
+                {module === null && <Check size={16} aria-hidden="true" />}
+              </button>
+              {matchingModuleFolders.map((folder) => (
+                <button
+                  type="button"
+                  className={`module-choice ${module !== null && normalizeModule(module) === folder.key ? "selected" : ""}`}
+                  key={folder.key}
+                  aria-pressed={module !== null && normalizeModule(module) === folder.key}
+                  onClick={() => openModule(folder.key)}
+                >
+                  <Folder size={17} aria-hidden="true" />
+                  <span dir="auto">{folderLabel(folder.name)}</span>
+                  <span className="library-module-choice-count" aria-hidden="true">{folder.documents.length}</span>
+                  {module !== null && normalizeModule(module) === folder.key && <Check size={16} aria-hidden="true" />}
+                </button>
+              ))}
+              {moduleQuery && !matchingModuleFolders.length && <p className="library-module-empty muted">{tr("Aucun module trouvé.", "No matching modules.", "لا توجد وحدات مطابقة.")}</p>}
+            </div>
+          </div>
+        )}
+        {!semesterFolders.length && (
           <p className="library-no-modules muted">
             {tr(
               "Les modules apparaissent quand un document est ajouté à ce semestre.",
@@ -400,7 +516,9 @@ export default function LibraryPage() {
         )}
       </section>
 
+      {module !== null && resultsContext}
       <div className="library-category-tabs">
+        <span className="library-section-label">{tr("Type de document", "Document type", "نوع الوثيقة")}</span>
         <Tabs
           items={tabs}
           value={category}
@@ -551,33 +669,7 @@ export default function LibraryPage() {
           </Button>
         </div>
       )}
-      <div ref={resultsHeading} className="library-results-heading">
-        <div className="library-results-title">
-          {module !== null && (
-            <Button
-              variant="ghost"
-              icon={ArrowLeft}
-              onClick={() => openModule(null)}
-            >
-              {tr("Tous les modules", "All modules", "كل الوحدات")}
-            </Button>
-          )}
-          <h2>
-            {module === null
-              ? tr("Modules", "Modules", "الوحدات")
-              : folderLabel(moduleDisplayName(module))}
-          </h2>
-        </div>
-        <span className="muted">
-          {visible.length}{" "}
-          {tr(
-            visible.length === 1 ? "document" : "documents",
-            visible.length === 1 ? "document" : "documents",
-            "وثيقة",
-          )}{" "}
-          · S{semester}
-        </span>
-      </div>
+      {module === null && resultsContext}
       {visible.length > 0 ? (
         module === null ? (
           <div className="library-document-grid library-module-grid">

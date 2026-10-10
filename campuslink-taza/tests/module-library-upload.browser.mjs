@@ -447,6 +447,7 @@ try {
       await expect(page.locator('.document-filename')).toHaveText('german-case.pdf');
       await expect(page).toHaveURL(url => url.searchParams.get('module') === 'straße');
       await allModules(page);
+      await page.getByRole('button', { name: 'Choisir un module', exact: true }).click();
       await page.locator('.library-modules').getByRole('button', { name: 'STRASSE', exact: true }).click();
       await expect(page.locator('.document-card')).toHaveCount(1);
       await expect(page.locator('.document-filename')).toHaveText('german-case.pdf');

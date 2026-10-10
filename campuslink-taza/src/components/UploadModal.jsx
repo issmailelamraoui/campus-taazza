@@ -34,6 +34,7 @@ import {
 import { Button, Field, Modal } from "./ui";
 import { Select, Autocomplete } from "./Select";
 import "../pages/library.css";
+import "./upload-progress.css";
 
 const categoryKeys = [
   "courses",
@@ -134,6 +135,7 @@ export default function UploadModal({
   const [reading, setReading] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadedCount, setUploadedCount] = useState(0);
+  const [currentUpload, setCurrentUpload] = useState(null);
   const uploaded = useRef(new Set());
   const [error, setError] = useState("");
   const [batchApplied, setBatchApplied] = useState(false);
@@ -366,6 +368,7 @@ export default function UploadModal({
       // the files that still need to be uploaded.
       for (const item of classifiedFiles) {
         if (uploaded.current.has(item.key)) continue;
+        setCurrentUpload(item);
         await uploadResource({
           file: item.file,
           path: item.path,
@@ -392,6 +395,7 @@ export default function UploadModal({
       setStep(2);
     } finally {
       setUploading(false);
+      setCurrentUpload(null);
     }
   };
 
@@ -605,15 +609,21 @@ export default function UploadModal({
   );
 
   const footer = (
-    <div className="upload-footer">
+    <div className={`upload-footer${step === 3 ? " upload-footer-pending" : ""}`}>
       <span className="muted">
-        {tr(
-          "Partage sécurisé dans votre faculté",
-          "Secure sharing within your faculty",
-          "مشاركة آمنة داخل كليتك",
-        )}
+        {step === 3
+          ? tr(
+              "Gardez cette fenêtre ouverte pendant l’envoi.",
+              "Keep this window open while your files upload.",
+              "اترك هذه النافذة مفتوحة أثناء رفع الملفات.",
+            )
+          : tr(
+              "Partage sécurisé dans votre faculté",
+              "Secure sharing within your faculty",
+              "مشاركة آمنة داخل كليتك",
+            )}
       </span>
-      <div>
+      {step !== 3 && <div>
         {step < 3 && (
           <Button variant="ghost" onClick={close}>
             {t("cancel")}
@@ -674,20 +684,12 @@ export default function UploadModal({
             </Button>
           </>
         )}
-        {step === 3 && (
-          <div className="upload-progress-screen" role="status" aria-live="polite">
-            <LoaderCircle size={32} className="upload-spinner" />
-            <h3>{tr("Envoi des documents…", "Uploading documents…", "جارٍ رفع الوثائق…")}</h3>
-            <p className="muted">{uploadedCount} / {files.length}</p>
-            <progress value={uploadedCount} max={files.length} aria-label={tr("Documents envoyés", "Uploaded documents", "الوثائق المرفوعة")} />
-          </div>
-        )}
         {step === 4 && (
           <Button variant="primary" onClick={close}>
             {tr("Terminer", "Done", "إنهاء")}
           </Button>
         )}
-      </div>
+      </div>}
     </div>
   );
 
@@ -704,6 +706,7 @@ export default function UploadModal({
       }
       onClose={close}
       wide
+      className={`upload-modal${step >= 3 ? " upload-modal-status" : ""}${uploading ? " is-uploading" : ""}`}
       footer={footer}
     >
       <div className="upload-workflow">
@@ -1095,15 +1098,86 @@ export default function UploadModal({
         )}
 
         {step === 3 && (
-          <div className="upload-progress-screen" role="status" aria-live="polite">
-            <LoaderCircle size={32} className="upload-spinner" />
-            <h3>{tr("Envoi des documents…", "Uploading documents…", "جارٍ رفع الوثائق…")}</h3>
-            <p className="muted">{uploadedCount} / {files.length}</p>
-            <progress value={uploadedCount} max={files.length} aria-label={tr("Documents envoyés", "Uploaded documents", "الوثائق المرفوعة")} />
+          <div className="upload-progress-screen" data-uploading="true">
+            <div className="upload-progress-heading">
+              <span className="upload-progress-icon" aria-hidden="true">
+                <UploadCloud size={25} strokeWidth={1.6} />
+              </span>
+              <div>
+                <h3>{tr("Envoi des documents…", "Uploading documents…", "جارٍ رفع الوثائق…")}</h3>
+                <p className="muted">
+                  {tr(
+                    "Ils rejoignent votre bibliothèque, un par un.",
+                    "Your files are saved to the library, one at a time.",
+                    "تُحفظ الملفات في مكتبتك واحداً تلو الآخر.",
+                  )}
+                </p>
+              </div>
+            </div>
+            <div className="upload-progress-meter">
+              <div className="upload-progress-label">
+                <span>{tr("Documents enregistrés", "Documents saved", "الوثائق المحفوظة")}</span>
+                <strong
+                  className="upload-progress-count"
+                  role="status"
+                  aria-live="polite"
+                  aria-atomic="true"
+                  aria-label={tr(
+                    `${uploadedCount} document(s) enregistré(s) sur ${files.length}`,
+                    `${uploadedCount} of ${files.length} documents saved`,
+                    `تم حفظ ${uploadedCount} من ${files.length} وثيقة`,
+                  )}
+                >
+                  {uploadedCount} / {files.length}
+                </strong>
+              </div>
+              <div
+                className="upload-progress-track"
+                role="progressbar"
+                aria-label={tr("Documents envoyés", "Uploaded documents", "الوثائق المرفوعة")}
+                aria-valuemin={0}
+                aria-valuemax={files.length}
+                aria-valuenow={uploadedCount}
+                aria-valuetext={tr(
+                  `${uploadedCount} document(s) enregistré(s) sur ${files.length}`,
+                  `${uploadedCount} of ${files.length} documents saved`,
+                  `تم حفظ ${uploadedCount} من ${files.length} وثيقة`,
+                )}
+              >
+                <span
+                  style={{
+                    transform: `scaleX(${files.length ? uploadedCount / files.length : 0})`,
+                  }}
+                />
+              </div>
+            </div>
+            {currentUpload && (
+              <div className="upload-current-file">
+                <span className="upload-current-file-icon" aria-hidden="true">
+                  <FileText size={23} strokeWidth={1.5} />
+                </span>
+                <div className="upload-current-file-copy">
+                  <span className="upload-current-file-status">
+                    {tr("En cours d’envoi", "Uploading now", "جارٍ الرفع")}
+                  </span>
+                  <strong className="upload-current-file-name" dir="auto">
+                    {currentUpload.file.name}
+                  </strong>
+                  <span className="upload-current-file-details">
+                    <bdi>{moduleDisplayName(currentUpload.meta.module)}</bdi>
+                    <span>·</span>
+                    <span>S{currentUpload.meta.semester}</span>
+                    <span>·</span>
+                    <span>{sizeLabel(currentUpload.file.size)}</span>
+                  </span>
+                </div>
+                <LoaderCircle size={19} className="upload-spinner" aria-hidden="true" />
+              </div>
+            )}
           </div>
         )}
         {step === 4 && (
-          <div className="upload-progress-screen">
+          <div className="upload-progress-screen" role="status" aria-live="polite">
             <div className="upload-success-icon">
               <Check size={32} />
             </div>
