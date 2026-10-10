@@ -8,8 +8,10 @@ export default createVercelHandler(() => {
     schema: 'campuslink_prj',
     migrate: false,
     seed: false,
-    appOrigin: process.env.VERCEL_URL
-      ? `https://${process.env.VERCEL_URL}`
-      : process.env.APP_ORIGIN,
+    appOrigin: process.env.VERCEL_BRANCH_URL
+      ? `https://${process.env.VERCEL_BRANCH_URL}`
+      : process.env.VERCEL_URL
+        ? `https://${process.env.VERCEL_URL}`
+        : process.env.APP_ORIGIN,
   });
 });
