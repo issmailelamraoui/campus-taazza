@@ -246,10 +246,17 @@ hr {
   color: var(--muted);
   text-transform: uppercase;
 }
-.card {
+[data-theme="dark"] .card {
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--radius);
+  box-shadow: 10px 8px 0px #00000076;
+}
+.card {
+  background: var(--surface);
+  border: 1px solid rgba(0, 0, 0, 0.2);
+  border-radius: var(--radius);
+  box-shadow: -8px 6px 5px rgba(0, 0, 0, 0.2);
 }
 .stack {
   display: flex;
@@ -297,7 +304,7 @@ hr {
 }
 .btn-ghost:hover {
   color: var(--ink);
-  background: var(--surface2);
+  background: #ca764f5e;
 }
 .icon-btn {
   width: 40px;
@@ -1013,20 +1020,34 @@ hr {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 14px;
 }
-.document-card {
+[data-theme="dark"] .document-card {
   display: flex;
   flex-direction: column;
   background: var(--surface);
   border: 1px solid #b6b6b645;
-  box-shadow: 1px 1px 10px #00000030;
+  box-shadow: 7px 9px 10px #000000;
   border-radius: 10px;
   min-width: 0;
   overflow: hidden;
   transition: border-color var(--transition);
 }
+.document-card {
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border: 1px solid #b6b6b645;
+  box-shadow: -10px 10px 10px rgba(0, 0, 0, 0.15);
+  border-radius: 10px;
+  min-width: 0;
+  overflow: hidden;
+  transition: border-color var(--transition);
+}
+[data-theme="dark"] .document-card:hover {
+  border-color: #44382b45;
+  box-shadow: 5px 5px 10px #000000bc;
+}
 .document-card:hover {
   border-color: #44382b45;
-  box-shadow: 1px 1px 10px #0000003b;
 }
 .document-main {
   width: 100%;
