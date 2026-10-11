@@ -77,7 +77,9 @@ async function fixture({ width = 390, height = 844, theme = 'light', holdUploads
   page.setDefaultTimeout(10000);
   page.on('pageerror', error => errors.push(error.message));
   await page.goto(`${baseURL}/app/library`);
-  await expect(page.locator('.library-module-folder').first()).toBeVisible();
+  // Allow the development server's initial module compilation to finish;
+  // interaction and first-glance checks keep their shorter timeouts below.
+  await expect(page.locator('.library-module-folder').first()).toBeVisible({ timeout: 30000 });
   return { context, page, state, errors, uploads, held };
 }
 async function fits(page, label, { modalHeight = false } = {}) {
@@ -153,6 +155,20 @@ async function pending(modal, count, total, filename) {
   await expect(modal.locator('.upload-progress-count')).toHaveText(new RegExp(`^${count}\\s*/\\s*${total}$`));
   await expect(modal.locator('.upload-current-file-name')).toHaveText(filename);
   await expect(modal.locator('.upload-current-file-name')).toBeVisible();
+}
+async function uploadInfoOnScreen(modal) {
+  for (const locator of [
+    modal.getByRole('heading', { name: 'Envoi des documents…', exact: true }),
+    modal.locator('.upload-progress-count'),
+    modal.locator('.upload-current-file-name'),
+  ]) {
+    await expect.poll(() => locator.evaluate(node => {
+      const body = node.closest('.modal-body').getBoundingClientRect();
+      const rect = node.getBoundingClientRect();
+      return rect.top >= Math.max(0, body.top) - 1 &&
+        rect.bottom <= Math.min(innerHeight, body.bottom) + 1;
+    }), { message: 'The upload title, saved count and active filename must be visible without scrolling.' }).toBe(true);
+  }
 }
 async function scenario(name, run) {
   const filter = process.env.CAMPUSLINK_CLARITY_TEST_FILTER;
@@ -246,6 +262,7 @@ try {
       await expect.poll(() => f.held.length).toBe(1);
       for (const [index, filename] of size.names.entries()) {
         await pending(modal, index, size.names.length, filename);
+        await uploadInfoOnScreen(modal);
         assert.equal(f.uploads.length, index + 1, 'Files must upload sequentially while the current request is pending.');
         await fits(f.page, `Pending ${size.width}×${size.height}`, { modalHeight: true });
         await modal.locator('.modal-header').scrollIntoViewIfNeeded();

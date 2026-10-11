@@ -141,6 +141,7 @@ export default function UploadModal({
   const [batchApplied, setBatchApplied] = useState(false);
   const fileInput = useRef(null);
   const directoryInput = useRef(null);
+  const workflow = useRef(null);
   const closed = useRef(false);
   const dragDepth = useRef(0);
   const directorySupported =
@@ -152,6 +153,10 @@ export default function UploadModal({
       closed.current = true;
     };
   }, []);
+  useEffect(() => {
+    const body = workflow.current?.closest(".modal-body");
+    if (body) body.scrollTop = 0;
+  }, [step]);
   const close = () => {
     if (uploading) return;
     closed.current = true;
@@ -709,7 +714,7 @@ export default function UploadModal({
       className={`upload-modal${step >= 3 ? " upload-modal-status" : ""}${uploading ? " is-uploading" : ""}`}
       footer={footer}
     >
-      <div className="upload-workflow">
+      <div className="upload-workflow" ref={workflow}>
         {step < 3 && (
           <ol className="upload-steps">
             {steps.map((label, index) => (
