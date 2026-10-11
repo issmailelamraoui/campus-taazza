@@ -1,0 +1,118 @@
+/* Custom surfaces and message articles also receive touch events. */
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* A hold opens app actions, without selecting the surrounding interface text. */
+body {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+input,
+textarea,
+[contenteditable]:not([contenteditable="false"]),
+[contenteditable]:not([contenteditable="false"]) * {
+  -webkit-user-select: text;
+  user-select: text;
+  -webkit-touch-callout: default;
+}
+
+.app-write-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.app-write-status svg,
+.community-delivery-status.is-sending svg {
+  animation: interaction-spin 1s linear infinite;
+}
+
+.notification-popover .notification-filter-tabs {
+  display: flex;
+  gap: 6px;
+  padding: 0 16px 12px;
+}
+
+.notification-filter-tabs button {
+  min-height: 30px;
+  padding: 5px 10px;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.notification-filter-tabs button[aria-pressed="true"] {
+  color: var(--ink);
+  background: var(--surface2);
+}
+
+.notification-popover-empty {
+  padding: 15px 18px 24px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.community-delivery-status {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 7px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.community-delivery-status.is-failed {
+  color: var(--danger);
+}
+
+.community-delivery-status button {
+  min-height: 30px;
+  padding: 4px 8px;
+  border: 1px solid currentColor;
+  border-radius: 6px;
+  background: transparent;
+  font-size: inherit;
+}
+
+.community-message.is-sending .community-message-bubble {
+  opacity: .75;
+}
+
+@keyframes interaction-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-write-status svg,
+  .community-delivery-status.is-sending svg {
+    animation: none;
+  }
+}
+
+@media (max-width: 760px) {
+  .app-write-status {
+    position: fixed;
+    inset-inline-end: 12px;
+    bottom: calc(74px + env(safe-area-inset-bottom));
+    z-index: 110;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 7px 10px;
+    background: var(--surface);
+    box-shadow: var(--shadow);
+    pointer-events: none;
+  }
+
+  /* Delivery is already shown beside the message or in the open dialog. */
+  .app-shell--community .app-write-status {
+    display: none;
+  }
+}

@@ -4,35 +4,56 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "concurrently -k \"node --watch server/index.js\" \"vite --host 0.0.0.0\"",
+    "dev": "concurrently -k \"node --watch server/index.js\" \"vite --host 0.0.0.0 --port 5180\"",
     "build": "vite build",
+    "preview": "vite preview --host 0.0.0.0 --port 5180",
+    "test": "node --test --test-concurrency=2 tests/*.test.mjs",
+    "test:browser": "node tests/integration.browser.mjs",
+    "test:community": "node tests/community.browser.mjs",
+    "test:community-reference": "node tests/community-reference.browser.mjs",
+    "test:community-touch": "node tests/community-touch.browser.mjs",
+    "test:register-mobile": "node tests/register-mobile.browser.mjs",
+    "test:corrections": "node tests/corrections.browser.mjs",
+    "test:compact-ui": "node tests/compact-ui.browser.mjs",
+    "test:controls": "node tests/controls.browser.mjs",
+    "test:chat-classification": "node tests/chat-classification.browser.mjs",
+    "test:resource-stack": "node tests/resource-stack.browser.mjs",
+    "test:context-sync": "node tests/context-sync.browser.mjs",
+    "test:module-library": "node tests/module-library-upload.browser.mjs",
+    "dev:frontend": "vite --host 0.0.0.0 --port 5180",
+    "dev:server": "node --watch server/index.js",
     "start": "node server/index.js",
     "db:migrate": "node server/migrate.js",
     "db:seed": "node server/seed.js",
+    "db:clone": "node server/clone-metadata.js",
     "db:import-local": "node server/import-local.js",
     "auth:link": "node server/link-auth.js",
     "test:r2": "node server/check-storage.js",
-    "test:infrastructure": "node tests/infrastructure.mjs",
-    "test": "node --test tests/*.test.js",
-    "test:browser": "npm run build && node tests/run-browser.mjs",
-    "test:chat": "npm run build && node tests/chat-moderation.browser.mjs"
+    "test:integration": "npm run build && node tests/integration.browser.mjs",
+    "test:admin-ui": "node tests/admin-migration.browser.mjs",
+    "test:responsive-actions": "node tests/responsive-actions.browser.mjs",
+    "test:student-interactions": "node tests/student-interactions.browser.mjs",
+    "test:install-app": "node tests/install-app.browser.mjs"
   },
   "dependencies": {
+    "lucide-react": "^0.468.0",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "react-router-dom": "^7.9.1",
     "@aws-sdk/client-s3": "^3.1146.0",
     "@neon/config": "^1.8.3",
     "@neon/env": "^1.5.0",
     "express": "^5.1.0",
     "jose": "^6.2.12",
-    "lucide-react": "^0.468.0",
     "multer": "^2.0.2",
-    "pg": "^8.23.1",
-    "react": "^19.1.1",
-    "react-dom": "^19.1.1",
-    "react-router-dom": "^7.9.1"
+    "pg": "^8.23.1"
   },
   "devDependencies": {
     "@playwright/test": "^1.55.1",
-    "concurrently": "^9.2.1",
-    "vite": "^7.1.9"
+    "vite": "^7.1.9",
+    "concurrently": "^9.2.1"
+  },
+  "engines": {
+    "node": "22.x"
   }
 }

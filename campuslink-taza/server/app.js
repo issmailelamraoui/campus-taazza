@@ -7,16 +7,19 @@ import { pipeline } from 'node:stream/promises';
 import { openDatabase, digest } from './db.js';
 import { seedDatabase } from './seed.js';
 import { createAuthService } from './auth.js';
-import { createStorage, resourceObjectKey } from './storage.js';
+import { createStorage, resourceObjectKey, storageObjectKey } from './storage.js';
 import { uploadFilePath } from './upload-path.js';
+import { moduleName, RESOURCE_MODULE_SQL, resolveModule } from './modules.js';
 import { slug } from '../shared/paths.js';
 import { getFilieres, filiereBelongsToFaculty, getChatSemester, getChatSemesterLabel } from '../shared/studies.js';
 
-const CATEGORIES = ['courses', 'exercises', 'exams', 'rattrapage', 'general'];
-const CHANNELS = ['general', 'filiere', 'important', 'help', 'life'];
+const CATEGORIES = ['courses', 'exercises', 'td', 'tp', 'corrections', 'exams', 'rattrapage', 'general'];
+const CHANNELS = ['general', 'filiere', 'important'];
 const ROLES = ['student', 'moderator', 'faculty_admin', 'global_admin'];
-const PREF_KEYS = ['resources', 'announcements', 'important', 'admin', 'calendar'];
-const RESOURCE_TYPES = ['courses','cours','exercises','exercise','exams','exam','td','tp','correction','image','pdf','document','other','rattrapage'];
+const PREF_KEYS = ['resources', 'announcements', 'important', 'admin', 'mentions'];
+const RESOURCE_TYPES = ['courses','cours','exercises','exercise','exams','exam','td','tp','correction','corrections','image','pdf','document','other','rattrapage'];
+const RESOURCE_CATEGORY_SQL = "(CASE WHEN resource_type IN ('td','tp','corrections') THEN resource_type WHEN resource_type='correction' THEN 'corrections' ELSE category END)";
+const classificationCategory = (category, type) => ['td','tp','corrections'].includes(type) ? type : type==='correction' ? 'corrections' : category;
 const now = () => new Date().toISOString();
 const resourcePath = r => `/app/resources/${r.category}${r.semester ? `/s${r.semester}` : ''}${r.module ? `/${encodeURIComponent(slug(r.module))}` : ''}#resource-${r.id}`;
 const messagePath = m => `/app/chat/${m.channel}${m.channel==='filiere'?`?semester=${getChatSemester(m.semester)}`:''}#message-${m.id}`;
@@ -27,6 +30,24 @@ function string(value, name, max = 4000, required = true) {
 }
 function passwordValue(value, label = 'Mot de passe') { if (typeof value !== 'string' || !value.length || value.length > 256) throw problem(400, `${label} invalide.`); return value; }
 const asId = value => { const n = Number(value); if (!Number.isSafeInteger(n) || n <= 0) throw problem(400, 'Identifiant invalide.'); return n; };
+function resourcePart(value, required = true) {
+  if (value === undefined || value === null || value === '') {
+    if (!required) return null;
+    throw problem(400, 'Choisissez une partie ou un document complet.');
+  }
+  const text = String(value).trim();
+  if (/^(complete|complet)$/i.test(text)) return 'complete';
+  if (!/^\d+$/.test(text)) throw problem(400, 'Partie invalide.');
+  const normalized = text.replace(/^0+/, '');
+  if (!normalized) throw problem(400, 'Partie invalide.');
+  return normalized;
+}
+function uploadBoolean(value, fallback) {
+  if (value === undefined) return fallback;
+  if (value === true || value === 'true' || value === '1') return true;
+  if (value === false || value === 'false' || value === '0') return false;
+  throw problem(400, 'Option de partage invalide.');
+}
 
 function detectFile(buffer, filename) {
   const extension = extname(filename).toLowerCase();
@@ -44,12 +65,12 @@ function detectFile(buffer, filename) {
   throw problem(400, 'Fichier non pris en charge ou contenu invalide. Utilisez un PDF, une image, un document Office ou un fichier texte.');
 }
 
-export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: suppliedStorage, connectionString = process.env.DATABASE_URL, schema, seed = true, appOrigin = process.env.APP_ORIGIN } = {}) {
-  const db = suppliedDb || await openDatabase({connectionString,schema});
+export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: suppliedStorage, connectionString = process.env.DATABASE_URL, schema, migrate = process.env.CAMPUS_DB_MIGRATE !== 'false', seed = process.env.CAMPUS_DB_SEED !== 'false', appOrigin = process.env.APP_ORIGIN } = {}) {
+  const db = suppliedDb || await openDatabase({connectionString,schema,migrate});
   const storage = suppliedStorage || createStorage();
   const auth = suppliedAuth || createAuthService({db,appOrigin});
   if (seed) await seedDatabase(db);
-  const channelDefaults={general:['Chat général','Échanges autour des cours et de la vie universitaire.'],filiere:['Chats de filière','Échanges de votre filière par semestre.'],important:['Discussions importantes','Informations prioritaires et échéances à retenir.'],help:['Entraide','Questions, révisions et groupes de travail.'],life:['Vie étudiante','Clubs, rencontres et activités sur le campus.']};
+  const channelDefaults={general:['Chat général','Échanges autour des cours et de la vie universitaire.'],filiere:['Chats de filière','Échanges de votre filière par semestre.'],important:['Discussions importantes','Informations prioritaires et échéances à retenir.']};
   const addChannel=db.prepare('INSERT INTO channels (id,faculty_id,name,description) VALUES (?,?,?,?) ON CONFLICT (id,faculty_id) DO NOTHING');
   for(const faculty of (await db.prepare('SELECT id FROM faculties').all()))for(const [id,[name,description]]of Object.entries(channelDefaults))(await addChannel.run(id,faculty.id,name,description));
   const app = express();
@@ -60,7 +81,7 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
   const attempts = new Map();
   const registrationAttempts = new Map();
   const contactAttempts = new Map();
-  const upload = multer({storage: multer.memoryStorage(), limits: {fileSize: 20 * 1024 * 1024, files: 1, fields: 12, fieldSize: 10000}});
+  const upload = multer({storage: multer.memoryStorage(), limits: {fileSize: 20 * 1024 * 1024, files: 1, fields: 20, fieldSize: 10000}});
   app.locals.db = db;
   app.locals.storage = storage;
   app.locals.auth = auth;
@@ -87,7 +108,7 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
       if(req.user.disabled)throw problem(403,'Ce compte est désactivé.');
       if(req.user.account_status==='deleted')throw problem(401,'Connectez-vous pour accéder à votre communauté.');
       if(req.user.account_status!=='approved') {
-        if(!['/session','/login','/logout','/register','/registration-options','/health'].includes(req.path))throw admissionProblem(req.user);
+        if(!['/session','/login','/logout','/register','/registration-options','/health','/contact'].includes(req.path))throw admissionProblem(req.user);
       } else {
         req.user.chat_blocked=await isChatBlocked(req.user);
         await db.prepare('UPDATE users SET last_seen=? WHERE id=?').run(now(),req.user.id);
@@ -96,7 +117,7 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
     next();
   });
 
-  function publicUser(u) { return {id:u.id, username:u.username, name:u.name, email:u.email, avatar:u.avatar, role:u.role, faculty_id:u.faculty_id, filiere_id:u.filiere_id, current_semester:u.current_semester, language:u.language, preferences:JSON.parse(u.preferences), chat_blocked:!!u.chat_blocked, account_status:u.account_status, registered_at:u.registered_at, reviewed_at:u.reviewed_at, ...(u.disabled !== undefined ? {disabled:!!u.disabled} : {})}; }
+  function publicUser(u) { const {calendar,...preferences}=JSON.parse(u.preferences);return {id:u.id, username:u.username, name:u.name, bio:u.bio || '', email:u.email, avatar:u.avatar, role:u.role, faculty_id:u.faculty_id, filiere_id:u.filiere_id, current_semester:u.current_semester, language:u.language, preferences, chat_blocked:!!u.chat_blocked, account_status:u.account_status, registered_at:u.registered_at, reviewed_at:u.reviewed_at, ...(u.disabled !== undefined ? {disabled:!!u.disabled} : {})}; }
   function admissionProblem(u) {
     const pending=u.account_status==='pending';
     return Object.assign(problem(403,pending?'Votre inscription est en attente de validation.':'Votre demande d’inscription a été refusée.'),{code:pending?'ACCOUNT_PENDING':'ACCOUNT_REJECTED'});
@@ -137,32 +158,33 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
     return {filiere_id:req.user.filiere_id,semester:getChatSemester(semesterValue(req.body[semesterKey]))};
   }
   function canReadMessage(item,user) {
-    return item && !item.removed && !user.chat_blocked && item.faculty_id===user.faculty_id && (item.channel!=='filiere'||hasStudies(user)&&item.filiere_id===user.filiere_id&&Number.isInteger(item.semester)&&item.semester>=1&&item.semester<=6);
+    return item && CHANNELS.includes(item.channel) && !item.removed && !user.chat_blocked && item.faculty_id===user.faculty_id && (item.channel!=='filiere'||hasStudies(user)&&item.filiere_id===user.filiere_id&&Number.isInteger(item.semester)&&item.semester>=1&&item.semester<=6);
   }
   async function canReadAnnouncement(item,user) {
-    if(!item||item.faculty_id!==user.faculty_id)return false;
+    if(!item||['help','life'].includes(item.channel)||item.faculty_id!==user.faculty_id)return false;
+    if(item.filiere_id&&item.filiere_id!==user.filiere_id)return false;
     if(!item.message_id)return true;
     return canReadMessage((await db.prepare('SELECT * FROM messages WHERE id=?').get(item.message_id)),user);
   }
   async function canReadItem(table,item,user) {
     if(table==='messages')return canReadMessage(item,user);
     if(table==='announcements')return (await canReadAnnouncement(item,user));
-    if(table==='resources')return item&&!item.removed&&item.faculty_id===user.faculty_id&&!!user.filiere_id&&item.filiere_id===user.filiere_id;
+    if(table==='resources') {
+      if(!item || item.removed)return false;
+      if(user.role==='global_admin')return true;
+      if(item.faculty_id!==user.faculty_id)return false;
+      if(user.role==='faculty_admin')return true;
+      if(item.library_visible!==0)return !!user.filiere_id&&item.filiere_id===user.filiere_id;
+      if(item.message_id)return canReadMessage(await db.prepare('SELECT * FROM messages WHERE id=?').get(item.message_id),user);
+      return item.author_id===user.id;
+    }
     return item&&!item.removed&&item.faculty_id===user.faculty_id;
-  }
-  async function canReadNotification(item,user) {
-    const linkedAnnouncement=String(item.path).match(/#announcement-(\d+)/);
-    if(linkedAnnouncement)return (await canReadAnnouncement((await db.prepare('SELECT * FROM announcements WHERE id=?').get(Number(linkedAnnouncement[1]))),user));
-    const linkedMessage=String(item.path).match(/#message-(\d+)/);
-    if(linkedMessage)return canReadMessage((await db.prepare('SELECT * FROM messages WHERE id=?').get(Number(linkedMessage[1]))),user);
-    const linkedResource=String(item.path).match(/#resource-(\d+)/);
-    if(linkedResource)return canReadItem('resources',await db.prepare('SELECT * FROM resources WHERE id=?').get(Number(linkedResource[1])),user);
-    return true;
   }
   async function scoped(table, id, req, moderation=false) {
     const item = (await db.prepare(`SELECT * FROM ${table} WHERE id=?`).get(asId(id)));
     if (!item || item.removed) throw problem(404, 'Élément introuvable.');
-    if (item.faculty_id !== req.user.faculty_id) throw problem(403, 'Cet élément appartient à une autre faculté.');
+    if(table==='messages'&&!CHANNELS.includes(item.channel)||table==='announcements'&&['help','life'].includes(item.channel))throw problem(404,'Élément introuvable.');
+    if (item.faculty_id !== req.user.faculty_id && !(table==='resources'&&req.user.role==='global_admin')) throw problem(403, 'Cet élément appartient à une autre faculté.');
     if(!moderation&&!(await canReadItem(table,item,req.user)))throw problem(403,'Cet élément appartient à une autre filière.');
     return item;
   }
@@ -172,13 +194,24 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
   async function messagesFor(rows,viewerId) {
     if(!rows.length)return [];
     const ids=rows.map(m=>m.id),authorIds=[...new Set(rows.map(m=>m.author_id).filter(Boolean))];
-    const [authors,reactions,mine]=await Promise.all([
+    const [authors,reactions,mine,links,attachedRows]=await Promise.all([
       db.prepare('SELECT id,name,username,avatar,role,account_status FROM users WHERE id=ANY(?)').all(authorIds),
       db.prepare('SELECT message_id,reaction,COUNT(*) AS n FROM reactions WHERE message_id=ANY(?) GROUP BY message_id,reaction').all(ids),
       db.prepare('SELECT message_id,reaction FROM reactions WHERE message_id=ANY(?) AND user_id=?').all(ids,viewerId),
+      db.prepare('SELECT message_id,resource_id,position FROM message_attachments WHERE message_id=ANY(?) ORDER BY position').all(ids),
+      db.prepare('SELECT DISTINCT r.* FROM resources r LEFT JOIN message_attachments ma ON ma.resource_id=r.id WHERE r.removed=0 AND (ma.message_id=ANY(?) OR r.id=ANY(?))').all(ids,rows.map(m=>m.resource_id).filter(Boolean)),
     ]);
     const authorsById=new Map(authors.map(u=>[u.id,studentProfile(u)]));
-    return rows.map(m=>({...m,semester:m.channel==='filiere'?getChatSemester(m.semester):m.semester,author:authorsById.get(m.author_id)||{id:m.author_id,name:'Utilisateur',username:'',avatar:'',role:'student'},pinned:!!m.pinned,reactions:{like:0,heart:0,...Object.fromEntries(reactions.filter(r=>r.message_id===m.id).map(r=>[r.reaction,r.n]))},my_reactions:mine.filter(r=>r.message_id===m.id).map(r=>r.reaction),author_id:undefined,removed:undefined}));
+    const attachedById=new Map((await resourcesFor(attachedRows)).map(r=>[r.id,r]));
+    const linksByMessage=new Map(),reactionsByMessage=new Map(),mineByMessage=new Map();
+    for(const link of links){const ids=linksByMessage.get(link.message_id)||[];ids.push(link.resource_id);linksByMessage.set(link.message_id,ids);}
+    for(const reaction of reactions){const values=reactionsByMessage.get(reaction.message_id)||{};values[reaction.reaction]=reaction.n;reactionsByMessage.set(reaction.message_id,values);}
+    for(const reaction of mine){const values=mineByMessage.get(reaction.message_id)||[];values.push(reaction.reaction);mineByMessage.set(reaction.message_id,values);}
+    return rows.map(m=>{
+      const resourceIds=linksByMessage.get(m.id)||[];
+      if(m.resource_id&&!resourceIds.includes(m.resource_id))resourceIds.unshift(m.resource_id);
+      return {...m,attachments:resourceIds.map(id=>attachedById.get(id)).filter(Boolean),semester:m.channel==='filiere'?getChatSemester(m.semester):m.semester,author:authorsById.get(m.author_id)||{id:m.author_id,name:'Utilisateur',username:'',avatar:'',role:'student'},pinned:!!m.pinned,reactions:{like:0,heart:0,...reactionsByMessage.get(m.id)},my_reactions:mineByMessage.get(m.id)||[],author_id:undefined,removed:undefined};
+    });
   }
   async function resource(r,viewer) {
     return (await resourcesFor([r],viewer))[0];
@@ -194,15 +227,59 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
     const authors=await db.prepare('SELECT id,name,username,avatar,role,account_status FROM users WHERE id=ANY(?)').all(authorIds);
     const authorsById=new Map(authors.map(u=>[u.id,studentProfile(u)])),sourcesById=new Map(sources.map(m=>[m.id,m]));
     const user=id=>authorsById.get(id)||{id,name:'Utilisateur',username:'',avatar:'',role:'student'};
+    const versionsByResource=new Map();
+    for(const {resource_id,editor_id,...version}of versions){const items=versionsByResource.get(resource_id)||[];items.push({...version,created_at:version.updated_at,author:user(editor_id)});versionsByResource.set(resource_id,items);}
     return rows.map(r=>{
       const {stored_name,object_key,sha256,author_id,removed,...safe}=r;
       const source=sourcesById.get(safe.message_id);
-      if(viewer&&safe.message_id&&!canReadMessage(source,viewer))safe.message_id=null;
+      if(safe.message_id&&(!CHANNELS.includes(source?.channel)||viewer&&!canReadMessage(source,viewer)))safe.message_id=null;
       safe.chat_semester=safe.message_id&&source?.channel==='filiere'?getChatSemester(source.semester):null;
-      return {...safe,author:user(author_id),versions:versions.filter(v=>v.resource_id===r.id).map(({resource_id,editor_id,...v})=>({...v,created_at:v.updated_at,author:user(editor_id)}))};
+      return {...safe,library_visible:safe.library_visible!==0,author:user(author_id),versions:versionsByResource.get(r.id)||[]};
     });
   }
-  async function announcement(a) { const {author_id, ...safe} = a;const source=a.message_id?(await db.prepare('SELECT * FROM messages WHERE id=?').get(a.message_id)):null;return {...safe, semester:source?.channel==='filiere'?getChatSemester(source.semester):source?.semester??null, filiere_id:source?.filiere_id??null, author:(await author(author_id)), pinned:!!a.pinned}; }
+  async function announcement(a) {return (await announcementsFor([a]))[0];}
+  async function announcementsFor(rows) {
+    if(!rows.length)return [];
+    const [sources,authors]=await Promise.all([
+      db.prepare('SELECT * FROM messages WHERE id=ANY(?)').all([...new Set(rows.map(a=>a.message_id).filter(Boolean))]),
+      db.prepare('SELECT id,name,username,avatar,account_status FROM users WHERE id=ANY(?)').all([...new Set(rows.map(a=>a.author_id).filter(Boolean))]),
+    ]);
+    const sourcesById=new Map(sources.map(m=>[m.id,m])),authorsById=new Map(authors.map(u=>[u.id,studentProfile(u)]));
+    return rows.filter(a=>!['help','life'].includes(a.channel)&&(!a.message_id||CHANNELS.includes(sourcesById.get(a.message_id)?.channel))).map(({author_id,...a})=>{
+      const source=sourcesById.get(a.message_id);
+      return {...a,semester:source?.channel==='filiere'?getChatSemester(source.semester):source?.semester??null,filiere_id:source?.filiere_id??a.filiere_id??null,author:authorsById.get(author_id)||{id:author_id,name:'Utilisateur',username:'',avatar:'',role:'student'},pinned:!!a.pinned};
+    });
+  }
+  // Resolve linked rows once per collection; notifications and saved items can
+  // otherwise require a cloud query per entry, plus each linked source message.
+  async function readability(user,{messages=[],resources=[],announcements=[],notifications=[],saved=[]}={}) {
+    const rows={messages:new Map(messages.map(m=>[m.id,m])),resources:new Map(resources.map(r=>[r.id,r])),announcements:new Map(announcements.map(a=>[a.id,a]))};
+    const ids={messages:new Set(),resources:new Set(),announcements:new Set()};
+    for(const item of saved){const table={resource:'resources',message:'messages',announcement:'announcements'}[item.type];if(table)ids[table].add(item.id);}
+    for(const item of notifications)for(const [table,kind]of [['messages','message'],['resources','resource'],['announcements','announcement']]){const match=String(item.path).match(new RegExp(`#${kind}-(\\d+)`));if(match)ids[table].add(Number(match[1]));}
+    await Promise.all(['resources','announcements'].map(async table=>{
+      const missing=[...ids[table]].filter(id=>!rows[table].has(id));
+      if(missing.length)for(const row of await db.prepare(`SELECT * FROM ${table} WHERE id=ANY(?)`).all(missing))rows[table].set(row.id,row);
+    }));
+    for(const table of ['resources','announcements'])for(const row of rows[table].values())if(row.message_id)ids.messages.add(row.message_id);
+    const missingMessages=[...ids.messages].filter(id=>!rows.messages.has(id));
+    if(missingMessages.length)for(const row of await db.prepare('SELECT * FROM messages WHERE id=ANY(?)').all(missingMessages))rows.messages.set(row.id,row);
+    const readable=(table,item)=>{
+      if(table==='messages')return !!canReadMessage(item,user);
+      if(table==='announcements')return !!(item&&!['help','life'].includes(item.channel)&&item.faculty_id===user.faculty_id&&(!item.filiere_id||item.filiere_id===user.filiere_id)&&(!item.message_id||canReadMessage(rows.messages.get(item.message_id),user)));
+      if(table==='resources')return !!(item&&!item.removed&&(user.role==='global_admin'||item.faculty_id===user.faculty_id&&(user.role==='faculty_admin'||(item.library_visible!==0?user.filiere_id&&item.filiere_id===user.filiere_id:item.message_id?canReadMessage(rows.messages.get(item.message_id),user):item.author_id===user.id))));
+      return false;
+    };
+    return {
+      readable,
+      notification:item=>{
+        if(item.type==='calendar'||/^\/app\/(?:calendar|chat\/(?:help|life))(?:[/?#]|$)/.test(String(item.path)))return false;
+        for(const [table,kind]of [['announcements','announcement'],['messages','message'],['resources','resource']]){const match=String(item.path).match(new RegExp(`#${kind}-(\\d+)`));if(match)return readable(table,rows[table].get(Number(match[1])));}
+        return true;
+      },
+      saved:item=>{const table={resource:'resources',message:'messages',announcement:'announcements'}[item.type];return !!table&&readable(table,rows[table].get(item.id));},
+    };
+  }
   async function broadcast(faculty,filiereId=null) {
     if(!clients.size)return;
     const recipientIds=[...clients.keys()];
@@ -257,8 +334,7 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
   const transaction = callback => db.transaction(callback);
   async function filterReadable(items, predicate) {const allowed=await Promise.all(items.map(predicate));return items.filter((_item,index)=>allowed[index]);}
   async function moduleId(faculty,filiere,semester,name) {
-    const row=await db.prepare('INSERT INTO modules (faculty_id,filiere_id,semester,name) VALUES (?,?,?,?) ON CONFLICT (faculty_id,filiere_id,semester,name) DO UPDATE SET name=excluded.name RETURNING id').get(faculty,filiere,semester,name);
-    return row.id;
+    return (await resolveModule(db,{facultyId:faculty,filiereId:filiere,semester,name})).id;
   }
   async function publicationFaculties(req) {
     const target=req.body.faculty_id || req.user.faculty_id;
@@ -268,19 +344,59 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
     return [target];
   }
   async function checkChannelWrite(req,channel){const row=(await db.prepare('SELECT read_only FROM channels WHERE id=? AND faculty_id=?').get(channel,req.user.faculty_id));if(row?.read_only&&req.user.role==='student')throw problem(403,'Cette discussion est en lecture seule. L’administration peut toujours y publier.');}
+  async function resolveTargetReports(type,id,note='Contenu supprimé.') {
+    await db.prepare("UPDATE reports SET status='resolved',note=CASE WHEN ?='' THEN note ELSE ? END WHERE target_type=? AND target_id=? AND status IN ('open','reviewed')").run(note,note,type,id);
+  }
+  async function lockContentRemoval(faculty) {
+    // Shared targets and duplicate reports must take locks in the same order.
+    await db.prepare('SELECT pg_advisory_xact_lock(hashtext(?))').get(`campuslink:content-removal:${db.schema}:${faculty}`);
+  }
+  async function removeAnnouncementData(a,note) {
+    await lockContentRemoval(a.faculty_id);
+    await db.prepare("DELETE FROM saved WHERE type='announcement' AND target_id=?").run(a.id);
+    await db.prepare('DELETE FROM notifications WHERE path LIKE ?').run(`%#announcement-${a.id}`);
+    if(a.message_id)await db.prepare('UPDATE messages SET pinned=0 WHERE id=?').run(a.message_id);
+    await db.prepare('DELETE FROM announcements WHERE id=?').run(a.id);
+    await resolveTargetReports('announcement',a.id,note);
+  }
+  async function removeResourceData(r,note) {
+    await lockContentRemoval(r.faculty_id);
+    const parents=await db.prepare('SELECT DISTINCT m.* FROM messages m LEFT JOIN message_attachments a ON a.message_id=m.id WHERE m.removed=0 AND (m.resource_id=? OR a.resource_id=?)').all(r.id,r.id);
+    await db.prepare('UPDATE resources SET removed=1 WHERE id=?').run(r.id);
+    await db.prepare('DELETE FROM message_attachments WHERE resource_id=?').run(r.id);
+    await db.prepare('UPDATE messages SET resource_id=NULL WHERE resource_id=?').run(r.id);
+    await db.prepare('UPDATE announcements SET resource_id=NULL WHERE resource_id=?').run(r.id);
+    await db.prepare("DELETE FROM saved WHERE type='resource' AND target_id=?").run(r.id);
+    await db.prepare('DELETE FROM history WHERE resource_id=?').run(r.id);
+    await db.prepare('DELETE FROM notifications WHERE path LIKE ?').run(`%#resource-${r.id}`);
+    await resolveTargetReports('resource',r.id,note);
+    for(const parent of parents)if(CHANNELS.includes(parent.channel)&&!parent.content?.trim()){
+      const attachment=await db.prepare('SELECT 1 FROM message_attachments a JOIN resources r ON r.id=a.resource_id WHERE a.message_id=? AND r.removed=0 LIMIT 1').get(parent.id);
+      const legacy=parent.resource_id&&parent.resource_id!==r.id?await db.prepare('SELECT 1 FROM resources WHERE id=? AND removed=0').get(parent.resource_id):null;
+      if(!attachment&&!legacy)await removeChatMessageData(parent,note);
+    }
+  }
+  async function removeChatMessageData(m,note) {
+    await lockContentRemoval(m.faculty_id);
+    const pins=await db.prepare('SELECT * FROM announcements WHERE message_id=?').all(m.id);
+    for(const pin of pins)await removeAnnouncementData(pin,note);
+    await db.prepare("DELETE FROM saved WHERE type='message' AND target_id=?").run(m.id);
+    await db.prepare('DELETE FROM notifications WHERE path LIKE ?').run(`%#message-${m.id}`);
+    await db.prepare('DELETE FROM reactions WHERE message_id=?').run(m.id);
+    await db.prepare('UPDATE resources SET message_id=NULL WHERE message_id=?').run(m.id);
+    await db.prepare('UPDATE messages SET reply_to=NULL WHERE reply_to=?').run(m.id);
+    await db.prepare('UPDATE messages SET removed=1,pinned=0,resource_id=NULL WHERE id=?').run(m.id);
+    await resolveTargetReports('message',m.id,note);
+  }
   async function removeChatMessage(m) {
-    await transaction(async()=>{
-      const pins=await db.prepare('SELECT id FROM announcements WHERE message_id=?').all(m.id);
-      await db.prepare("DELETE FROM saved WHERE type='message' AND target_id=?").run(m.id);
-      for(const pin of pins){await db.prepare("DELETE FROM saved WHERE type='announcement' AND target_id=?").run(pin.id);await db.prepare('DELETE FROM notifications WHERE path LIKE ?').run(`%#announcement-${pin.id}`);}
-      await db.prepare('DELETE FROM notifications WHERE path LIKE ?').run(`%#message-${m.id}`);
-      await db.prepare('DELETE FROM reactions WHERE message_id=?').run(m.id);
-      await db.prepare('DELETE FROM announcements WHERE message_id=?').run(m.id);
-      await db.prepare('UPDATE resources SET message_id=NULL WHERE message_id=?').run(m.id);
-      await db.prepare('UPDATE messages SET reply_to=NULL WHERE reply_to=?').run(m.id);
-      await db.prepare('UPDATE messages SET removed=1,pinned=0,resource_id=NULL WHERE id=?').run(m.id);
-    });
+    await transaction(()=>removeChatMessageData(m));
     await broadcast(m.faculty_id,m.channel==='filiere'?m.filiere_id:null);
+  }
+  async function visibleAnnouncement(a) {
+    if(['help','life'].includes(a.channel))return false;
+    if(!a.message_id)return true;
+    const source=await db.prepare('SELECT channel FROM messages WHERE id=?').get(a.message_id);
+    return !!source&&CHANNELS.includes(source.channel);
   }
 
   app.get('/api/health', (_req, res) => res.json({ok:true}));
@@ -337,7 +453,8 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
       const signed=await auth.signIn(req,res,{email:profile.email,password,expectedAuthUserId:profile.auth_user_id});
       u=signed.user;
     } catch(error) {
-      attempts.set(key, {count:attempt?.expires > Date.now() ? attempt.count+1 : 1, expires:Date.now()+900000});
+      // Temporary database/provider outages are not incorrect credentials.
+      if (error.status === 401) attempts.set(key, {count:attempt?.expires > Date.now() ? attempt.count+1 : 1, expires:Date.now()+900000});
       throw error;
     }
     attempts.delete(key);
@@ -365,8 +482,6 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
       const announcements=await filterReadable(await db.prepare('SELECT * FROM announcements WHERE faculty_id=? ORDER BY created_at DESC').all(faculty.id),a=>canReadAnnouncement(a,{...req.user,faculty_id:faculty.id}));
       for (const a of announcements.slice(0,2)) await insert.run(req.user.id,faculty.id,'announcements','Annonce de votre faculté',a.content.slice(0,200),`/app/announcements#announcement-${a.id}`,a.created_at);
       for (const r of (await db.prepare("SELECT * FROM resources WHERE faculty_id=? AND category<>'general' ORDER BY created_at DESC LIMIT 2").all(faculty.id))) (await insert.run(req.user.id,faculty.id,'resources','Ressource à découvrir',r.title,resourcePath(r),r.created_at));
-      const ev = (await db.prepare('SELECT * FROM events WHERE faculty_id=? AND date>=? ORDER BY date LIMIT 1').get(faculty.id,now().slice(0,10)));
-      if (ev) (await insert.run(req.user.id,faculty.id,'calendar','Prochain rendez-vous',`${ev.title} · ${ev.date}`,`/app/calendar#event-${ev.id}`,now()));
     }));
     res.json({user:await selfUser((await db.prepare('SELECT * FROM users WHERE id=?').get(req.user.id)))});
   });
@@ -386,34 +501,38 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
     if(!filiereBelongsToFaculty(req.user.faculty_id,filiere))throw problem(400,'Choisissez une filière de votre faculté.');
     if(req.user.role==='student'&&filiere!==req.user.filiere_id)throw problem(403,'Cette bibliothèque appartient à une autre filière.');
     const semester=semesterValue(req.query.semester);
-    res.json({modules:await db.prepare('SELECT id,name,filiere_id,semester FROM modules WHERE faculty_id=? AND filiere_id=? AND semester=? ORDER BY name').all(req.user.faculty_id,filiere,semester)});
+    const rows=await db.prepare('SELECT id,name,filiere_id,semester FROM modules WHERE faculty_id=? AND filiere_id=? AND semester=? ORDER BY id').all(req.user.faculty_id,filiere,semester);
+    const unique=new Map();for(const row of rows){const key=moduleName(row.name).toLocaleLowerCase();if(!unique.has(key))unique.set(key,row);}
+    res.json({modules:[...unique.values()].sort((a,b)=>a.name.localeCompare(b.name))});
   });
 
   app.get('/api/bootstrap', requireFaculty, async (req, res) => {
-    const faculty = (await db.prepare('SELECT * FROM faculties WHERE id=?').get(req.user.faculty_id));
-    const members = (await db.prepare("SELECT id,name,username,avatar,role,faculty_id,last_seen FROM users WHERE faculty_id=? AND disabled=0 AND account_status='approved' ORDER BY name").all(faculty.id)).map(({last_seen,...u})=>({...studentProfile(u),online:u.id===req.user.id || !!(last_seen && Date.parse(last_seen)>Date.now()-300000)}));
-    const chatOnline=hasStudies(req.user)?(await db.prepare("SELECT COUNT(*) AS n FROM users WHERE faculty_id=? AND filiere_id=? AND disabled=0 AND account_status='approved' AND (id=? OR last_seen>?)").get(faculty.id,req.user.filiere_id,req.user.id,new Date(Date.now()-300000).toISOString())).n:0;
-    const [channels,messageRows,resourceRows,announcementRows,notificationRows,eventRows,savedRows,history]=await Promise.all([
-      db.prepare('SELECT * FROM channels WHERE faculty_id=?').all(faculty.id),
-      db.prepare('SELECT * FROM messages WHERE faculty_id=? AND removed=0 ORDER BY created_at,id').all(faculty.id),
-      req.user.filiere_id ? db.prepare('SELECT * FROM resources WHERE faculty_id=? AND filiere_id=? AND removed=0 ORDER BY created_at DESC,id DESC').all(faculty.id,req.user.filiere_id) : [],
-      db.prepare('SELECT * FROM announcements WHERE faculty_id=? ORDER BY created_at DESC,id DESC').all(faculty.id),
-      db.prepare('SELECT id,type,title,body,path,created_at,read FROM notifications WHERE user_id=? AND faculty_id=? ORDER BY created_at DESC,id DESC LIMIT 200').all(req.user.id,faculty.id),
-      db.prepare('SELECT id,title,date,time,type FROM events WHERE faculty_id=? ORDER BY date,time').all(faculty.id),
-      db.prepare('SELECT type,target_id AS id FROM saved WHERE user_id=?').all(req.user.id),
-      req.user.filiere_id ? db.prepare('SELECT h.resource_id,h.opened_at FROM history h JOIN resources r ON r.id=h.resource_id WHERE h.user_id=? AND r.faculty_id=? AND r.filiere_id=? AND r.removed=0 ORDER BY h.opened_at DESC LIMIT 20').all(req.user.id,faculty.id,req.user.filiere_id) : [],
+    const [faculty,memberRows,onlineRow]=await Promise.all([
+      db.prepare('SELECT * FROM faculties WHERE id=?').get(req.user.faculty_id),
+      db.prepare("SELECT id,name,username,avatar,role,faculty_id,last_seen FROM users WHERE faculty_id=? AND disabled=0 AND account_status='approved' ORDER BY name").all(req.user.faculty_id),
+      hasStudies(req.user)?db.prepare("SELECT COUNT(*) AS n FROM users WHERE faculty_id=? AND filiere_id=? AND disabled=0 AND account_status='approved' AND (id=? OR last_seen>?)").get(req.user.faculty_id,req.user.filiere_id,req.user.id,new Date(Date.now()-300000).toISOString()):null,
     ]);
-    const [messages,resources,announcements,notifications,saved]=await Promise.all([
+    const members=memberRows.map(({last_seen,...u})=>({...studentProfile(u),online:u.id===req.user.id||!!(last_seen&&Date.parse(last_seen)>Date.now()-300000)}));
+    const chatOnline=onlineRow?.n||0;
+    const [channels,messageRows,resourceRows,announcementRows,notificationRows,savedRows,history]=await Promise.all([
+      db.prepare('SELECT * FROM channels WHERE faculty_id=? AND id=ANY(?)').all(faculty.id,CHANNELS),
+      db.prepare('SELECT * FROM messages WHERE faculty_id=? AND channel=ANY(?) AND removed=0 ORDER BY created_at,id').all(faculty.id,CHANNELS),
+      req.user.filiere_id ? db.prepare('SELECT * FROM resources WHERE faculty_id=? AND filiere_id=? AND removed=0 AND library_visible=1 ORDER BY created_at DESC,id DESC').all(faculty.id,req.user.filiere_id) : [],
+      db.prepare('SELECT * FROM announcements WHERE faculty_id=? ORDER BY created_at DESC,id DESC').all(faculty.id),
+      db.prepare("SELECT id,type,title,body,path,created_at,read FROM notifications WHERE user_id=? AND faculty_id=? AND type<>'calendar' AND path NOT LIKE '/app/calendar%' ORDER BY created_at DESC,id DESC LIMIT 200").all(req.user.id,faculty.id),
+      db.prepare('SELECT type,target_id AS id FROM saved WHERE user_id=?').all(req.user.id),
+      req.user.filiere_id ? db.prepare('SELECT h.resource_id,h.opened_at FROM history h JOIN resources r ON r.id=h.resource_id WHERE h.user_id=? AND r.faculty_id=? AND r.filiere_id=? AND r.removed=0 AND r.library_visible=1 ORDER BY h.opened_at DESC LIMIT 20').all(req.user.id,faculty.id,req.user.filiere_id) : [],
+    ]);
+    const access=await readability(req.user,{messages:messageRows,resources:resourceRows,announcements:announcementRows,notifications:notificationRows,saved:savedRows});
+    const [messages,resources,announcements]=await Promise.all([
       messagesFor(messageRows.filter(m=>canReadMessage(m,req.user)),req.user.id),
       resourcesFor(resourceRows,req.user),
-      filterReadable(announcementRows,a=>canReadAnnouncement(a,req.user)).then(rows=>Promise.all(rows.map(announcement))),
-      filterReadable(notificationRows,n=>canReadNotification(n,req.user)),
-      filterReadable(savedRows,async s=>{const table={resource:'resources',message:'messages',announcement:'announcements'}[s.type];return table&&await canReadItem(table,await db.prepare(`SELECT * FROM ${table} WHERE id=?`).get(s.id),req.user);}),
+      announcementsFor(announcementRows.filter(a=>access.readable('announcements',a))),
     ]);
     res.json({
       user:publicUser(req.user),filieres:getFilieres(faculty.id),faculty:{...faculty,members:members.length,online:members.filter(u=>u.online).length,chat_online:chatOnline},
-      channels:channels.map(c=>({...c,read_only:!!c.read_only})),messages,resources,announcements,
-      notifications:notifications.map(n=>({...n,read:!!n.read})),members,events:eventRows,saved,history,
+      channels:channels.map(c=>({...c,read_only:!!c.read_only})),messages,resources,announcements,events:[],
+      notifications:notificationRows.filter(access.notification).map(n=>({...n,read:!!n.read})),members,saved:savedRows.filter(access.saved),history,
     });
   });
   app.get('/api/messages', requireFaculty, requireChat, async (req,res) => {
@@ -473,7 +592,11 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
   });
 
   app.post('/api/messages', requireFaculty, requireChat, async (req,res) => {
-    const content = string(req.body.content,'Message',8000);
+    const content = string(req.body.content ?? '', 'Message',8000,false);
+    if(req.body.attachment_ids!==undefined&&!Array.isArray(req.body.attachment_ids))throw problem(400,'Pièces jointes invalides.');
+    const attachmentIds=(req.body.attachment_ids||[]).map(asId);
+    if(attachmentIds.length>100||new Set(attachmentIds).size!==attachmentIds.length)throw problem(400,'Pièces jointes invalides.');
+    if(!content&&!attachmentIds.length)throw problem(400,'Écrivez un message ou ajoutez un document.');
     const channel = req.body.channel || 'general';
     if (!CHANNELS.includes(channel)) throw problem(400,'Discussion invalide.');
     let clientId=null;
@@ -491,14 +614,27 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
         const existing=await db.prepare('SELECT * FROM messages WHERE author_id=? AND client_id=?').get(req.user.id,clientId);
         if(!canReadMessage(existing,req.user))throw problem(409,'Ce message ne peut plus être renvoyé.');
         if(existing.content!==content||existing.channel!==channel||existing.reply_to!==replyId||existing.filiere_id!==scope.filiere_id||(channel==='filiere'?getChatSemester(existing.semester):existing.semester)!==scope.semester)throw problem(409,'Cet identifiant correspond déjà à un autre message.');
+        const prior=await db.prepare('SELECT resource_id FROM message_attachments WHERE message_id=? ORDER BY position').all(existing.id);
+        if(JSON.stringify(prior.map(row=>row.resource_id))!==JSON.stringify(attachmentIds))throw problem(409,'Cet identifiant correspond déjà à un autre message.');
         return {row:existing,created:false};
       }
       await checkChannelWrite(req,channel);
       const reply=replyId?await scoped('messages',replyId,req):null;
       if(reply&&reply.channel!==channel)throw problem(400,'La réponse doit rester dans la discussion d’origine.');
       if(reply&&channel==='filiere'&&getChatSemester(reply.semester)!==scope.semester)throw problem(400,'La réponse doit rester dans le même groupe de semestres.');
+      for(const [position,id]of attachmentIds.entries()) {
+        const attached=await db.prepare('SELECT * FROM resources WHERE id=? FOR UPDATE').get(id);
+        if(!attached||attached.removed||attached.author_id!==req.user.id||attached.faculty_id!==req.user.faculty_id||attached.library_visible!==0||attached.message_id)throw problem(403,'Cette pièce jointe ne peut pas être publiée.');
+        await db.prepare('INSERT INTO message_attachments (message_id,resource_id,position) VALUES (?,?,?)').run(row.id,id,position);
+        await db.prepare('UPDATE resources SET message_id=?,channel=? WHERE id=?').run(row.id,channel,id);
+      }
+      if(attachmentIds.length)await db.prepare('UPDATE messages SET resource_id=? WHERE id=?').run(attachmentIds[0],row.id);
+      if(reply&&reply.author_id!==req.user.id) {
+        const recipient=await db.prepare('SELECT preferences,disabled,account_status FROM users WHERE id=?').get(reply.author_id);
+        if(recipient&&!recipient.disabled&&recipient.account_status==='approved'&&JSON.parse(recipient.preferences).mentions!==false)await db.prepare('INSERT INTO notifications (user_id,faculty_id,type,title,body,path,created_at) VALUES (?,?,?,?,?,?,?)').run(reply.author_id,req.user.faculty_id,'mentions','Nouvelle réponse',content.slice(0,240),messagePath(row),now());
+      }
       if(channel==='important')await notify(req.user.faculty_id,'important','Nouvelle discussion importante',content,`/app/chat/important#message-${row.id}`,req.user.id);
-      return {row,created:true};
+      return {row:{...row,resource_id:attachmentIds[0]||null},created:true};
     });
     if(result.created)await broadcast(req.user.faculty_id,scope.filiere_id);
     res.status(result.created?201:200).json({message:await message(result.row,req.user.id)});
@@ -513,28 +649,40 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
   });
   app.post('/api/messages/:id/pin', requireFaculty, requireChat, role('moderator','faculty_admin','global_admin'), async (req,res) => {
     const m = (await scoped('messages',req.params.id,req));
-    const pinned = !m.pinned;
+    if(req.body.pinned!==undefined&&typeof req.body.pinned!=='boolean')throw problem(400,'État de l’annonce invalide.');
+    let pinned;
+    const title=req.body.title===undefined?'':string(req.body.title,'Titre',180,false);
     const pinnedAnnouncement=await transaction(async ()=>{
+      await lockContentRemoval(m.faculty_id);
+      const current=await db.prepare('SELECT * FROM messages WHERE id=? AND removed=0 FOR UPDATE').get(m.id);
+      if(!current)throw problem(404,'Message introuvable.');
+      Object.assign(m,current);
+      pinned=req.body.pinned===undefined?!m.pinned:req.body.pinned;
       (await db.prepare('UPDATE messages SET pinned=? WHERE id=?').run(pinned?1:0,m.id));
       if (pinned) {
-        const row=await db.prepare('INSERT INTO announcements (faculty_id,content,message_id,channel,author_id,created_at,resource_id,pinned) VALUES (?,?,?,?,?,?,?,1) RETURNING *').get(m.faculty_id,m.content,m.id,m.channel,m.author_id,m.created_at,m.resource_id);
-        await notify(m.faculty_id,'announcements','Message épinglé',m.content,`/app/announcements#announcement-${row.id}`,req.user.id,m.channel==='filiere'?m.filiere_id:null);
+        const prior=await db.prepare('SELECT * FROM announcements WHERE message_id=?').get(m.id);
+        const row=prior?await db.prepare('UPDATE announcements SET pinned=1,title=? WHERE id=? RETURNING *').get(req.body.title===undefined?prior.title:title,prior.id):await db.prepare('INSERT INTO announcements (faculty_id,content,message_id,channel,author_id,created_at,resource_id,pinned,title) VALUES (?,?,?,?,?,?,?,1,?) RETURNING *').get(m.faculty_id,m.content,m.id,m.channel,m.author_id,m.created_at,m.resource_id,title);
+        if(!prior)await notify(m.faculty_id,'announcements','Message épinglé',m.content,`/app/announcements#announcement-${row.id}`,req.user.id,m.channel==='filiere'?m.filiere_id:null);
         return row;
       }
-      await db.prepare('DELETE FROM announcements WHERE message_id=?').run(m.id);
+      const prior=await db.prepare('SELECT * FROM announcements WHERE message_id=?').get(m.id);
+      if(prior)await removeAnnouncementData(prior);
       return null;
     });
     await broadcast(m.faculty_id,m.channel==='filiere'?m.filiere_id:null);
     res.json({pinned,announcement:pinnedAnnouncement?await announcement(pinnedAnnouncement):null});
   });
 
-  app.post('/api/uploads', requireFaculty, requireChat, upload.single('file'), async (req,res) => {
+  app.post('/api/uploads', requireFaculty, upload.single('file'), async (req,res) => {
     if (!req.file?.size) throw problem(400,'Sélectionnez un fichier.');
     const category = req.body.category;
     const channel = req.body.channel || 'general';
+    const libraryVisible=uploadBoolean(req.body.library_visible,true);
+    const publishMessage=uploadBoolean(req.body.publish_message,true);
     if (!CATEGORIES.includes(category)) throw problem(400,'Choisissez un type de ressource.');
     if (!CHANNELS.includes(channel)) throw problem(400,'Discussion invalide.');
-    (await checkChannelWrite(req,channel));
+    if(req.user.chat_blocked&&(publishMessage||!libraryVisible))throw problem(403,'Votre accès aux discussions est temporairement bloqué.');
+    if(publishMessage)await checkChannelWrite(req,channel);
     const filiere=string(req.body.filiere_id,'Filière',80);
     if(!filiereBelongsToFaculty(req.user.faculty_id,filiere))throw problem(400,'Choisissez une filière de votre faculté.');
     if(req.user.role==='student'&&filiere!==req.user.filiere_id)throw problem(403,'Vous pouvez publier uniquement dans la bibliothèque de votre filière.');
@@ -542,16 +690,15 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
     const scope=chatScope(req,channel,'chat_semester');
     const resourceType=string(req.body.resource_type,'Type de ressource',40).toLowerCase();
     if(!RESOURCE_TYPES.includes(resourceType))throw problem(400,'Choisissez un type de ressource.');
-    const partNumber=Number(req.body.part_number);
-    if(!Number.isInteger(partNumber)||partNumber<1||partNumber>999)throw problem(400,'Choisissez une partie entre 1 et 999.');
-    const teacherName=string(req.body.teacher_name,'Professeur / auteur',120);
+    const partNumber=resourcePart(req.body.part_number);
+    const teacherName=string(req.body.teacher_name ?? '', 'Professeur / auteur',120,false);
     const {filename,relativePath}=uploadFilePath(req.file.originalname,req.body.relative_path);
     const title = string(req.body.title,'Titre',180);
-    const module = string(req.body.module,'Module',120);
+    let module = moduleName(string(req.body.module,'Module',120));
     const content = string(req.body.content || `Je partage « ${title} ».`,'Message',8000);
     const mime = detectFile(req.file.buffer,filename);
     const hash = digest(req.file.buffer);
-    const duplicate = (await db.prepare('SELECT * FROM resources WHERE faculty_id=? AND filiere_id=? AND sha256=? AND removed=0').get(req.user.faculty_id,filiere,hash));
+    const duplicate = libraryVisible ? (await db.prepare('SELECT * FROM resources WHERE faculty_id=? AND filiere_id=? AND sha256=? AND removed=0 AND library_visible=1').get(req.user.faculty_id,filiere,hash)) : null;
     if (duplicate) return res.status(409).json({error:'Un fichier identique existe déjà dans les ressources de votre faculté.',resource:(await resource(duplicate,req.user))});
     const reply = req.body.reply_to ? (await scoped('messages',req.body.reply_to,req)) : null;
     if (reply && reply.channel!==channel) throw problem(400,'La réponse doit rester dans la discussion d’origine.');
@@ -559,28 +706,41 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
     let id,objectKey,uploaded=false;
     try {
       (await transaction(async ()=>{
+        if(libraryVisible) {
+          await db.prepare('SELECT pg_advisory_xact_lock(hashtext(?))').get(`campuslink:resource-bytes:${req.user.faculty_id}:${filiere}:${hash}`);
+          const sameBytes=await db.prepare('SELECT * FROM resources WHERE faculty_id=? AND filiere_id=? AND sha256=? AND removed=0 AND library_visible=1').get(req.user.faculty_id,filiere,hash);
+          if(sameBytes)throw Object.assign(problem(409,'Un fichier identique existe déjà dans les ressources de votre faculté.'),{resource:await resource(sameBytes,req.user)});
+          const effectiveCategory=classificationCategory(category,resourceType);
+          const slot=[req.user.faculty_id,filiere,semester,module.normalize('NFKC').toLocaleLowerCase(),effectiveCategory,partNumber];
+          await db.prepare('SELECT pg_advisory_xact_lock(hashtext(?))').get(JSON.stringify(slot));
+          const conflict=await db.prepare(`SELECT * FROM resources WHERE faculty_id=? AND filiere_id=? AND semester=? AND ${RESOURCE_MODULE_SQL}=lower(?) AND ${RESOURCE_CATEGORY_SQL}=? AND part_number=? AND removed=0 AND library_visible=1`).get(req.user.faculty_id,filiere,semester,moduleName(module),effectiveCategory,partNumber);
+          if(conflict)throw Object.assign(problem(409,'Cette partie existe déjà pour ce module et ce type de ressource.'),{resource:await resource(conflict,req.user),code:'RESOURCE_SLOT_CONFLICT'});
+        }
         const selectedModule=await moduleId(req.user.faculty_id,filiere,semester,module);
+        module=(await db.prepare('SELECT name FROM modules WHERE id=?').get(selectedModule)).name;
         objectKey=resourceObjectKey({filiereId:filiere,semester,moduleId:selectedModule,filename});
         uploaded=true;
         await storage.put(objectKey,req.file.buffer,mime);
         const created = now();
-        const messageId = Number((await db.prepare('INSERT INTO messages (faculty_id,channel,content,author_id,created_at,reply_to,filiere_id,semester) VALUES (?,?,?,?,?,?,?,?)').run(req.user.faculty_id,channel,content,req.user.id,created,reply?.id||null,scope.filiere_id,scope.semester)).lastInsertRowid);
-        id = Number((await db.prepare('INSERT INTO resources (faculty_id,title,filename,object_key,sha256,category,semester,module,module_id,author_id,created_at,size,mime,message_id,channel,filiere_id,resource_type,relative_path,part_number,teacher_name) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)').run(req.user.faculty_id,title,filename,objectKey,hash,category,semester,module,selectedModule,req.user.id,created,req.file.size,mime,messageId,channel,filiere,resourceType,relativePath,partNumber,teacherName)).lastInsertRowid);
-        (await db.prepare('UPDATE messages SET resource_id=? WHERE id=?').run(id,messageId));
-        if (category!=='general') (await notify(req.user.faculty_id,'resources','Nouvelle ressource',`${title}${semester ? ` · S${semester}` : ''}`,resourcePath({id,category,semester,module}),req.user.id,filiere));
-        if (channel==='important') (await notify(req.user.faculty_id,'important','Nouvelle discussion importante',content,`/app/chat/important#message-${messageId}`,req.user.id));
+        const messageId = publishMessage?Number((await db.prepare('INSERT INTO messages (faculty_id,channel,content,author_id,created_at,reply_to,filiere_id,semester) VALUES (?,?,?,?,?,?,?,?)').run(req.user.faculty_id,channel,content,req.user.id,created,reply?.id||null,scope.filiere_id,scope.semester)).lastInsertRowid):null;
+        id = Number((await db.prepare('INSERT INTO resources (faculty_id,title,filename,object_key,sha256,category,semester,module,module_id,author_id,created_at,size,mime,message_id,channel,filiere_id,resource_type,relative_path,part_number,teacher_name,library_visible) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)').run(req.user.faculty_id,title,filename,objectKey,hash,category,semester,module,selectedModule,req.user.id,created,req.file.size,mime,messageId,channel,filiere,resourceType,relativePath,partNumber,teacherName,libraryVisible?1:0)).lastInsertRowid);
+        if(messageId)await db.prepare('UPDATE messages SET resource_id=? WHERE id=?').run(id,messageId);
+        if (libraryVisible && category!=='general') (await notify(req.user.faculty_id,'resources','Nouvelle ressource',`${title}${semester ? ` · S${semester}` : ''}`,resourcePath({id,category,semester,module}),req.user.id,filiere));
+        if (publishMessage && channel==='important') (await notify(req.user.faculty_id,'important','Nouvelle discussion importante',content,`/app/chat/important#message-${messageId}`,req.user.id));
       }));
     } catch(e) {
-      if(uploaded)try {await storage.delete(objectKey);}catch {console.error('[CampusLink storage] Upload cleanup failed.');}
+      // A lost COMMIT acknowledgement may still leave a committed resource.
+      // Keep its object until the database can confirm the final outcome.
+      if(uploaded&&e.code!=='DATABASE_UNAVAILABLE')try {await storage.delete(objectKey);}catch {console.error('[CampusLink storage] Upload cleanup failed.');}
       if(e.code==='23505') {
-        const concurrent=await db.prepare('SELECT * FROM resources WHERE faculty_id=? AND filiere_id=? AND sha256=? AND removed=0').get(req.user.faculty_id,filiere,hash);
+        const concurrent=await db.prepare('SELECT * FROM resources WHERE faculty_id=? AND filiere_id=? AND sha256=? AND removed=0 AND library_visible=1').get(req.user.faculty_id,filiere,hash);
         if(concurrent)return res.status(409).json({error:'Un fichier identique existe déjà dans les ressources de votre faculté.',resource:await resource(concurrent,req.user)});
       }
       throw e;
     }
     (await broadcast(req.user.faculty_id));
     const r = (await db.prepare('SELECT * FROM resources WHERE id=?').get(id));
-    res.status(201).json({resource:(await resource(r,req.user)),message:(await message((await db.prepare('SELECT * FROM messages WHERE id=?').get(r.message_id)),req.user.id))});
+    res.status(201).json({resource:(await resource(r,req.user)),message:r.message_id?(await message((await db.prepare('SELECT * FROM messages WHERE id=?').get(r.message_id)),req.user.id)):null});
   });
   app.get('/api/files/:id', requireFaculty, async (req,res,next) => {
     const r = (await scoped('resources',req.params.id,req));
@@ -610,6 +770,11 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
     if (existing) (await db.prepare('DELETE FROM saved WHERE user_id=? AND type=? AND target_id=?').run(req.user.id,req.body.type,target.id));
     else (await db.prepare('INSERT INTO saved VALUES (?,?,?)').run(req.user.id,req.body.type,target.id));
     res.json({saved:!existing});
+  });
+  app.post('/api/history', requireFaculty, async (req,res) => {
+    const target=await scoped('resources',req.body.resource_id,req);
+    await db.prepare('INSERT INTO history (user_id,resource_id,opened_at) VALUES (?,?,?) ON CONFLICT(user_id,resource_id) DO UPDATE SET opened_at=excluded.opened_at').run(req.user.id,target.id,now());
+    res.json({ok:true});
   });
   app.post('/api/notifications/read', requireFaculty, async (req,res) => {
     if (req.body.ids !== undefined) {
@@ -654,6 +819,8 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
   app.patch('/api/profile', requireUser, async (req,res) => {
     if ('faculty_id' in req.body || 'faculty' in req.body || 'role' in req.body || 'disabled' in req.body) throw problem(403,'Seul l’administrateur peut modifier votre identité universitaire.');
     const values={};
+    if(req.body.name!==undefined)values.name=string(req.body.name,'Nom',100);
+    if(req.body.bio!==undefined)values.bio=string(req.body.bio,'Présentation',2000,false);
     let avatarFile=null,avatarKey,avatarUploaded=false;
     if(req.body.username!==undefined){const username=string(req.body.username,'Nom d’utilisateur',40);if(!/^[\p{L}\p{N}_.-]{3,40}$/u.test(username))throw problem(400,'Utilisez 3 à 40 lettres, chiffres, points, tirets ou underscores.');if((await db.prepare('SELECT id FROM users WHERE LOWER(username)=LOWER(?) AND id<>?').get(username,req.user.id)))throw problem(409,'Ce nom d’utilisateur est déjà utilisé.');values.username=username;}
     if(req.body.language!==undefined){if(!['fr','ar','en'].includes(req.body.language))throw problem(400,'Langue invalide.');values.language=req.body.language;}
@@ -661,10 +828,10 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
       const avatar=req.body.avatar;
       if(avatar===''){values.avatar='';values.avatar_object_key=null;}
       else {
-        if(typeof avatar!=='string'||avatar.length>1400000)throw problem(400,'Image trop volumineuse (1 Mo maximum).');
+        if(typeof avatar!=='string'||avatar.length>2800000)throw problem(400,'Image trop volumineuse (2 Mo maximum).');
         const match=avatar.match(/^data:image\/(png|jpeg|webp|gif);base64,([A-Za-z0-9+/=]+)$/);
         if(!match)throw problem(400,'Utilisez une image PNG, JPG, WebP ou GIF.');
-        const b=Buffer.from(match[2],'base64');if(b.length>1024*1024)throw problem(400,'Image trop volumineuse (1 Mo maximum).');
+        const b=Buffer.from(match[2],'base64');if(b.length>2*1024*1024)throw problem(400,'Image trop volumineuse (2 Mo maximum).');
         const extension=match[1]==='jpeg'?'jpg':match[1];
         const mime=detectFile(b,`avatar.${extension}`);
         avatarFile={buffer:b,mime,extension};
@@ -675,14 +842,14 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
     if(changingPassword){const password=passwordValue(req.body.password,'Nouveau mot de passe');if(password.length<10)throw problem(400,'Le mot de passe doit contenir au moins 10 caractères.');await auth.changePassword(req,res,{currentPassword:passwordValue(req.body.current_password,'Mot de passe actuel'),newPassword:password});}
     try {
       if(avatarFile){
-        avatarKey=`avatars/${req.user.id}/${randomUUID()}.${avatarFile.extension}`;
+        avatarKey=storageObjectKey(`avatars/${req.user.id}/${randomUUID()}.${avatarFile.extension}`);
         avatarUploaded=true;
         await storage.put(avatarKey,avatarFile.buffer,avatarFile.mime);
         values.avatar=`/api/avatars/${req.user.id}`;values.avatar_object_key=avatarKey;
       }
       await transaction(async()=>{for(const [key,value] of Object.entries(values))await db.prepare(`UPDATE users SET ${key}=? WHERE id=?`).run(value,req.user.id);});
     } catch(error) {
-      if(avatarUploaded)try{await storage.delete(avatarKey);}catch{console.error('[CampusLink storage] Avatar cleanup failed.');}
+      if(avatarUploaded&&error.code!=='DATABASE_UNAVAILABLE')try{await storage.delete(avatarKey);}catch{console.error('[CampusLink storage] Avatar cleanup failed.');}
       throw error;
     }
     if(req.body.avatar!==undefined&&req.user.avatar_object_key&&req.user.avatar_object_key!==avatarKey)try{await storage.delete(req.user.avatar_object_key);}catch{console.error('[CampusLink storage] Previous avatar cleanup failed.');}
@@ -725,10 +892,11 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
     const results=[];
     const matches=(text)=>!q||text.toLocaleLowerCase().includes(q);
     const baseMatches=async (row)=>{const a=(await author(row.author_id||row.id));return (!authorFilter||String(a.id)===authorFilter||a.username===authorFilter)&&(!date||String(row.created_at||'').startsWith(date));};
-    if(!type||type==='resource'||CATEGORIES.includes(type))for(const r of (req.user.filiere_id ? await db.prepare('SELECT * FROM resources WHERE faculty_id=? AND filiere_id=? AND removed=0 ORDER BY created_at DESC').all(req.user.faculty_id,req.user.filiere_id) : [])){
-      if(type&&type!=='resource'&&r.category!==type)continue;
+    if(!type||type==='resource'||CATEGORIES.includes(type))for(const r of (req.user.filiere_id ? await db.prepare('SELECT * FROM resources WHERE faculty_id=? AND filiere_id=? AND removed=0 AND library_visible=1 ORDER BY created_at DESC').all(req.user.faculty_id,req.user.filiere_id) : [])){
+      const category=classificationCategory(r.category,r.resource_type);
+      if(type&&type!=='resource'&&category!==type)continue;
       if(semester&&r.semester!==semester||module&&r.module.toLocaleLowerCase()!==module||!await baseMatches(r)||!matches(`${r.title} ${r.filename} ${r.module} ${r.teacher_name||''} ${r.part_number||''}`))continue;
-      results.push({id:r.id,type:r.category,title:r.title,context:`${r.filename} · ${r.module}${r.semester?` · S${r.semester}`:''}`,path:resourcePath(r),author:(await author(r.author_id)),semester:r.semester,module:r.module,date:r.created_at});
+      results.push({id:r.id,type:category,title:r.title,context:`${r.filename} · ${r.module}${r.semester?` · S${r.semester}`:''}`,path:resourcePath(r),author:(await author(r.author_id)),semester:r.semester,module:r.module,date:r.created_at});
     }
     if((!type||type==='message')&&!module)for(const m of (await db.prepare('SELECT * FROM messages WHERE faculty_id=? AND removed=0 ORDER BY created_at DESC').all(req.user.faculty_id)))if(canReadMessage(m,req.user)&&(!semester||m.channel==='filiere'&&getChatSemester(m.semester)===getChatSemester(semester))&&matches(m.content)&&await baseMatches(m))results.push({id:m.id,type:'message',title:m.content.slice(0,100),context:`#${m.channel}${m.channel==='filiere'?` · ${getChatSemesterLabel(m.semester)}`:''} · ${(await author(m.author_id)).name}`,path:messagePath(m),author:(await author(m.author_id)),semester:m.channel==='filiere'?getChatSemester(m.semester):m.semester,filiere_id:m.filiere_id,date:m.created_at});
     if((!type||type==='announcement')&&!semester&&!module)for(const a of (await db.prepare('SELECT * FROM announcements WHERE faculty_id=? ORDER BY created_at DESC').all(req.user.faculty_id)))if((await canReadAnnouncement(a,req.user))&&matches(a.content)&&await baseMatches(a))results.push({id:a.id,type:'announcement',title:a.content.slice(0,100),context:(await author(a.author_id)).name,path:`/app/announcements#announcement-${a.id}`,author:(await author(a.author_id)),date:a.created_at});
@@ -738,17 +906,38 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
 
   app.get('/api/admin', requireFaculty, role('moderator','faculty_admin','global_admin'), async (req,res) => {
     const global=req.user.role==='global_admin';
+    const moderator=req.user.role==='moderator';
     const where=global?'':' WHERE faculty_id=?';
     const args=global?[]:[req.user.faculty_id];
-    const reports=await db.prepare(`SELECT * FROM reports${where} ORDER BY created_at DESC`).all(...args);
-    const resources=req.user.role==='moderator'?[]:await db.prepare(`SELECT * FROM resources${where}${global?' WHERE':' AND'} removed=0 ORDER BY created_at DESC`).all(...args);
+    const archive=req.query.status==='all'||req.query.archive==='true';
+    const [reports,resources,users,contacts,faculties,channels,announcementRows]=await Promise.all([
+      db.prepare(`SELECT * FROM reports${where}${archive?'':`${global?' WHERE':' AND'} status IN ('open','reviewed')`} ORDER BY created_at DESC`).all(...args),
+      moderator?[]:db.prepare(`SELECT * FROM resources${where}${global?' WHERE':' AND'} removed=0 ORDER BY created_at DESC`).all(...args),
+      moderator?[]:db.prepare(`SELECT * FROM users${where}${global?' WHERE':' AND'} account_status${global?"<>'deleted'":"='approved'"} ORDER BY name`).all(...args),
+      moderator?[]:db.prepare(`SELECT * FROM contacts${where} ORDER BY created_at DESC`).all(...args),
+      global?db.prepare("SELECT f.*, (SELECT COUNT(*) FROM users u WHERE u.faculty_id=f.id AND u.disabled=0 AND u.account_status='approved') AS members FROM faculties f").all():[],
+      moderator?[]:db.prepare(`SELECT * FROM channels${where}${global?' WHERE':' AND'} id=ANY(?) ORDER BY faculty_id,id`).all(...args,CHANNELS),
+      moderator?[]:db.prepare(`SELECT * FROM announcements${where} ORDER BY created_at DESC`).all(...args),
+    ]);
+    const [reporters,bans,messageTargets,resourceTargets,announcementTargets,announcementDtos,resourceDtos]=await Promise.all([
+      reports.length?db.prepare('SELECT id,name,username,avatar,account_status FROM users WHERE id=ANY(?)').all([...new Set(reports.map(r=>r.reporter_id))]):[],
+      users.length?db.prepare('SELECT user_id,faculty_id FROM chat_bans WHERE user_id=ANY(?)').all(users.map(u=>u.id)):[],
+      db.prepare('SELECT * FROM messages WHERE id=ANY(?)').all(reports.filter(r=>r.target_type==='message').map(r=>r.target_id)),
+      db.prepare('SELECT * FROM resources WHERE id=ANY(?)').all(reports.filter(r=>r.target_type==='resource').map(r=>r.target_id)),
+      db.prepare('SELECT * FROM announcements WHERE id=ANY(?)').all(reports.filter(r=>r.target_type==='announcement').map(r=>r.target_id)),
+      announcementsFor(announcementRows),resourcesFor(resources),
+    ]);
+    const sources=announcementTargets.filter(a=>a.message_id);
+    const sourceMessages=sources.length?await db.prepare('SELECT id,channel FROM messages WHERE id=ANY(?)').all(sources.map(a=>a.message_id)):[];
+    const bySource=new Map(sourceMessages.map(m=>[m.id,m]));
+    const byReporter=new Map(reporters.map(u=>[u.id,studentProfile(u)]));
+    const banned=new Set(bans.map(b=>`${b.user_id}:${b.faculty_id}`));
+    const targets=new Map([...messageTargets.map(m=>[`message:${m.id}`,m]),...resourceTargets.map(r=>[`resource:${r.id}`,r]),...announcementTargets.map(a=>[`announcement:${a.id}`,a])]);
+    const visibleReport=r=>{const target=targets.get(`${r.target_type}:${r.target_id}`);return !target||r.target_type==='message'?(!target||CHANNELS.includes(target.channel)):r.target_type==='announcement'?(!['help','life'].includes(target.channel)&&(!target.message_id||CHANNELS.includes(bySource.get(target.message_id)?.channel))):true;};
     res.json({
-      users:req.user.role==='moderator'?[]:await Promise.all((await db.prepare(`SELECT * FROM users${where}${global?' WHERE':' AND'} account_status${global?"<>'deleted'":"='approved'"} ORDER BY name`).all(...args)).map(selfUser)),
-      reports:await Promise.all(reports.map(async r=>({...r,reporter:await author(r.reporter_id)}))),
-      contacts:req.user.role==='moderator'?[]:(await db.prepare(`SELECT * FROM contacts${where} ORDER BY created_at DESC`).all(...args)),
-      faculties:global?(await db.prepare("SELECT f.*, (SELECT COUNT(*) FROM users u WHERE u.faculty_id=f.id AND u.disabled=0 AND u.account_status='approved') AS members FROM faculties f").all()):[],
-      channels:req.user.role==='moderator'?[]:(await db.prepare(`SELECT * FROM channels${where} ORDER BY faculty_id,id`).all(...args)).map(c=>({...c,read_only:!!c.read_only})),
-      resources:await resourcesFor(resources),
+      users:users.map(u=>publicUser({...u,chat_blocked:u.role!=='global_admin'&&banned.has(`${u.id}:${u.faculty_id}`)})),
+      reports:reports.filter(visibleReport).map(r=>({...r,reporter:byReporter.get(r.reporter_id)||{id:r.reporter_id,name:'Utilisateur',username:'',avatar:'',role:'student'},can_remove_target:!moderator||r.target_type==='message'})),
+      contacts,faculties,channels:channels.map(c=>({...c,read_only:!!c.read_only})),resources:resourceDtos,announcements:announcementDtos,events:[],
     });
   });
   app.get('/api/admin/registrations',requireFaculty,role('global_admin'),async(req,res)=>{
@@ -781,7 +970,7 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
       if(user.id===req.user.id||user.role!=='student')throw problem(403,'Vous pouvez uniquement supprimer un compte étudiant.');
       // Keep this anonymous row because messages and academic files reference it.
       // Revocation and unlinking commit together before any provider round trip.
-      await db.prepare("UPDATE users SET account_status='deleted',disabled=1,auth_revoked_at=?,session_version=session_version+1,auth_user_id=NULL,email=NULL,username=?,name='Étudiant supprimé',avatar='',avatar_object_key=NULL,faculty_id=NULL,filiere_id=NULL,last_seen=NULL,legacy_password_hash=NULL,reviewed_at=?,reviewed_by=? WHERE id=?").run(now(),`deleted-${user.id}-${randomUUID()}`,now(),req.user.id,user.id);
+      await db.prepare("UPDATE users SET account_status='deleted',disabled=1,auth_revoked_at=?,session_version=session_version+1,auth_user_id=NULL,email=NULL,username=?,name='Étudiant supprimé',bio='',avatar='',avatar_object_key=NULL,faculty_id=NULL,filiere_id=NULL,last_seen=NULL,legacy_password_hash=NULL,reviewed_at=?,reviewed_by=? WHERE id=?").run(now(),`deleted-${user.id}-${randomUUID()}`,now(),req.user.id,user.id);
       for(const table of ['notifications','saved','history','reactions','chat_bans'])await db.prepare(`DELETE FROM ${table} WHERE user_id=?`).run(user.id);
       await db.prepare("UPDATE contacts SET name='Étudiant supprimé',email=NULL WHERE user_id=?").run(user.id);
       return user;
@@ -841,6 +1030,7 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
       if(!current||current.account_status==='deleted')throw problem(404,'Utilisateur introuvable.');
       if(current.account_status!=='approved')throw problem(409,'Validez la demande d’inscription avant de modifier ce compte.');
       if(!global&&(current.faculty_id!==req.user.faculty_id||!['student','moderator'].includes(current.role)))throw problem(403,'Vous ne pouvez pas gérer ce compte.');
+      if(current.role==='student'&&req.body.role==='faculty_admin'&&(!current.faculty_id||(req.body.faculty_id!==undefined&&req.body.faculty_id!==current.faculty_id)))throw problem(400,'Attribuez le rôle d’administrateur dans la faculté actuelle de cet étudiant.');
       if(req.body.faculty_id!==undefined&&!filiereBelongsToFaculty(req.body.faculty_id,current.filiere_id))await db.prepare('UPDATE users SET filiere_id=NULL,current_semester=1 WHERE id=?').run(target.id);
       for(const key of ['faculty_id','role','disabled'])if(req.body[key]!==undefined)(await db.prepare(`UPDATE users SET ${key}=? WHERE id=?`).run(key==='disabled'?(req.body[key]?1:0):req.body[key],target.id));
       if(req.body.faculty_id!==undefined||req.body.disabled===true||req.body.role!==undefined)await db.prepare('UPDATE users SET session_version=session_version+1,auth_revoked_at=? WHERE id=?').run(now(),target.id);
@@ -854,8 +1044,38 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
     const report=(await db.prepare('SELECT * FROM reports WHERE id=?').get(asId(req.params.id)));
     if(!report)throw problem(404,'Signalement introuvable.');
     if(req.user.role!=='global_admin'&&report.faculty_id!==req.user.faculty_id)throw problem(403,'Signalement d’une autre faculté.');
-    if(!['open','reviewed','resolved'].includes(req.body.status))throw problem(400,'Statut invalide.');
-    (await db.prepare('UPDATE reports SET status=? WHERE id=?').run(req.body.status,report.id));res.json({ok:true});
+    if(!['open','reviewed','resolved','dismissed'].includes(req.body.status))throw problem(400,'Statut invalide.');
+    const note=req.body.note===undefined?report.note:string(req.body.note,'Note',2000,false);
+    (await db.prepare('UPDATE reports SET status=?,note=? WHERE id=?').run(req.body.status,note,report.id));res.json({ok:true});
+  });
+  app.post('/api/admin/reports/:id/remove-target', requireFaculty, role('moderator','faculty_admin','global_admin'), async(req,res)=>{
+    const prior=await db.prepare('SELECT faculty_id FROM reports WHERE id=?').get(asId(req.params.id));
+    if(!prior)throw problem(404,'Signalement introuvable.');
+    if(req.user.role!=='global_admin'&&prior.faculty_id!==req.user.faculty_id)throw problem(403,'Signalement d’une autre faculté.');
+    const result=await transaction(async()=>{
+      await lockContentRemoval(prior.faculty_id);
+      const report=await db.prepare('SELECT * FROM reports WHERE id=? FOR UPDATE').get(asId(req.params.id));
+      if(!report)throw problem(404,'Signalement introuvable.');
+      if(req.user.role!=='global_admin'&&report.faculty_id!==req.user.faculty_id)throw problem(403,'Signalement d’une autre faculté.');
+      const table={message:'messages',resource:'resources',announcement:'announcements'}[report.target_type];
+      if(!table)throw problem(400,'Contenu signalé invalide.');
+      if(req.user.role==='moderator'&&report.target_type!=='message')throw problem(403,'Seule l’administration peut retirer ce contenu.');
+      const target=await db.prepare(`SELECT * FROM ${table} WHERE id=? FOR UPDATE`).get(report.target_id);
+      if(target&&target.faculty_id!==report.faculty_id)throw problem(403,'Contenu d’une autre faculté.');
+      if(target&&report.target_type==='message'&&!CHANNELS.includes(target.channel))throw problem(404,'Discussion introuvable.');
+      if(target&&report.target_type==='announcement'&&!await visibleAnnouncement(target))throw problem(404,'Annonce introuvable.');
+      const note=req.body.note===undefined?'Contenu supprimé.':string(req.body.note,'Note',2000,false);
+      if(target&&!target.removed){
+        if(report.target_type==='message')await removeChatMessageData(target,note);
+        else if(report.target_type==='resource')await removeResourceData(target,note);
+        else await removeAnnouncementData(target,note);
+      }
+      await resolveTargetReports(report.target_type,report.target_id,note);
+      await db.prepare("UPDATE reports SET status='resolved',note=? WHERE id=?").run(note,report.id);
+      return {...report,target};
+    });
+    await broadcast(result.faculty_id);
+    res.json({ok:true,target_type:result.target_type,target_id:result.target_id});
   });
   app.patch('/api/admin/contacts/:id', requireFaculty, role('faculty_admin','global_admin'), async (req,res) => {
     const contact=(await db.prepare('SELECT * FROM contacts WHERE id=?').get(asId(req.params.id)));
@@ -868,17 +1088,55 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
   });
   app.post('/api/admin/announcements', requireFaculty, role('faculty_admin','global_admin'), async (req,res) => {
     const content=string(req.body.content,'Annonce',6000);
+    const title=string(req.body.title ?? '', 'Titre',180,false);
+    const pinned=uploadBoolean(req.body.pinned,false);
+    const filiere=req.body.filiere_id||null;
+    const kind=string(req.body.kind||'announcement','Type d’annonce',40);
+    const channel=req.body.channel||'important';
+    if(!CHANNELS.includes(channel)&&!/^year-[135]$/.test(channel))throw problem(400,'Discussion invalide.');
+    const resourceId=req.body.resource_id?asId(req.body.resource_id):null;
     const targets=(await publicationFaculties(req)),announcements=[];
-    (await transaction(async ()=>{for(const faculty of targets){const id=Number((await db.prepare('INSERT INTO announcements (faculty_id,content,channel,author_id,created_at) VALUES (?,?,\'important\',?,?)').run(faculty,content,req.user.id,now())).lastInsertRowid);(await notify(faculty,'announcements','Nouvelle annonce',content,`/app/announcements#announcement-${id}`,req.user.id));announcements.push((await announcement((await db.prepare('SELECT * FROM announcements WHERE id=?').get(id)))));}}));
+    (await transaction(async ()=>{for(const faculty of targets){
+      if(filiere&&!filiereBelongsToFaculty(faculty,filiere))throw problem(400,'Cette filière appartient à une autre faculté.');
+      if(resourceId){const r=await db.prepare('SELECT * FROM resources WHERE id=? AND removed=0').get(resourceId);if(!r||r.faculty_id!==faculty||filiere&&r.filiere_id!==filiere)throw problem(403,'Cette ressource ne peut pas être liée à cette annonce.');}
+      const id=Number((await db.prepare('INSERT INTO announcements (faculty_id,content,channel,author_id,created_at,title,pinned,filiere_id,kind,resource_id) VALUES (?,?,?,?,?,?,?,?,?,?)').run(faculty,content,channel,req.user.id,now(),title,pinned?1:0,filiere,kind,resourceId)).lastInsertRowid);
+      await notify(faculty,'announcements','Nouvelle annonce',content,`/app/announcements#announcement-${id}`,req.user.id,filiere);
+      announcements.push(await announcement(await db.prepare('SELECT * FROM announcements WHERE id=?').get(id)));
+    }}));
     await Promise.all(targets.map(faculty=>broadcast(faculty)));res.status(201).json({announcement:announcements[0],announcements});
   });
+  app.patch('/api/admin/announcements/:id', requireFaculty, role('faculty_admin','global_admin'), async (req,res) => {
+    const prior=await db.prepare('SELECT * FROM announcements WHERE id=?').get(asId(req.params.id));
+    if(!prior)throw problem(404,'Annonce introuvable.');
+    if(req.user.role!=='global_admin'&&prior.faculty_id!==req.user.faculty_id)throw problem(403,'Annonce d’une autre faculté.');
+    if(!await visibleAnnouncement(prior))throw problem(404,'Annonce introuvable.');
+    const values={};
+    if(req.body.title!==undefined)values.title=string(req.body.title,'Titre',180,false);
+    if(req.body.content!==undefined)values.content=string(req.body.content,'Annonce',6000);
+    if(req.body.pinned!==undefined){if(typeof req.body.pinned!=='boolean')throw problem(400,'État de l’annonce invalide.');values.pinned=req.body.pinned?1:0;}
+    if(req.body.kind!==undefined)values.kind=string(req.body.kind,'Type d’annonce',40);
+    if(req.body.channel!==undefined){if(!CHANNELS.includes(req.body.channel)&&!/^year-[135]$/.test(req.body.channel))throw problem(400,'Discussion invalide.');values.channel=req.body.channel;}
+    if(req.body.filiere_id!==undefined){if(prior.message_id)throw problem(400,'La portée d’un message épinglé reste liée à sa discussion.');const filiere=req.body.filiere_id||null;if(filiere&&!filiereBelongsToFaculty(prior.faculty_id,filiere))throw problem(400,'Filière invalide.');values.filiere_id=filiere;}
+    if(req.body.resource_id!==undefined){const id=req.body.resource_id?asId(req.body.resource_id):null;const r=id?await db.prepare('SELECT * FROM resources WHERE id=? AND removed=0').get(id):null;const filiere=values.filiere_id??prior.filiere_id;if(id&&(!r||r.faculty_id!==prior.faculty_id||filiere&&r.filiere_id!==filiere))throw problem(403,'Ressource d’une autre communauté.');values.resource_id=id;}
+    await transaction(async()=>{
+      await lockContentRemoval(prior.faculty_id);
+      if(!await db.prepare('SELECT id FROM announcements WHERE id=? FOR UPDATE').get(prior.id))throw problem(404,'Annonce introuvable.');
+      for(const [key,value]of Object.entries(values))await db.prepare(`UPDATE announcements SET ${key}=? WHERE id=?`).run(value,prior.id);
+      if(prior.message_id&&values.pinned!==undefined)await db.prepare('UPDATE messages SET pinned=? WHERE id=?').run(values.pinned,prior.message_id);
+    });
+    await broadcast(prior.faculty_id);
+    res.json({announcement:await announcement(await db.prepare('SELECT * FROM announcements WHERE id=?').get(prior.id))});
+  });
+  app.delete('/api/admin/announcements/:id', requireFaculty, role('faculty_admin','global_admin'), async (req,res) => {
+    const prior=await db.prepare('SELECT * FROM announcements WHERE id=?').get(asId(req.params.id));
+    if(!prior)throw problem(404,'Annonce introuvable.');
+    if(req.user.role!=='global_admin'&&prior.faculty_id!==req.user.faculty_id)throw problem(403,'Annonce d’une autre faculté.');
+    if(!await visibleAnnouncement(prior))throw problem(404,'Annonce introuvable.');
+    await transaction(()=>removeAnnouncementData(prior));
+    await broadcast(prior.faculty_id);res.json({ok:true});
+  });
   app.post('/api/admin/events', requireFaculty, role('faculty_admin','global_admin'), async (req,res) => {
-    const title=string(req.body.title,'Titre',180),date=string(req.body.date,'Date',10),time=string(req.body.time||'09:00','Horaire',50),type=req.body.type||'event';
-    if(!/^\d{4}-\d{2}-\d{2}$/.test(date)||Number.isNaN(Date.parse(date))||new Date(date+'T12:00:00Z').toISOString().slice(0,10)!==date)throw problem(400,'Date invalide.');
-    if(!['exam','rattrapage','deadline','registration','event','defense'].includes(type))throw problem(400,'Type d’événement invalide.');
-    const targets=(await publicationFaculties(req)),events=[];
-    (await transaction(async ()=>{for(const faculty of targets){const id=Number((await db.prepare('INSERT INTO events (faculty_id,title,date,time,type) VALUES (?,?,?,?,?)').run(faculty,title,date,time,type)).lastInsertRowid);(await notify(faculty,'calendar','Nouveau rendez-vous',`${title} · ${date}`,`/app/calendar#event-${id}`,req.user.id));events.push({id,title,date,time,type});}}));
-    await Promise.all(targets.map(faculty=>broadcast(faculty)));res.status(201).json({event:events[0],events});
+    throw problem(410,'Le calendrier a été retiré. Publiez une annonce pour informer les étudiants.');
   });
   app.patch('/api/admin/resources/:id', requireFaculty, role('faculty_admin','global_admin'), async (req,res) => {
     const r=(await db.prepare('SELECT * FROM resources WHERE id=? AND removed=0').get(asId(req.params.id)));
@@ -886,19 +1144,28 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
     if(req.user.role!=='global_admin'&&r.faculty_id!==req.user.faculty_id)throw problem(403,'Ressource d’une autre faculté.');
     const values={};
     if(req.body.title!==undefined)values.title=string(req.body.title,'Titre',180);
-    if(req.body.category!==undefined){if(!CATEGORIES.includes(req.body.category))throw problem(400,'Catégorie invalide.');values.category=req.body.category;}
+    if(req.body.category!==undefined){if(!CATEGORIES.includes(req.body.category))throw problem(400,'Catégorie invalide.');values.category=req.body.category;values.resource_type=req.body.category;}
     const category=values.category||r.category;
     const rawSemester=req.body.semester??r.semester;
     const semester=category==='general'&&r.semester===null&&(rawSemester===null||Number(rawSemester)===0)?null:Number(rawSemester);
     if((semester===null&&category!=='general')||(semester!==null&&(!Number.isInteger(semester)||semester<1||semester>6)))throw problem(400,'Semestre invalide.');
     values.semester=semester;
-    if(req.body.module!==undefined)values.module=string(req.body.module,'Module',120,false);
+    if(req.body.module!==undefined)values.module=moduleName(string(req.body.module,'Module',120,false));
     if(req.body.status!==undefined){if(!['new','popular','corrected','updated'].includes(req.body.status))throw problem(400,'Statut invalide.');values.status=req.body.status;}
-    if(req.body.part_number!==undefined){const part=Number(req.body.part_number);if(!Number.isInteger(part)||part<1||part>999)throw problem(400,'Partie invalide.');values.part_number=part;}
-    if(req.body.teacher_name!==undefined)values.teacher_name=string(req.body.teacher_name,'Professeur / auteur',120);
+    if(req.body.part_number!==undefined)values.part_number=resourcePart(req.body.part_number);
+    if(req.body.teacher_name!==undefined)values.teacher_name=string(req.body.teacher_name,'Professeur / auteur',120,false);
     await transaction(async()=>{
       const module=values.module??r.module;
+      if(r.library_visible!==0&&(values.part_number??r.part_number)) {
+        const part=values.part_number??r.part_number;
+        const effectiveCategory=classificationCategory(category,values.resource_type??r.resource_type);
+        const slot=[r.faculty_id,r.filiere_id,semester,moduleName(module).toLocaleLowerCase(),effectiveCategory,part];
+        await db.prepare('SELECT pg_advisory_xact_lock(hashtext(?))').get(JSON.stringify(slot));
+        const conflict=await db.prepare(`SELECT * FROM resources WHERE faculty_id=? AND filiere_id=? AND semester=? AND ${RESOURCE_MODULE_SQL}=lower(?) AND ${RESOURCE_CATEGORY_SQL}=? AND part_number=? AND removed=0 AND library_visible=1 AND id<>?`).get(r.faculty_id,r.filiere_id,semester,moduleName(module),effectiveCategory,part,r.id);
+        if(conflict)throw Object.assign(problem(409,'Cette partie existe déjà pour ce module et ce type de ressource.'),{resource:await resource(conflict,req.user),code:'RESOURCE_SLOT_CONFLICT'});
+      }
       values.module_id=module?await moduleId(r.faculty_id,r.filiere_id,semester,module):null;
+      values.module=values.module_id?(await db.prepare('SELECT name FROM modules WHERE id=?').get(values.module_id)).name:'';
       for(const [key,value]of Object.entries(values))await db.prepare(`UPDATE resources SET ${key}=? WHERE id=?`).run(value,r.id);
     });
     (await broadcast(r.faculty_id));res.json({resource:(await resource((await db.prepare('SELECT * FROM resources WHERE id=?').get(r.id))))});
@@ -919,7 +1186,7 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
       if(!current)throw problem(404,'Ressource introuvable.');
       if(hash===current.sha256)throw problem(409,'Le fichier est identique à la version actuelle.');
       const selectedModule=current.module_id||await moduleId(current.faculty_id,current.filiere_id,current.semester,current.module||'');
-      objectKey=current.filiere_id&&current.semester?resourceObjectKey({filiereId:current.filiere_id,semester:current.semester,moduleId:selectedModule,filename,prefix:'resource-versions'}):`resource-versions/${current.id}/${randomUUID()}${extname(filename).toLowerCase()}`;
+      objectKey=current.filiere_id&&current.semester?resourceObjectKey({filiereId:current.filiere_id,semester:current.semester,moduleId:selectedModule,filename,prefix:'resource-versions'}):storageObjectKey(`resource-versions/${current.id}/${randomUUID()}${extname(filename).toLowerCase()}`);
       uploaded=true;await storage.put(objectKey,req.file.buffer,mime);
       const addVersion=db.prepare('INSERT INTO resource_versions (resource_id,version,filename,object_key,sha256,size,mime,updated_at,editor_id) VALUES (?,?,?,?,?,?,?,?,?)');
       if(!await db.prepare('SELECT 1 FROM resource_versions WHERE resource_id=? AND version=?').get(current.id,current.version))await addVersion.run(current.id,current.version,current.filename,current.object_key,current.sha256,current.size,current.mime,current.created_at,current.author_id);
@@ -927,7 +1194,7 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
       await db.prepare("UPDATE resources SET filename=?,object_key=?,stored_name='',sha256=?,size=?,mime=?,version=version+1,status='updated' WHERE id=?").run(filename,objectKey,hash,req.file.size,mime,current.id);
       await notify(current.faculty_id,'resources','Version mise à jour',current.title,resourcePath(current),req.user.id);
     });}catch(error){
-      if(uploaded)try{await storage.delete(objectKey);}catch{console.error('[CampusLink storage] Replacement cleanup failed.');}
+      if(uploaded&&error.code!=='DATABASE_UNAVAILABLE')try{await storage.delete(objectKey);}catch{console.error('[CampusLink storage] Replacement cleanup failed.');}
       if(error.code==='23505')throw problem(409,'Ce fichier existe déjà dans votre faculté.');
       throw error;
     }
@@ -937,12 +1204,12 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
     const r=(await db.prepare('SELECT * FROM resources WHERE id=? AND removed=0').get(asId(req.params.id)));
     if(!r)throw problem(404,'Ressource introuvable.');
     if(req.user.role!=='global_admin'&&r.faculty_id!==req.user.faculty_id)throw problem(403,'Ressource d’une autre faculté.');
-    (await transaction(async ()=>{(await db.prepare('UPDATE resources SET removed=1 WHERE id=?').run(r.id));(await db.prepare('UPDATE messages SET resource_id=NULL WHERE resource_id=?').run(r.id));(await db.prepare('UPDATE announcements SET resource_id=NULL WHERE resource_id=?').run(r.id));}));
+    await transaction(()=>removeResourceData(r));
     (await broadcast(r.faculty_id));res.json({ok:true});
   });
   app.post('/api/admin/messages/:id/remove', requireFaculty, requireChat, role('moderator','faculty_admin','global_admin'), async (req,res) => {
     const m=req.user.role==='global_admin'?(await db.prepare('SELECT * FROM messages WHERE id=? AND removed=0').get(asId(req.params.id))):(await scoped('messages',req.params.id,req,true));
-    if(!m)throw problem(404,'Message introuvable.');
+    if(!m||!CHANNELS.includes(m.channel))throw problem(404,'Message introuvable.');
     await removeChatMessage(m);res.json({ok:true});
   });
 
@@ -955,7 +1222,7 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
     const message=err instanceof multer.MulterError?(err.code==='LIMIT_FILE_SIZE'?'Le fichier dépasse la limite de 20 Mo.':'Téléversement invalide.'):(err.type==='entity.parse.failed'?'Requête JSON invalide.':err.code==='23505'?'Cet élément existe déjà.':status===500?'Une erreur serveur est survenue. Réessayez.':err.message);
     if(status===500)console.error('[CampusLink API]',err.code||'UNEXPECTED_ERROR');
     if(Number.isSafeInteger(err.retryAfter)&&err.retryAfter>0)res.set('Retry-After',String(err.retryAfter));
-    res.status(status).json({error:message,...(err.code&&['ACCOUNT_PENDING','ACCOUNT_REJECTED'].includes(err.code)?{code:err.code}:{})});
+    res.status(status).json({error:message,...(err.code&&['ACCOUNT_PENDING','ACCOUNT_REJECTED','RESOURCE_SLOT_CONFLICT'].includes(err.code)?{code:err.code}:{}),...(err.resource?{resource:err.resource}:{})});
   });
   return app;
 }

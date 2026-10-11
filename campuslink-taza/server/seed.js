@@ -2,6 +2,7 @@ import { pathToFileURL } from 'node:url';
 import { digest, openDatabase } from './db.js';
 import { getFilieres, getChatSemester } from '../shared/studies.js';
 import { applyStudentCommunityProfiles } from './community-profiles.js';
+import { resolveModule } from './modules.js';
 
 export const FACULTIES = [
   { id: 'flaa', code: 'FLAA', name: 'Faculté des Langues, des Lettres et des Arts', arabic: 'كلية اللغات والآداب والفنون تازة', description: 'Un espace privé pour les lettres, les langues et la création. Ensemble, étudions, partageons et préparons notre avenir.', icon: 'book', color: 'gold', members: 1248 },
@@ -58,8 +59,6 @@ export async function seedDatabase(db, options = {}) {
       general: ['Chat général', 'Échanges autour des cours et de la vie universitaire.'],
       filiere: ['Chats de filière', 'Échanges de votre filière par semestre.'],
       important: ['Discussions importantes', 'Informations prioritaires et échéances à retenir.'],
-      help: ['Entraide', 'Questions, révisions et groupes de travail.'],
-      life: ['Vie étudiante', 'Clubs, rencontres et activités sur le campus.'],
     };
     for (const faculty of FACULTIES) for (const [id, [name, description]] of Object.entries(channels)) {
       await db.prepare('INSERT INTO channels (id,faculty_id,name,description) VALUES (?,?,?,?) ON CONFLICT(id,faculty_id) DO NOTHING').run(id, faculty.id, name, description);
@@ -98,7 +97,7 @@ export async function seedDatabase(db, options = {}) {
     const sara = await msg('flaa', 'general', 'Je partage ici un résumé du chapitre sur le mouvement romantique. Bon courage à tous !', 4, '2026-10-02T10:03:00.000Z');
     await msg('flaa', 'general', 'Merci beaucoup Sara ! Ça m’aide vraiment. Pour le plan : commence par une problématique, puis relie chaque argument à une citation.', 5, '2026-10-02T10:28:00.000Z', sara);
     const reminder = await msg('flaa', 'general', 'Rappel important : les cours, exercices et examens sont disponibles dans la section Ressources. Pour toute question liée à l’accès ou à la sortie de cet espace, veuillez contacter l’administration.', 2, '2026-10-02T11:01:00.000Z', null, 1);
-    await msg('flaa', 'important', 'Examens normaux S1 : la session commence le 15 octobre. Pensez à vérifier votre convocation et à apporter votre carte étudiante. Consultez le calendrier de la faculté.', 7, '2026-10-01T14:00:00.000Z', null, 1);
+    await msg('flaa', 'important', 'Examens normaux S1 : la session commence le 15 octobre. Pensez à vérifier votre convocation et à apporter votre carte étudiante. Consultez les annonces de la faculté.', 7, '2026-10-01T14:00:00.000Z', null, 1);
     await msg('flaa', 'important', 'Les groupes de travail pour la méthodologie sont ouverts. Déposez votre proposition de sujet avant le 12 octobre, à 18 h.', 6, '2026-10-02T07:30:00.000Z');
     await msg('flaa', 'help', 'Quelqu’un souhaite réviser la linguistique avec moi vendredi à la bibliothèque ? Nous pourrions comparer nos exercices de phonétique.', 8, '2026-10-01T15:40:00.000Z');
     await msg('flaa', 'help', 'Je peux venir à 15 h. J’apporterai les fiches de transcription phonétique.', 4, '2026-10-02T08:05:00.000Z');
@@ -132,7 +131,7 @@ export async function seedDatabase(db, options = {}) {
       const filename = title.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-zA-Z0-9]+/g, '_') + '.pdf';
       const pdf = makePdf(title, lines);
       const filiere = getFilieres(faculty)[0].id;
-      const moduleId = (await db.prepare('INSERT INTO modules (faculty_id,filiere_id,semester,name) VALUES (?,?,?,?) ON CONFLICT(faculty_id,filiere_id,semester,name) DO UPDATE SET name=excluded.name RETURNING id').run(faculty, filiere, semester, module)).lastInsertRowid;
+      const { id: moduleId } = await resolveModule(db, { facultyId: faculty, filiereId: filiere, semester, name: module });
       const stored = resourceObjectKey({ filiereId: filiere, semester, moduleId, filename });
       uploaded.push(stored);
       await options.storage.put(stored, pdf, 'application/pdf');
@@ -150,15 +149,6 @@ export async function seedDatabase(db, options = {}) {
     await addAnnouncement.run('flaa', 'La bibliothèque universitaire ouvre ses espaces de travail de 8 h 30 à 18 h. Pensez à respecter les zones de silence et à présenter votre carte étudiante.', null, 'important', 7, '2026-10-01T09:00:00.000Z', null, 0);
     const addReaction = db.prepare('INSERT INTO reactions VALUES (?,?,?)');
     for (const reaction of [[yassine,4,'like'],[yassine,5,'like'],[yassine,6,'heart'],[sara,3,'like'],[sara,5,'heart'],[sara,6,'like'],[sara,8,'like'],[reminder,3,'like'],[reminder,4,'like'],[reminder,5,'heart']]) await addReaction.run(...reaction);
-    const addEvent = db.prepare('INSERT INTO events (faculty_id,title,date,time,type) VALUES (?,?,?,?,?)');
-    for (const event of [
-      ['Examens normaux · S1', '2026-10-15', '08:30 - 12:00', 'exam'],
-      ['Dépôt des sujets · méthodologie', '2026-10-12', '18:00', 'deadline'],
-      ['Rencontre du club de lecture', '2026-10-07', '16:00 - 17:30', 'event'],
-      ['Rattrapage · S1', '2026-10-28', '08:30 - 12:00', 'rattrapage'],
-      ['Inscriptions pédagogiques · S3/S5', '2026-10-09', '09:00 - 16:00', 'registration'],
-    ]) await addEvent.run('flaa', ...event);
-    for (const faculty of ['feg', 'fsjp', 'fsa']) await addEvent.run(faculty, 'Accueil des nouveaux étudiants', '2026-10-08', '10:00', 'event');
     await db.prepare("SELECT setval(pg_get_serial_sequence('users','id'), (SELECT MAX(id) FROM users))").get();
     await applyStudentCommunityProfiles(db);
   });

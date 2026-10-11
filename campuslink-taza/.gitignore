@@ -1,8 +1,8 @@
 node_modules/
 dist/
-data/
-.env
 test-results/
-playwright-report/
-.neon
-.env.local
+/data/
+*.log
+.env
+.env.*
+!.env.example

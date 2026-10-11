@@ -6,6 +6,11 @@ import {
 } from '@aws-sdk/client-s3';
 
 const extensions = new Set(['.pdf', '.png', '.jpg', '.jpeg', '.webp', '.gif', '.doc', '.docx', '.ppt', '.pptx', '.xls', '.xlsx', '.odt', '.txt']);
+export function storageObjectKey(key, env = process.env) {
+  const prefix = env.CAMPUS_STORAGE_PREFIX || '';
+  if (prefix && !/^(?:[a-z0-9][a-z0-9_-]*\/)+$/.test(prefix)) throw new Error('Invalid CAMPUS_STORAGE_PREFIX.');
+  return prefix && !key.startsWith(prefix) ? prefix + key : key;
+}
 
 export function resourceObjectKey({ filiereId, semester, moduleId, filename, prefix = 'resources' }) {
   const extension = extname(filename || '').toLowerCase();
@@ -14,7 +19,7 @@ export function resourceObjectKey({ filiereId, semester, moduleId, filename, pre
     error.status = 400;
     throw error;
   }
-  return `${prefix}/${filiereId}/${Number(semester)}/${Number(moduleId)}/${randomUUID()}${extension}`;
+  return storageObjectKey(`${prefix}/${filiereId}/${Number(semester)}/${Number(moduleId)}/${randomUUID()}${extension}`);
 }
 
 function storageError(cause) {
@@ -31,6 +36,7 @@ function storageError(cause) {
 }
 
 export function createStorage(env = process.env) {
+  storageObjectKey('configuration-check', env);
   const required = ['R2_ENDPOINT', 'R2_ACCESS_KEY_ID', 'R2_SECRET_ACCESS_KEY', 'R2_BUCKET_NAME', 'R2_REGION'];
   const missing = required.filter(key => !env[key]);
   if (missing.length) throw new Error(`Missing server configuration: ${missing.join(', ')}`);
@@ -54,6 +60,7 @@ export function createStorage(env = process.env) {
   };
   return {
     async put(key, buffer, mime) {
+      if (env.CAMPUS_STORAGE_PREFIX && !key.startsWith(env.CAMPUS_STORAGE_PREFIX)) throw new Error('New storage objects must belong to this application prefix.');
       await send(new PutObjectCommand({ Bucket: bucket, Key: key, Body: buffer, ContentLength: buffer.length, ContentType: mime, CacheControl: 'private, no-store' }));
     },
     async get(key, { range } = {}) {
@@ -64,7 +71,12 @@ export function createStorage(env = process.env) {
       const result = await send(new HeadObjectCommand({ Bucket: bucket, Key: key }));
       return { contentLength: result.ContentLength, contentType: result.ContentType, etag: result.ETag };
     },
-    async delete(key) { await send(new DeleteObjectCommand({ Bucket: bucket, Key: key })); },
+    async delete(key) {
+      // Imported objects belong to the original application's storage. Target
+      // profile changes and upload compensation may remove only target objects.
+      if (env.CAMPUS_STORAGE_PREFIX && !key.startsWith(env.CAMPUS_STORAGE_PREFIX)) return;
+      await send(new DeleteObjectCommand({ Bucket: bucket, Key: key }));
+    },
     close() { client.destroy(); },
   };
 }
