@@ -3,25 +3,31 @@ import {api,invalidateAPISession,subscribeAPIActivity} from './api.js';
 import {FACULTIES} from './data/mock.js';
 import {getFiliere, filiereBelongsToFaculty} from './data/studies.js';
 import {translations} from './i18n.js';
-import {chatRequest, isAdministrator, normalizeAnnouncement, normalizeBootstrap, normalizeMessage, normalizeResource, normalizeUser} from './lib/backend.js';
+import {chatRequest, isAdministrator, normalizeAnnouncement, normalizeBootstrap, normalizeMessage, normalizeResource, normalizeUser, requiresPasswordChange} from './lib/backend.js';
 import {normalizePart} from './lib/resources.js';
+import {saveOfflineSession,loadOfflineSession} from './lib/offline-session.js';
+// Session cleanup must be registered even when no reader/study route is loaded.
+import './lib/offline-documents.js';
+import './lib/reading.js';
 
 const AppContext=createContext(null);
 const key='campuslink-prototype-v1:';
 export function readLocal(name,fallback){try{const value=localStorage.getItem(key+name);return value?JSON.parse(value):fallback;}catch{return fallback;}}
 function useLocal(name,initial){const [value,setValue]=useState(()=>readLocal(name,initial));useEffect(()=>{try{localStorage.setItem(key+name,JSON.stringify(value));}catch{}},[name,value]);return [value,setValue];}
-const emptyData=()=>({user:null,faculty:null,resources:[],announcements:[],messages:[],notifications:[],saved:[],history:[],events:[],channels:[],members:[]});
+const emptyData=()=>({user:null,faculty:null,resources:[],announcements:[],messages:[],notifications:[],unreadCount:0,notificationsHasMore:false,saved:[],history:[],events:[],channels:[],members:[]});
 const preferencesFor=user=>({announcements:true,resources:true,mentions:true,...user?.preferences,calendar:false,discussions:user?.preferences?.important!==false,administration:user?.preferences?.admin!==false});
 
 export function AppProvider({children}){
  const [language,changeLanguage]=useLocal('language','fr');
  const [theme,setTheme]=useLocal('theme','dark');
+ const [lowData,setLowData]=useLocal('low-data',false);
  const [data,setData]=useState(emptyData),[loading,setLoading]=useState(true),[connectionError,setConnectionError]=useState('');
  const [registrationRevision,setRegistrationRevision]=useState(0),[dialog,setDialog]=useState(null),[toast,setToast]=useState(null);
  const [pendingActions,setPendingActions]=useState({}),[networkActivity,setNetworkActivity]=useState({reads:0,writes:0});
  const current=useRef(data);current.current=data;
  const epoch=useRef(0),mutationRevision=useRef(0),refreshRequest=useRef(null),refreshTimer=useRef(null),queuedRefresh=useRef(false);
  const actionRequests=useRef(new Map()),stagedUploads=useRef(new Map()),optimistic=useRef(new Map()),messageDrafts=useRef(new Map());
+ const notificationVisit=useRef(null);
  const user=data.user,isAdmin=isAdministrator(user);
  const selection=user?.facultyId&&(user.filiereId||isAdmin)?{facultyId:user.facultyId,filiereId:user.filiereId||null,semester:user.semester}:null;
  const faculty=data.faculty||FACULTIES.find(item=>item.id===user?.facultyId),filiere=getFiliere(user?.filiereId);
@@ -29,10 +35,12 @@ export function AppProvider({children}){
  const tr=(fr,en,ar)=>language==='ar'?ar||fr:language==='en'?en||fr:fr;
  const notify=useCallback((message,type='success')=>setToast({message,type,id:Date.now()}),[]);
  const clearSession=useCallback(()=>{
+  notificationVisit.current=null;window.dispatchEvent(new Event('campus-session-cleared'));
   epoch.current++;invalidateAPISession();refreshRequest.current=null;actionRequests.current.clear();stagedUploads.current.clear();optimistic.current.clear();messageDrafts.current.clear();setPendingActions({});clearTimeout(refreshTimer.current);queuedRefresh.current=false;
-  setData(emptyData());setDialog(null);setConnectionError('');
+  current.current=emptyData();setData(current.current);setDialog(null);setConnectionError('');
  },[]);
  const refresh=useCallback(({afterMutation=false}={})=>{
+  if(requiresPasswordChange(current.current.user))return Promise.resolve({user:current.current.user});
   if(afterMutation)mutationRevision.current++;
   if(refreshRequest.current){queuedRefresh.current=true;return refreshRequest.current;}
   const owner=epoch.current,revision=mutationRevision.current;
@@ -41,11 +49,14 @@ export function AppProvider({children}){
     if(revision===mutationRevision.current){const snapshot=normalizeBootstrap(result);reconcileDrafts(snapshot);setData(applyOptimistic(snapshot));setConnectionError('');}
     else queuedRefresh.current=true;
    }return result;
-  }).catch(error=>{
+  }).catch(async error=>{
    if(owner===epoch.current){
     if(error.status===401)clearSession();
     else if(revision!==mutationRevision.current)queuedRefresh.current=true;
-    else if(['ACCOUNT_PENDING','ACCOUNT_REJECTED'].includes(error.data?.code)){
+    else if(['PASSWORD_CHANGE_REQUIRED','PASSWORD_RESET_REQUIRED'].includes(error.data?.code)){
+     try{const result=await api('/session');if(owner===epoch.current){const next=normalizeUser(result.user);clearSession();setData({...emptyData(),user:next});}}
+     catch(sessionError){if(owner===epoch.current)setConnectionError(sessionError.message);}
+    }else if(['ACCOUNT_PENDING','ACCOUNT_REJECTED'].includes(error.data?.code)){
      const status=error.data.code==='ACCOUNT_PENDING'?'pending':'rejected';
      setData(previous=>({...emptyData(),user:{...previous.user,accountStatus:status,account_status:status}}));
     }else setConnectionError(error.message);
@@ -60,12 +71,13 @@ export function AppProvider({children}){
  useEffect(()=>subscribeAPIActivity(setNetworkActivity),[]);
  useEffect(()=>{
   let live=true;const owner=epoch.current;
+  if(readLocal('logout-pending',false)){setLoading(false);if(navigator.onLine!==false)api('/logout',{method:'POST'}).then(()=>localStorage.removeItem(key+'logout-pending')).catch(()=>{});return()=>{live=false;};}
   api('/session').then(async result=>{
    if(!live||owner!==epoch.current)return;
-   const next=normalizeUser(result.user);setData(previous=>({...previous,user:next}));
+   const next=normalizeUser(result.user);if(!next){clearSession();}else if(requiresPasswordChange(next)){clearSession();setData({...emptyData(),user:next});}else setData(previous=>({...previous,user:next}));
    if(next?.language)changeLanguage(next.language);
-   if(next?.accountStatus==='approved'&&next.facultyId)await refresh();
-  }).catch(error=>{if(live)setConnectionError(error.message);}).finally(()=>{if(live)setLoading(false);});
+   if(!requiresPasswordChange(next)&&next?.accountStatus==='approved'&&next.facultyId)await refresh();
+  }).catch(async error=>{if(!live||owner!==epoch.current)return;if(navigator.onLine===false){try{const snapshot=await loadOfflineSession();if(snapshot&&!requiresPasswordChange(snapshot.user)&&live&&owner===epoch.current){setData(snapshot);setConnectionError('');return;}}catch{}}if(live)setConnectionError(error.message);}).finally(()=>{if(live)setLoading(false);});
   return()=>{live=false;};
  },[refresh]);
  useEffect(()=>{
@@ -76,19 +88,21 @@ export function AppProvider({children}){
   document.documentElement.lang=language;document.documentElement.dir=language==='ar'?'rtl':'ltr';document.documentElement.dataset.theme=theme;
   document.querySelector('meta[name="theme-color"]')?.setAttribute('content',theme==='dark'?'#121210':'#f7f5f1');
  },[language,theme]);
+ useEffect(()=>{document.documentElement.dataset.lowData=lowData?'true':'false';},[lowData]);
+ useEffect(()=>{const cache=event=>{if(!requiresPasswordChange(current.current.user)&&(!event.detail?.userId||String(event.detail.userId)===String(current.current.user?.id)))saveOfflineSession(current.current).catch(()=>notify(tr('Impossible d’enregistrer la session hors ligne.','Could not save the offline session.','تعذر حفظ الجلسة دون اتصال.'),'error'));};window.addEventListener('campus-offline-enabled',cache);return()=>window.removeEventListener('campus-offline-enabled',cache);},[]);
  useEffect(()=>{if(!toast)return;const timer=setTimeout(()=>setToast(null),4200);return()=>clearTimeout(timer);},[toast]);
  useEffect(()=>{
-  if(!user?.facultyId||user.accountStatus!=='approved')return;
+  if(!user?.facultyId||user.accountStatus!=='approved'||requiresPasswordChange(user))return;
   const sync=()=>{if(document.visibilityState!=='hidden'&&navigator.onLine!==false)scheduleRefresh();};
-  const stream=!user.chatBlocked&&typeof EventSource==='function'?new EventSource('/api/events/stream'):null;
+  const stream=navigator.onLine!==false&&!user.chatBlocked&&typeof EventSource==='function'?new EventSource('/api/events/stream'):null;
   stream?.addEventListener('open',sync);stream?.addEventListener('error',sync);
   stream?.addEventListener('update',event=>{
    try{const change=JSON.parse(event.data);if(change.registrations||change.adminInbox)setRegistrationRevision(value=>value+1);}catch{}sync();
   });
-  const timer=setInterval(sync,30000);
+  const timer=setInterval(sync,lowData?90000:30000);
   document.addEventListener('visibilitychange',sync);window.addEventListener('online',sync);window.addEventListener('focus',sync);window.addEventListener('pageshow',sync);
   return()=>{stream?.close();clearInterval(timer);document.removeEventListener('visibilitychange',sync);window.removeEventListener('online',sync);window.removeEventListener('focus',sync);window.removeEventListener('pageshow',sync);};
- },[user?.id,user?.facultyId,user?.filiereId,user?.accountStatus,user?.chatBlocked,scheduleRefresh]);
+ },[user?.id,user?.facultyId,user?.filiereId,user?.accountStatus,user?.chatBlocked,user?.mustChangePassword,scheduleRefresh,lowData]);
  function locked(action,operation){
   if(actionRequests.current.has(action))return actionRequests.current.get(action);
   const owner=epoch.current,promise=Promise.resolve().then(()=>operation(owner)).finally(()=>{if(actionRequests.current.get(action)===promise)actionRequests.current.delete(action);});
@@ -109,14 +123,14 @@ export function AppProvider({children}){
  function requireCurrent(owner){if(owner!==epoch.current)throw new Error('La session a changé. Réessayez depuis votre compte.');}
  async function refreshAccount(){
   const owner=epoch.current;
-  try{const result=await api('/session'),next=normalizeUser(result.user);requireCurrent(owner);commit(owner,previous=>({...previous,user:next}));
-   if(next?.accountStatus==='approved'&&next.facultyId)await refresh();setConnectionError('');return next;
+  try{const result=await api('/session'),next=normalizeUser(result.user);requireCurrent(owner);if(!next||requiresPasswordChange(next)||requiresPasswordChange(current.current.user)){clearSession();current.current={...emptyData(),user:next};setData(current.current);}else {current.current={...current.current,user:next};commit(owner,previous=>({...previous,user:next}));}
+   if(!requiresPasswordChange(next)&&next?.accountStatus==='approved'&&next.facultyId)await refresh();setConnectionError('');return next;
   }catch(error){if(owner===epoch.current)setConnectionError(error.message);throw error;}
  }
  async function login(username,password){
   const result=await api('/login',{method:'POST',body:{username:username.trim(),password}});clearSession();
-  const next=normalizeUser(result.user);setData(previous=>({...previous,user:next}));if(next.language)changeLanguage(next.language);
-  if(next.accountStatus==='approved'&&next.facultyId)await refresh();
+  localStorage.removeItem(key+'logout-pending');const next=normalizeUser(result.user);setData(previous=>({...previous,user:next}));if(next.language)changeLanguage(next.language);
+  if(!requiresPasswordChange(next)&&next.accountStatus==='approved'&&next.facultyId)await refresh();
   return {ok:true,user:next,selection:next.facultyId&&next.filiereId?{facultyId:next.facultyId,filiereId:next.filiereId,semester:next.semester}:null};
  }
  async function register(body){
@@ -133,9 +147,9 @@ export function AppProvider({children}){
   // Old programme requests and private previews must not enter the new scope.
   clearSession();commit(epoch.current,()=>({...emptyData(),user:next}));await refresh();return true;
  }
- async function logout(){try{await api('/logout',{method:'POST'});clearSession();return true;}catch(error){notify(error.message,'error');throw error;}}
+ async function logout(){if(navigator.onLine===false){localStorage.setItem(key+'logout-pending','true');clearSession();return true;}try{await api('/logout',{method:'POST'});clearSession();localStorage.removeItem(key+'logout-pending');return true;}catch(error){notify(error.message,'error');throw error;}}
  async function updateProfile(patch){const owner=epoch.current,result=await api('/profile',{method:'PATCH',body:patch,timeout:60000});requireCurrent(owner);commit(owner,previous=>({...previous,user:normalizeUser(result.user)}));notify(t('preferencesSaved'));return normalizeUser(result.user);}
- function setLanguage(next){changeLanguage(next);if(user?.accountStatus==='approved'){const owner=epoch.current;api('/profile',{method:'PATCH',body:{language:next}}).then(result=>commit(owner,previous=>({...previous,user:normalizeUser(result.user)}))).catch(error=>{if(owner===epoch.current)notify(error.message,'error');});}}
+ function setLanguage(next){changeLanguage(next);if(user?.accountStatus==='approved'&&!requiresPasswordChange(user)){const owner=epoch.current;api('/profile',{method:'PATCH',body:{language:next}}).then(result=>commit(owner,previous=>({...previous,user:normalizeUser(result.user)}))).catch(error=>{if(owner===epoch.current)notify(error.message,'error');});}}
  function setPreferences(change){return locked('preferences',async owner=>{
   const prefs=preferencesFor(current.current.user),next=typeof change==='function'?change(prefs):{...prefs,...change};
   const original=current.current.user.preferences;
@@ -164,25 +178,47 @@ export function AppProvider({children}){
   });
  }
  function openAnnouncement(item){if(item)setDialog({type:'announcement',item});}
- function readNotifications(target){const action=target?'read:'+target:'read:all';return locked(action,async owner=>{
-  const ids=new Set(current.current.notifications.filter(item=>!item.read&&(!target||item.id===String(target))).map(item=>item.id));
-  if(!ids.size)return true;
-  const apply=read=>previous=>({...previous,notifications:previous.notifications.map(item=>ids.has(item.id)?{...item,read}:item)});
-  beginOptimistic(owner,action,apply(true));
-  try{await api('/notifications/read',{method:'POST',body:target?{ids:[target]}:{}});finishOptimistic(owner,action,apply(true));return true;}
-  catch(error){finishOptimistic(owner,action,apply(false));if(owner===epoch.current)notify(error.message,'error');return false;}
- });}
- const markRead=target=>readNotifications(target);
- const markAllRead=()=>readNotifications();
+ function leaveNotificationDestination(identity){
+  const visit=notificationVisit.current;if(!visit||identity&&visit.viewedIdentity!==identity)return;
+  visit.left=true;notificationVisit.current=null;
+  if(visit.token)return completeNotificationVisit(visit);
+ }
+ async function completeNotificationVisit(visit){
+  if(visit.completed||!visit.token||visit.epoch!==epoch.current)return false;
+  visit.completed=true;
+  try{await api('/notifications/'+visit.id+'/departed',{method:'POST',body:{visit_token:visit.token}});
+   commit(visit.epoch,previous=>({...previous,unreadCount:Math.max(0,(previous.unreadCount||0)-(previous.notifications.some(item=>item.id===visit.id&&!item.read)?1:0)),notifications:previous.notifications.map(item=>item.id===visit.id?{...item,read:true}:item)}));return true;
+  }catch(error){visit.completed=false;if(visit.epoch===epoch.current)notify(error.message,'error');return false;}
+ }
+ function beginNotificationVisit(notification){
+  leaveNotificationDestination();
+  if(notification.target_available===false){notify(tr('La destination n’est plus accessible.','The destination is no longer accessible.','لم تعد الوجهة متاحة.'),'error');return false;}
+  if(!notification.read)notificationVisit.current={id:notification.id,path:notification.serverPath||notification.path,href:notification.href,epoch:epoch.current,token:null,left:false,viewing:false};
+  return true;
+ }
+ async function notificationDestinationViewed(kind,target){
+  const visit=notificationVisit.current;if(!visit||visit.viewing||visit.token)return false;
+  const destination=visit.path;
+  const matches=kind==='resource'?new RegExp('#resource-'+target+'(?:$|[&?])').test(destination)||new URLSearchParams(destination.split('?')[1]?.split('#')[0]).get('document')===String(target)
+   :kind==='message'?destination.includes('#message-'+target)
+   :kind==='announcement'?destination.includes('#announcement-'+target)
+   :kind==='feedback'?[new URLSearchParams(destination.split('?')[1]?.split('#')[0]).get('ticket'),new URLSearchParams(destination.split('?')[1]?.split('#')[0]).get('contact')].includes(String(target))
+   :kind==='campus'?visit.href===String(target):kind==='page'?visit.href===String(target):false;
+  if(!matches)return false;visit.viewing=true;visit.viewedIdentity=kind==='resource'?'document:'+target:kind==='announcement'?'announcement:'+target:window.location.pathname+window.location.search+window.location.hash;
+  try{const result=await api('/notifications/'+visit.id+'/viewed',{method:'POST',body:{path:visit.path}});if(visit.epoch!==epoch.current)return false;visit.token=result.visit_token;if(visit.left)await completeNotificationVisit(visit);return true;}
+  catch{visit.viewing=false;return false;}
+ }
+ async function loadMoreNotifications(){return locked('notifications:more',async owner=>{const previous=current.current,before=previous.notifications.length?Math.min(...previous.notifications.map(n=>Number(n.id))):undefined;const result=await api('/notifications?limit=100'+(before?'&before_id='+before:''));const normalized=normalizeBootstrap({...result,user:previous.user,resources:previous.resources});requireCurrent(owner);commit(owner,old=>({...old,notifications:[...old.notifications,...normalized.notifications.filter(n=>!old.notifications.some(x=>x.id===n.id))],unreadCount:result.unread_count,notificationsHasMore:result.has_more}));return result;});}
  async function uploadResource({file,path,meta,libraryVisible=true,channel='general'}){
   const form=new FormData(),scope=chatRequest(channel),owner=epoch.current;
   const fields={title:meta.title,semester:meta.semester,module:meta.module,category:meta.category,part_number:normalizePart(meta.part),teacher_name:meta.author||'',filiere_id:meta.filiereId||current.current.user?.filiereId,
-   resource_type:meta.category==='corrections'?'correction':['courses','exercises','exams','rattrapage','td','tp'].includes(meta.category)?meta.category:'document',relative_path:path||file.name,channel:scope.channel,
+   academic_year:meta.academicYear||'',faculty_id:meta.facultyId||current.current.user?.facultyId,resource_type:meta.category==='corrections'?'correction':['courses','exercises','exams','rattrapage','td','tp'].includes(meta.category)?meta.category:'document',relative_path:path||file.name,channel:scope.channel,
    ...(scope.semester?{chat_semester:scope.semester}:{}),library_visible:String(libraryVisible),publish_message:'false'};
   Object.entries(fields).forEach(([name,value])=>{if(value!==undefined&&value!==null)form.append(name,String(value));});form.append('file',file,file.name);
   const result=await api('/uploads',{method:'POST',body:form,timeout:120000}),resource=normalizeResource(result.resource);
   requireCurrent(owner);if(libraryVisible)commit(owner,previous=>({...previous,resources:[resource,...previous.resources.filter(item=>item.id!==resource.id)]}));return resource;
  }
+ async function updateResourceAcademicYears(target,years){const owner=epoch.current,result=await api('/resources/'+target+'/academic-years',{method:'PATCH',body:{academic_years:years,academic_year:years[0]||null}});requireCurrent(owner);const resource=normalizeResource(result.resource);commit(owner,previous=>({...previous,resources:previous.resources.map(item=>item.id===resource.id?resource:item)}));return resource;}
  function sendMessage(draft){
   const clientId=draft.client_id||globalThis.crypto?.randomUUID?.()||`message-${Date.now()}-${Math.random().toString(36).slice(2)}`;
   const action='message:'+clientId,pendingId='pending:'+clientId;
@@ -277,9 +313,9 @@ export function AppProvider({children}){
  }
  async function requestSupport({username,reason,message,name,email}){return api('/contact',{method:'POST',body:{name:name||user?.name||username,email:email||user?.email,subject:reason==='assignment'?'faculty':reason==='help'?'general':reason||'general',message}});}
  const value={...data,user,selection,faculty,filiere,isAdmin,loading,connectionError,error:connectionError,refresh,refreshAccount,scheduleRefresh,registrationRevision,register,login,logout,completeOnboarding,
-  language,setLanguage,theme,setTheme,t,tr,updateProfile,preferences:preferencesFor(user),setPreferences,resources:data.resources,allResources:data.resources,announcements:data.announcements,allAnnouncements:data.announcements,
+  language,setLanguage,theme,setTheme,lowData,setLowData,t,tr,updateProfile,preferences:preferencesFor(user),setPreferences,resources:data.resources,allResources:data.resources,announcements:data.announcements,allAnnouncements:data.announcements,
   messages:data.messages.filter(item=>!['help','life'].includes(item.channel)),allMessages:data.messages,notifications:data.notifications,allNotifications:data.notifications,saved:data.saved,history:data.history,
-  saveItem,isSaved,isPending,pendingActions,networkActivity,refreshing:networkActivity.reads>0,openDocument,openAnnouncement,markRead,markAllRead,uploadResource,sendMessage,retryMessage,discardMessage,deleteMessage,toggleMessageReaction,toggleMessagePin,reportMessage,promoteMessage,editAnnouncement,deleteAnnouncement,applyAdminChanges,requestSupport,
+  saveItem,isSaved,isPending,pendingActions,networkActivity,refreshing:networkActivity.reads>0,openDocument,openAnnouncement,beginNotificationVisit,notificationDestinationViewed,leaveNotificationDestination,loadMoreNotifications,uploadResource,updateResourceAcademicYears,sendMessage,retryMessage,discardMessage,deleteMessage,toggleMessageReaction,toggleMessagePin,reportMessage,promoteMessage,editAnnouncement,deleteAnnouncement,applyAdminChanges,requestSupport,
   dialog,setDialog,closeDialog:()=>setDialog(null),openUpload:()=>setDialog({type:'upload'}),notify,toast,setToast};
  return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
 }

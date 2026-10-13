@@ -118,3 +118,28 @@
 @media (max-width:600px) { .artwork-orbit-one { width:340px; height:340px; top:43px; } .artwork-orbit-two { width:270px; height:340px; top:46px; } .artwork-community { display:none; } }
 
 @media (min-width:601px) and (max-width:800px) { .artwork-orbit-one { width:320px; height:320px; top:52px; } .artwork-orbit-two { width:250px; height:320px; top:52px; } }
+
+.public-header-login { padding-inline: 14px 0; }
+.public-page .public-language-control .custom-select { min-height: 44px; }
+.landing-copy,.login-story,.login-form-wrap,.onboarding-faculties > *,.onboarding-chosen-faculty > div { min-width: 0; }
+.landing-intro,.landing-benefits h2,.login-form-heading h2,.onboarding-faculty h2,.onboarding-chosen-faculty strong,.onboarding-summary strong { overflow-wrap: anywhere; }
+.public-form-error { overflow-wrap: anywhere; }
+.account-review-card h2 { margin-bottom: 9px; overflow-wrap: anywhere; }
+.account-review-email { text-align: center; font-size: 13px; overflow-wrap: anywhere; margin: 0 0 22px; }
+.account-review-card > [role="status"] { padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface2); font-size: 12px; color: var(--muted); }
+.account-review-card .onboarding-actions { flex-wrap: wrap; gap: 10px; }
+.account-review-card .onboarding-actions .btn { flex: 1 1 180px; }
+@media (max-width: 600px) {
+  .public-header-login { padding-inline-start: 5px; }
+  .login-page .login-form input { font-size: 16px; }
+  .onboarding-actions { flex-wrap: wrap; gap: 12px; }
+  .onboarding-actions > span { flex: 1 1 120px; line-height: 1.7; }
+  .onboarding-chosen-faculty { flex-wrap: wrap; }
+  .onboarding-chosen-faculty > div { flex-basis: calc(100% - 42px); }
+  .onboarding-chosen-faculty > .badge { margin-inline-start: 34px; }
+  .onboarding-progress > div { min-width: 0; }
+  .onboarding-progress b { white-space: normal; line-height: 1.5; }
+  .onboarding-progress { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .onboarding-progress > div { flex-direction: column; align-items: center; gap: 8px; text-align: center; }
+  .onboarding-progress i { position: absolute; top: 13px; inset-inline-start: calc(50% + 20px); width: calc(100% - 40px); margin: 0; }
+}

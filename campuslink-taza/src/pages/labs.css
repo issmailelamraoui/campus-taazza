@@ -1,0 +1,25 @@
+.labs-page > .tabs{margin-bottom:20px}.labs-layout{display:grid;grid-template-columns:minmax(0,1fr) 290px;gap:20px}.labs-workspace{padding:22px;min-width:0}.labs-toolbar,.labs-actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.labs-toolbar{justify-content:space-between}.labs-toolbar .field{min-width:190px}.labs-code-editor{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;min-height:330px;resize:vertical;tab-size:2;line-height:1.7;white-space:pre;overflow:auto}.labs-notice{font-size:12px;line-height:1.8}.labs-xp-choice{display:flex;align-items:flex-start;gap:9px;font-size:12px;line-height:1.7;margin:14px 0}.labs-xp-choice input{margin-top:4px;accent-color:var(--accent)}.labs-actions{margin-top:16px}.labs-sidebar{display:grid;align-content:start;gap:15px}.labs-sidebar .card{padding:18px}.labs-sidebar h2,.labs-workspace h2{font-size:15px;margin:0 0 12px}.labs-sidebar p{font-size:12px;line-height:1.8}.labs-alert,.labs-result{padding:12px 14px;margin-top:17px;background:var(--surface2);border:1px solid var(--line);border-radius:7px;font-size:12px;line-height:1.7}.labs-alert.is-error{border-color:#a85555}.labs-result{display:flex;align-items:flex-start;gap:10px}.labs-result p{margin:0;overflow-wrap:anywhere}.labs-result svg{flex-shrink:0;margin-top:2px}.labs-result.is-valid{color:var(--accent-ink)}.labs-xp-status{font-size:12px;margin-top:18px;display:flex;gap:12px;justify-content:space-between}.labs-session-list{display:grid;gap:7px}.labs-session-list button{display:flex;justify-content:space-between;text-align:start;gap:10px;padding:9px;background:var(--surface2);border:1px solid var(--line);border-radius:5px;color:var(--ink);font:inherit;cursor:pointer}.labs-session-list strong{font-size:11px}.labs-session-list span{font-size:10px;color:var(--muted)}.labs-graph-workspace h2{display:flex;align-items:center;gap:9px}.labs-graph-ranges{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:15px 0}.labs-graph{display:block;width:100%;margin-top:22px;max-height:500px;background:var(--surface2);border:1px solid var(--line);border-radius:8px}.labs-grid-line{stroke:var(--line);stroke-width:1}.labs-axis{stroke:var(--muted);stroke-width:1.5}.labs-function{fill:none;stroke:var(--accent);stroke-width:2.5;vector-effect:non-scaling-stroke}.labs-graph text{fill:var(--muted);font-size:12px}.labs-values{font-size:12px;margin-top:14px}.labs-values summary{cursor:pointer;color:var(--muted)}.labs-values table{border-collapse:collapse;width:100%;max-width:360px;margin-top:12px}.labs-values td,.labs-values th{padding:8px 12px;border-bottom:1px solid var(--line);text-align:start}@media(max-width:900px){.labs-layout{grid-template-columns:1fr}.labs-sidebar{grid-template-columns:repeat(2,minmax(0,1fr))}.labs-sidebar .card:last-child{grid-column:1/-1}}@media(max-width:650px){.labs-workspace{padding:16px}.labs-sidebar{grid-template-columns:1fr}.labs-toolbar{align-items:stretch}.labs-toolbar .field{width:100%}.labs-toolbar .btn{font-size:11px}.labs-code-editor{font-size:12px;min-height:280px}.labs-actions .btn{font-size:11px;padding-inline:10px}.labs-graph-ranges{grid-template-columns:repeat(2,minmax(0,1fr))}.labs-xp-status{flex-wrap:wrap}}
+
+.labs-page,.labs-sidebar,.labs-sidebar>.card{min-width:0}
+.labs-toolbar .field{min-width:min(190px,100%)}
+.labs-notice{margin:14px 0;overflow-wrap:anywhere}
+.labs-sidebar p+p{margin-top:10px}
+.labs-xp-choice input{flex:none;margin-inline:0}
+.labs-actions .btn,.labs-toolbar .btn{max-width:100%;white-space:normal;text-align:center}
+.labs-alert,.labs-result,.labs-xp-status{overflow-wrap:anywhere}
+.labs-alert.is-error{border-color:var(--danger);color:var(--danger)}
+.labs-result>div,.labs-result>span{min-width:0}
+.labs-session-list button{min-height:42px;align-items:center;flex-wrap:wrap;transition:border-color var(--transition)}
+.labs-session-list button:hover:not(:disabled){border-color:var(--accent-solid)}
+.labs-session-list span{overflow-wrap:anywhere}
+.labs-graph{direction:ltr}
+.labs-graph-ranges input{direction:ltr;text-align:start}
+.labs-values{overflow-x:auto}
+.labs-values table{direction:ltr}
+@media(max-width:650px){
+ .labs-layout{gap:16px}
+ .labs-graph-ranges{gap:10px}
+ .labs-graph-ranges .field-label{font-size:12px}
+ .labs-sidebar .card{padding:16px}
+ .labs-actions{gap:8px}
+}

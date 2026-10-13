@@ -6,7 +6,8 @@
   "outputDirectory": "dist",
   "functions": {
     "api/backend.js": {
-      "includeFiles": "server/migrations/**"
+      "includeFiles": "{server/**,node_modules/pdfjs-dist/package.json,node_modules/pdfjs-dist/cmaps/**,node_modules/pdfjs-dist/standard_fonts/**,node_modules/pdfjs-dist/legacy/build/pdf.mjs,node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs,node_modules/@napi-rs/canvas/**,node_modules/@napi-rs/canvas-linux-*/**,node_modules/web-tree-sitter/web-tree-sitter.wasm,node_modules/tree-sitter-python/tree-sitter-python.wasm,node_modules/tree-sitter-c/tree-sitter-c.wasm,node_modules/tree-sitter-cpp/tree-sitter-cpp.wasm}",
+      "maxDuration": 60
     }
   },
   "rewrites": [

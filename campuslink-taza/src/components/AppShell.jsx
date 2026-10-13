@@ -27,8 +27,12 @@ import {
   HelpCircle,
   LogOut,
   Lock,
-  CheckCheck,
   LoaderCircle,
+  Users,
+  Code2,
+  Leaf,
+  Trophy,
+  KeyRound,
 } from "lucide-react";
 import { useApp } from "../context";
 import { Logo, Avatar, Button } from "./ui";
@@ -42,13 +46,16 @@ export default function AppShell() {
     filiere,
     selection,
     notifications,
+    unreadCount,
     theme,
     setTheme,
+    lowData,
+    setLowData,
+    offlineSession,
     language,
     setLanguage,
     setDialog,
     logout,
-    markAllRead,
     isAdmin,
     connectionError,
     refresh,
@@ -59,7 +66,6 @@ export default function AppShell() {
   const [menu, setMenu] = useState(false);
   const [notificationTab, setNotificationTab] = useState('unread');
   const [logoutBusy, setLogoutBusy] = useState(false);
-  const [readBusy, setReadBusy] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
   const panelRef = useRef(null);
@@ -73,13 +79,19 @@ export default function AppShell() {
     ["notifications", "/app/notifications", Bell],
     ["saved", "/app/saved", Bookmark],
     ["profile", "/app/profile", UserRound],
+    ["study", "/app/study", BookOpen],
+    ["campus", "/app/campus", Users],
+    ["labs", "/app/labs", Code2],
+    ["feedback", "/app/feedback", HelpCircle],
+    ["xp", "/app/xp", Trophy],
+    ...(user.role==='global_admin'?[["permissions", "/app/permissions", KeyRound]]:[]),
     ...(isAdmin ? [["admin", "/app/admin", ShieldCheck]] : []),
   ];
   const mobileNav = [nav[0], nav[2], nav[1], nav[3]];
   const mobileNavLabel = (key) =>
     key === "community" ? tr("Discussions", "Discussions", "النقاشات") : t(key);
   const current = nav.find((x) => x[1] === location.pathname)?.[0] || "home";
-  const unread = notifications.filter((n) => !n.read).length;
+  const unread = unreadCount ?? notifications.filter((n) => !n.read).length;
   const panelNotifications = notifications.filter(n => notificationTab === 'read' ? n.read : !n.read);
   useEffect(() => {
     setDrawer(false);
@@ -340,7 +352,7 @@ export default function AppShell() {
                 <Moon size={18} strokeWidth={1.6} />
               )}
             </button>
-            <span className="header-separator" />
+            <button className="icon-btn" aria-label={tr("Mode Éco","Low-data mode","وضع توفير البيانات")} aria-pressed={lowData} title={tr("Mode Éco","Low-data mode","وضع توفير البيانات")} onClick={()=>setLowData(!lowData)}><Leaf size={17}/></button><span className="header-separator" />
             <button
               className="icon-btn header-avatar"
               aria-label={t("account")}
@@ -361,16 +373,6 @@ export default function AppShell() {
             >
               <div className="notification-popover-header">
                 <h2>{t("notifications")}</h2>
-                <button
-                  className="icon-btn"
-                  title={t("markAllRead")}
-                  aria-label={t("markAllRead")}
-                  disabled={!unread || readBusy}
-                  aria-busy={readBusy}
-                  onClick={async () => { setReadBusy(true); try { await markAllRead(); } catch {} finally { setReadBusy(false); } }}
-                >
-                  {readBusy ? <LoaderCircle size={17}/> : <CheckCheck size={17} />}
-                </button>
               </div>
               <div className="notification-filter-tabs" aria-label={tr('Filtrer les notifications', 'Filter notifications', 'تصفية الإشعارات')}>
                 <button type="button" aria-pressed={notificationTab === 'unread'} onClick={() => setNotificationTab('unread')}>{t('unread')} ({unread})</button>
@@ -459,7 +461,7 @@ export default function AppShell() {
           tabIndex={-1}
         >
           {connectionError && <div className="notice" role="alert" style={{marginBottom:16}}><span>{connectionError}</span> <button className="text-link" onClick={()=>refresh().catch(()=>{})}>{tr("Réessayer", "Retry", "إعادة المحاولة")}</button></div>}
-          <Outlet />
+          {offlineSession&&<p className="notice" role="status">{tr("Hors ligne : documents enregistrés et outils personnels. Reconnectez-vous pour les échanges et la synchronisation.","Offline: saved documents and personal tools. Reconnect for conversations and synchronization.","دون اتصال: المستندات المحفوظة والأدوات الشخصية. أعد الاتصال للمحادثات والمزامنة.")}</p>}<Outlet />
         </main>
         <footer className="app-footer">
           <span className="footer-demo">

@@ -1,0 +1,18 @@
+.library-pdf-search{padding:15px 18px;margin:0 0 18px}.library-pdf-search>summary{cursor:pointer;font-size:13px;font-weight:600}.document-text-search{font-size:12px;padding-top:10px;min-width:0}.document-text-search>form{display:flex;gap:8px;flex-wrap:wrap}.document-text-search>form>input{flex:1;min-width:160px}.document-text-search>.muted{margin:9px 0;font-size:11px}.document-text-matches .search-result{width:100%;text-align:start}.document-text-matches p{font-size:12px;line-height:1.6;white-space:normal;overflow-wrap:anywhere;margin-top:7px}.document-text-matches mark{background:#f0ce6880;color:inherit}.document-index-picker{display:flex;gap:12px;align-items:center;flex-wrap:wrap;border-top:1px solid var(--border);margin-top:12px;padding-top:12px}.document-index-picker>.field{flex:1;min-width:180px}.pdf-index-control{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:11px}.pdf-index-control .btn{font-size:11px;padding:7px 9px}.pdf-index-control small{max-width:320px}.search-modal .document-text-search{padding:10px 16px;border-top:1px solid var(--border)}
+
+.document-text-search>form>input{min-width:0;flex-basis:220px;max-width:100%}
+.document-text-search>form>.btn{max-width:100%;white-space:normal;text-align:center}
+.document-text-matches{display:grid;gap:4px;margin-top:12px}
+.document-text-matches .search-result{align-items:flex-start;border:1px solid var(--border);background:var(--surface);padding:12px;border-radius:9px}
+.document-text-matches .search-result:hover:not(:disabled){background:var(--accent-soft);border-color:color-mix(in srgb,var(--accent) 40%,var(--border))}
+.document-text-matches .search-result>svg{flex:none;margin-top:2px}
+.document-text-matches .search-result strong{overflow-wrap:anywhere;line-height:1.5;font-weight:600}
+.document-text-matches .search-result small{display:block;margin-top:4px;overflow-wrap:anywhere}
+.document-text-matches p{margin-bottom:0}
+.document-text-matches mark{background:color-mix(in srgb,var(--accent) 30%,transparent);border-radius:2px}
+.document-index-picker>.field{min-width:0;flex-basis:220px}
+.pdf-index-control{min-width:0;max-width:100%}
+.pdf-index-control .btn{max-width:100%;white-space:normal;text-align:center}
+.pdf-index-control small{line-height:1.6;overflow-wrap:anywhere;color:var(--muted)}
+.pdf-index-control small[role=alert]{color:var(--danger)}
+@media(max-width:600px){.document-text-search>form>.btn{width:100%}.document-text-matches .search-result{gap:9px;padding:10px}.document-index-picker{gap:10px}.pdf-index-control .btn{min-height:36px}}

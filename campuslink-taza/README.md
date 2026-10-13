@@ -13,6 +13,10 @@ npm run dev
 
 Ouvrir **http://localhost:5180**. Cette commande lance l’API sur le port 3001 et Vite sur le port 5180, avec un proxy `/api`. Le frontend et ses appels API partagent la même origine et les cookies de session sont HttpOnly.
 
+Si ces ports sont déjà occupés, lancer `PORT=3002 CAMPUS_WEB_PORT=5181 CAMPUS_API_TARGET=http://127.0.0.1:3002 npm run dev`, puis ouvrir **http://localhost:5181**.
+
+Pour un étudiant qui a oublié son mot de passe : Administration → Comptes → Réinitialiser le mot de passe. Le propriétaire vérifie son identité, crée un mot de passe temporaire et le transmet directement après confirmation. L’étudiant doit choisir son propre mot de passe à sa prochaine connexion, dans les 24 heures. L’action est aussi accessible depuis les demandes d’Assistance.
+
 ```sh
 npm run build
 npm start
@@ -37,6 +41,12 @@ npm run db:clone -- --source-schema campuslink --target-schema campuslink_prj
 ```
 
 `db:migrate` applique les migrations du schéma configuré. `db:seed` insère les références académiques ; les données de démonstration nécessitent explicitement `--demo`. `db:clone` copie les métadonnées du schéma source vers une destination vide et refuse d’écraser une destination existante. Une installation déjà migrée n’a pas besoin de relancer le clonage.
+
+`db:migrate` ne lance plus de seed automatiquement. Pour préparer volontairement les références d'une installation vide, utiliser `npm run db:seed` ou `npm run db:migrate -- --seed`. Ne pas relancer un clonage ou une démonstration pour réparer une installation existante.
+
+L'API vérifie les migrations appliquées, leurs empreintes et les tables/colonnes nécessaires avant de démarrer. Si le journal indique des migrations en attente, exécuter `npm run db:migrate` avec la configuration voulue, puis redémarrer `npm run dev`. Une migration déjà appliquée reste immuable : les ajouts doivent aller dans une nouvelle migration. `/api/health` vérifie désormais la disponibilité réelle du schéma et renvoie `503` en cas d'indisponibilité.
+
+Le 12 octobre 2026, le schéma configuré `campuslink_prj` a été réparé jusqu'à la migration `027`, après une sauvegarde privée des métadonnées. La migration `012` retrouve exactement son empreinte historique ; ses ajouts ultérieurs de feedback sont dans `027`. Les comptes, le propriétaire, les messages, les ressources et les clés de stockage existants ont été conservés.
 
 Le démarrage local lit `CAMPUS_DB_SCHEMA`, `CAMPUS_DB_MIGRATE`, `CAMPUS_DB_SEED`, `CAMPUS_STORAGE_PREFIX`, `APP_ORIGIN`, `PORT` et `COOKIE_SECURE`. Les scripts de migration, d’import local et de liaison des identités sont conservés dans `server/`.
 
@@ -72,7 +82,9 @@ Le partage de fichiers ou dossiers conserve les noms et chemins imbriqués. Le s
 
 Le thème, la langue et le fait d’avoir déjà vu la proposition d’installation utilisent le localStorage du frontend. Les anciennes données de démonstration ne sont jamais utilisées pour établir une session ou autoriser une action.
 
-CampusLink peut être installé comme application web. La proposition apparaît une seule fois par navigateur, puis l’installation reste accessible dans le profil. Chrome et Edge utilisent leur dialogue natif lorsqu’il est disponible ; les autres navigateurs affichent les étapes adaptées, notamment « Sur l’écran d’accueil » sur iPhone/iPad. La publication doit utiliser HTTPS pour permettre l’installation native sur téléphone ; HTTP sur localhost reste utilisable pour les vérifications locales. Le service worker conserve seulement les icônes et une page de reconnexion hors ligne : les données API, les pages authentifiées et les fichiers privés ne sont pas mis en cache.
+CampusLink peut être installé comme application web. La proposition apparaît une seule fois par navigateur, puis l’installation reste accessible dans le profil. Chrome et Edge utilisent leur dialogue natif lorsqu’il est disponible ; les autres navigateurs affichent les étapes adaptées, notamment « Sur l’écran d’accueil » sur iPhone/iPad. La publication doit utiliser HTTPS pour permettre l’installation native sur téléphone ; HTTP sur localhost reste utilisable pour les vérifications locales. Le service worker conserve le shell et les assets publics. Les copies privées explicites de documents sont séparées dans IndexedDB, liées au compte et limitées à 24 heures ; les réponses API ne sont pas mises en cache par le worker.
+
+Campus Labs prend en charge JavaScript, JSON, Python, C et C++ pour la vérification syntaxique. Python/C/C++ utilisent les grammaires officielles Tree-sitter dans des workers bornés ; aucun `import`, `include` ou programme étudiant n'est exécuté. Les erreurs indiquent ligne et colonne. La compilation, les vérifications sémantiques et l'exécution restent des capacités distinctes indisponibles. Les XP de pratique restent réservés aux sessions JavaScript volontaires.
 
 ## Vérification
 
@@ -85,10 +97,16 @@ npm run test:resource-stack
 npm run test:context-sync
 npm run test:module-library
 npm run test:install-app
+npm run test:frontend-design
+npm run test:reader-workspace
 node tests/install-worker.browser.mjs
 ```
 
 Les tests d’intégration utilisent les véritables routes API et un schéma PostgreSQL temporaire, avec des doubles explicites pour l’identité et les octets des fichiers. Ils ne modifient pas les comptes Neon ou les fichiers du projet original. Les schémas temporaires sont supprimés à la fin. `CAMPUS_TEST_DATABASE_URL` peut fournir une base PostgreSQL de test ; à défaut la connexion configurée est utilisée avec un schéma isolé.
+
+`test:frontend-design` vérifie les pages et onglets sur ordinateur, tablette et téléphone, avec les deux thèmes et le français, l’anglais et l’arabe. Il utilise Vite sur 5180 et des réponses API contrôlées, sans modifier les données du campus. Le rapport est enregistré dans `test-results/frontend-consistency/report.json` ; `CAMPUS_DESIGN_SCREENSHOTS=1 npm run test:frontend-design` conserve aussi les captures.
+
+`test:reader-workspace` vérifie le rendu réel d’un PDF de plusieurs pages, l’espace de lecture, les outils et notes, la recherche, la comparaison, le mode focus et la reprise après une erreur. Le lecteur garde la navigation et le zoom au-dessus du document ; « Outils » ouvre les réglages, fichiers complémentaires et actions secondaires dans une seule zone latérale. Les tests utilisent des réponses API contrôlées sur Vite 5180.
 
 Le test de pile mobile utilise des réponses API contrôlées pour mesurer l’interaction et la performance indépendamment du réseau. Il nécessite Vite démarré sur 5180 et Chromium installé (`npx playwright install chromium`). Les anciennes suites du prototype restent disponibles dans `tests/` comme références de l’interface ; les suites ci-dessus vérifient l’application reliée au serveur.
 

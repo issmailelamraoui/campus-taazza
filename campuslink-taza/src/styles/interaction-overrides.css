@@ -116,3 +116,5 @@ textarea,
     display: none;
   }
 }
+
+html[data-low-data="true"] *,html[data-low-data="true"] *::before,html[data-low-data="true"] *::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}

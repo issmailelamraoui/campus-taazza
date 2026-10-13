@@ -1,0 +1,21 @@
+.scanner-upload{padding:20px;display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:20px}.scanner-upload .field{flex:1;min-width:220px}.scanner-upload small{color:var(--muted);width:100%}.scanner-workspace{display:grid;grid-template-columns:minmax(0,1fr) 330px;gap:18px;align-items:start}.scanner-preview,.scanner-options{padding:16px;min-width:0}.scanner-controls{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:15px}.scanner-canvas{position:relative;max-width:100%;width:fit-content;margin:auto;line-height:0}.scanner-canvas canvas{max-width:100%;max-height:75dvh;display:block;object-fit:contain;width:auto;height:auto}.scanner-canvas.selecting{touch-action:none;cursor:crosshair}.scanner-crop{position:absolute;border:2px dashed #3b82f6;background:#3b82f622;pointer-events:none;box-sizing:border-box}.scanner-options{display:grid;gap:12px}.scanner-crop-fields{border:1px solid var(--line);border-radius:10px;padding:10px;display:grid;grid-template-columns:1fr 1fr;gap:8px}.scanner-crop-fields legend{font-size:12px}.scanner-options input[type=range]{padding:0;accent-color:var(--accent)}@media(max-width:850px){.scanner-workspace{grid-template-columns:minmax(0,1fr)}.scanner-canvas canvas{max-height:60dvh}.scanner-upload{padding:14px}.scanner-options{padding:14px}}
+
+.scanner-page{min-width:0}
+.scanner-upload>.field{min-width:min(220px,100%)}
+.scanner-upload>svg{color:var(--accent-ink)}
+.scanner-upload small{font-size:11px;line-height:1.7}
+.scanner-controls .btn,.scanner-options>.btn{max-width:100%;white-space:normal;text-align:center}
+.scanner-controls .btn[aria-pressed=true]{color:var(--accent-ink);border-color:var(--accent-solid);background:var(--accent-soft)}
+.scanner-canvas{direction:ltr}
+.scanner-crop{border-color:var(--accent-solid);background:var(--accent-soft)}
+.scanner-crop-fields{min-width:0;margin:0}
+.scanner-crop-fields input{direction:ltr;text-align:start}
+.scanner-options input[type=range]{min-height:32px}
+.scanner-preview{background:var(--surface2)}
+.scanner-page>.notice{margin-top:16px}
+@media(max-width:600px){
+ .scanner-upload>.field{flex-basis:100%}
+ .scanner-controls .btn{font-size:11px;padding:8px 10px}
+ .scanner-workspace{gap:14px}
+ .scanner-options>.btn{font-size:12px}
+}

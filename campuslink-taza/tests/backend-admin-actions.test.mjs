@@ -102,8 +102,8 @@ test('target removal resolves every active duplicate report and keeps resolved a
   const concurrent = await Promise.all([remove(reports[0], cookies.professeure, 'Duplicate target removed'), remove(reports[1], cookies.admin, 'Duplicate target removed')]);
   assert.deepEqual(concurrent.map(result => result.status), [200, 200], 'Concurrent administrators resolve duplicate reports without deadlocking');
   const rows = await env.db.prepare('SELECT id,status,note FROM reports WHERE target_type=? AND target_id=? ORDER BY id').all('message', target.id);
-  assert.deepEqual(rows.map(item => item.status), ['resolved', 'resolved', 'dismissed']);
-  assert.ok(rows.slice(0, 2).every(item => item.note === 'Duplicate target removed'));
+  assert.deepEqual(reports.map(report=>rows.find(item=>item.id===report.id).status), ['resolved', 'resolved', 'dismissed']);
+  assert.ok(reports.slice(0,2).every(report=>rows.find(item=>item.id===report.id).note === 'Duplicate target removed'));
   const active = await request('/admin', { cookie: cookies.admin });
   assert.equal(active.status, 200);
   assert.ok(reports.every(item => !active.data.reports.some(row => row.id === item.id)));
@@ -185,7 +185,10 @@ test('only global administrators can appoint a student in that student’s own f
   assert.ok((await env.db.prepare('SELECT session_version FROM users WHERE id=?').get(student.id)).session_version > student.session_version);
   assert.equal((await request('/bootstrap', { cookie: cookies.nour })).status, 401);
   const fresh = await login('nour');
-  assert.equal((await request('/admin', { cookie: fresh })).status, 200);
+  assert.equal((await request('/admin', { cookie: fresh })).status, 403, 'A role alone does not grant an appointed administrator capabilities');
+  const grant=await request('/admin/appointments',{cookie:cookies.admin,method:'POST',body:{user_id:student.id,role:'faculty_admin',faculty_id:student.faculty_id,filiere_id:student.filiere_id,capabilities:['content.moderate','student.support']}});
+  assert.equal(grant.status,201,JSON.stringify(grant.data));
+  assert.equal((await request('/admin', { cookie: await login('nour') })).status, 200);
 });
 
 test('a lost upload COMMIT acknowledgement preserves the stored object and never retries the write', async () => {

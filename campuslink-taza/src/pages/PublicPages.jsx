@@ -7,11 +7,12 @@ import { api } from '../api';
 import { Button, Field, Badge, Logo } from '../components/ui';
 import { FACULTIES } from '../data/mock';
 import { getFilieres } from '../data/studies';
+import {requiresPasswordChange} from '../lib/backend';
 import './public.css';
 
 const facultyIcons = { fsa: Atom, flaa: BookOpen, feg: TrendingUp, fsjp: Scale };
 
-function PublicHeader() {
+export function PublicHeader() {
   const { tr, language, setLanguage, theme, setTheme, user, selection } = useApp();
   return <header className="public-header">
     <Link to="/" className="public-brand" aria-label="CampusLink Taza"><Logo /></Link>
@@ -23,7 +24,7 @@ function PublicHeader() {
   </header>;
 }
 
-function PublicFooter() {
+export function PublicFooter() {
   const { tr, setDialog } = useApp();
   return <footer className="public-footer"><span>CampusLink Taza <span className="public-footer-dot">·</span> USMBA</span><span>{tr('Un campus. Des idées. Un avenir.', 'One campus. Shared ideas. A future.', 'جامعة واحدة. أفكار مشتركة. مستقبل.')}<button onClick={() => setDialog({ type: 'contact' })}>{tr('Contacter l’administration', 'Contact the administrator', 'التواصل مع الإدارة')}<ArrowUpRight size={13} /></button></span></footer>;
 }
@@ -112,7 +113,7 @@ export function OnboardingPage() {
     {error && <p className="public-form-error" role="alert">{error}</p>}<div className="onboarding-actions">{step > 1 ? <Button variant="ghost" icon={ChevronLeft} onClick={() => { setStep(v => v - 1); setConfirmed(false); setError(''); }}>{tr('Retour', 'Back', 'رجوع')}</Button> : <span>{tr('Étape 1 sur 3', 'Step 1 of 3', 'الخطوة 1 من 3')}</span>}{step < 3 ? <Button variant="primary" icon={ArrowRight} disabled={step === 1 ? !facultyId : !filiereId} onClick={() => setStep(v => v + 1)}>{tr('Continuer', 'Continue', 'متابعة')}</Button> : <Button variant="primary" icon={LockKeyhole} disabled={!confirmed || busy} aria-busy={busy} onClick={finish}>{busy ? tr('Préparation…', 'Preparing…', 'جارٍ الإعداد…') : tr('Confirmer mon choix', 'Confirm my choice', 'تأكيد اختياري')}</Button>}</div><p className="onboarding-local-note">{tr('Votre choix sera enregistré dans votre compte universitaire.', 'Your selection will be saved to your campus account.', 'يُحفظ اختيارك في حسابك الجامعي.')}</p></main><PublicFooter /></div>;
 }
 
-const accountPath = (user, selection) => user && (user.accountStatus || user.account_status || 'approved') !== 'approved' ? '/account-review' : ['global_admin','faculty_admin','moderator'].includes(user?.role) ? '/app/admin' : selection ? '/app' : '/onboarding';
+const accountPath = (user, selection) => requiresPasswordChange(user) ? '/change-password' : user && (user.accountStatus || user.account_status || 'approved') !== 'approved' ? '/account-review' : ['global_admin','faculty_admin','moderator'].includes(user?.role) ? '/app/admin' : selection ? '/app' : '/onboarding';
 
 export function RegisterPage() {
   const { tr, register, user, selection } = useApp();
@@ -161,5 +162,5 @@ export function AccountReviewPage() {
   const rejected=(user.accountStatus||user.account_status)==='rejected';
   const check=async()=>{if(busy)return;setBusy(true);setError('');setChecked(false);try{await refreshAccount();setChecked(true);}catch(error){setError(error.message);}finally{setBusy(false);}};
   const leave=async()=>{if(busy)return;setBusy(true);setError('');try{await logout();navigate('/login',{replace:true});}catch(error){setError(error.message);}finally{setBusy(false);}};
-  return <div className="public-page onboarding-page"><PublicHeader/><main className="onboarding-main"><header className="onboarding-heading"><Badge>{tr('INSCRIPTION ÉTUDIANTE','STUDENT REGISTRATION','تسجيل الطلبة')}</Badge><h1>{rejected?tr('Inscription refusée','Registration declined','تم رفض التسجيل'):tr('Votre inscription\nest en attente.','Your registration\nis pending.','تسجيلك\nقيد المراجعة.')}</h1><p>{rejected?tr('L’administration a refusé votre demande. Contactez-la pour connaître les prochaines étapes.','Administration has declined your application. Contact it to discuss next steps.','رفضت الإدارة طلبك. تواصل معها لمعرفة الخطوات المقبلة.'):tr('Votre demande a été transmise à l’administration. Votre espace sera accessible dès son acceptation.','Your application has been sent to administration. Your campus space will open when it is approved.','تم إرسال طلبك إلى الإدارة. يُفتح فضاءك فور الموافقة عليه.')}</p></header><section className="onboarding-confirmation"><ShieldCheck size={36}/><h2>{user.name||user.username}</h2><p className="muted">{user.email}</p>{error&&<p className="public-form-error" role="alert">{error}</p>}{checked&&!error&&<p role="status">{rejected?tr('Votre demande reste refusée.','Your application is still declined.','ما زال طلبك مرفوضاً.'):tr('Votre demande est toujours en attente.','Your application is still pending.','ما زال طلبك قيد المراجعة.')}</p>}<div className="onboarding-actions">{user.registration_session!==false&&<Button variant="primary" disabled={busy} onClick={check}>{busy?tr('Vérification…','Checking…','جارٍ التحقق…'):tr('Vérifier le statut','Check status','التحقق من الحالة')}</Button>}<Button disabled={busy} icon={LogOut} onClick={leave}>{tr('Se déconnecter','Sign out','تسجيل الخروج')}</Button><Button variant="ghost" icon={Mail} onClick={()=>setDialog({type:'contact'})}>{tr('Contacter l’administration','Contact administration','التواصل مع الإدارة')}</Button></div></section></main><PublicFooter/></div>;
+  return <div className="public-page onboarding-page account-review-page"><PublicHeader/><main className="onboarding-main"><header className="onboarding-heading"><Badge>{tr('INSCRIPTION ÉTUDIANTE','STUDENT REGISTRATION','تسجيل الطلبة')}</Badge><h1>{rejected?tr('Inscription refusée','Registration declined','تم رفض التسجيل'):tr('Votre inscription\nest en attente.','Your registration\nis pending.','تسجيلك\nقيد المراجعة.')}</h1><p>{rejected?tr('L’administration a refusé votre demande. Contactez-la pour connaître les prochaines étapes.','Administration has declined your application. Contact it to discuss next steps.','رفضت الإدارة طلبك. تواصل معها لمعرفة الخطوات المقبلة.'):tr('Votre demande a été transmise à l’administration. Votre espace sera accessible dès son acceptation.','Your application has been sent to administration. Your campus space will open when it is approved.','تم إرسال طلبك إلى الإدارة. يُفتح فضاءك فور الموافقة عليه.')}</p></header><section className="onboarding-confirmation account-review-card"><span className="onboarding-confirm-symbol"><ShieldCheck size={28}/></span><h2 dir="auto">{user.name||user.username}</h2><p className="muted account-review-email" dir="auto">{user.email}</p>{error&&<p className="public-form-error" role="alert">{error}</p>}{checked&&!error&&<p role="status">{rejected?tr('Votre demande reste refusée.','Your application is still declined.','ما زال طلبك مرفوضاً.'):tr('Votre demande est toujours en attente.','Your application is still pending.','ما زال طلبك قيد المراجعة.')}</p>}<div className="onboarding-actions">{user.registration_session!==false&&<Button variant="primary" disabled={busy} onClick={check}>{busy?tr('Vérification…','Checking…','جارٍ التحقق…'):tr('Vérifier le statut','Check status','التحقق من الحالة')}</Button>}<Button disabled={busy} icon={LogOut} onClick={leave}>{tr('Se déconnecter','Sign out','تسجيل الخروج')}</Button><Button variant="ghost" icon={Mail} onClick={()=>setDialog({type:'contact'})}>{tr('Contacter l’administration','Contact administration','التواصل مع الإدارة')}</Button></div></section></main><PublicFooter/></div>;
 }

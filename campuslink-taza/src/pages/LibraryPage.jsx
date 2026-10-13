@@ -14,6 +14,8 @@ import {
   Search,
   Upload,
   X,
+  Pencil,
+  Plus,
 } from "lucide-react";
 import { useApp } from "../context";
 import {
@@ -23,6 +25,12 @@ import {
   normalizePart,
   compareParts,
   partLabel,
+  normalizeAcademicYear,
+  resourceAcademicYears,
+  compareAcademicYears,
+  orderResourcesByAcademicYear,
+  groupResourcesByAcademicYear,
+  academicYearOptions,
 } from "../lib/resources";
 import {
   Button,
@@ -31,8 +39,10 @@ import {
   Field,
   PageHeader,
   Tabs,
+  Modal,
 } from "../components/ui";
 import UploadModal from "../components/UploadModal";
+import DocumentTextSearch from "../components/DocumentTextSearch";
 import "./library.css";
 const semesterNumber = (value) =>
   Number(String(value ?? "").replace(/^s/i, ""));
@@ -50,28 +60,12 @@ const categoryMatches = (resource, category) =>
   (category === "tdtp"
     ? ["td", "tp", "tdtp"].includes(resource.category)
     : resource.category === category);
-export function orderLibraryResources(items, sort = "recent") {
-  const titleOrder = (a, b) => a.title.localeCompare(b.title);
-  const partOrder = (a, b) => compareParts(a.part, b.part) || titleOrder(a, b);
-  const dateValue = (item) => new Date(item.date).getTime() || 0;
-  return [...items].sort((a, b) => {
-    if (sort === "title")
-      return titleOrder(a, b) || compareParts(a.part, b.part);
-    if (sort === "part")
-      return (
-        normalizeModule(a.module).localeCompare(normalizeModule(b.module)) ||
-        a.category.localeCompare(b.category) ||
-        partOrder(a, b)
-      );
-    return (
-      (sort === "oldest"
-        ? dateValue(a) - dateValue(b)
-        : dateValue(b) - dateValue(a)) || partOrder(a, b)
-    );
-  });
+export function orderLibraryResources(items, sort = "recent", currentYear = "", filterYear = "") {
+  return orderResourcesByAcademicYear(items, sort, currentYear, filterYear);
 }
 export default function LibraryPage() {
-  const { t, tr, language, selection, faculty, filiere, resources } = useApp();
+  const { t, tr, language, user, selection, faculty, filiere, resources, updateResourceAcademicYears } = useApp();
+  const currentAcademicYear = normalizeAcademicYear(user?.currentAcademicYear ?? user?.current_academic_year);
   const [searchParams, setSearchParams] = useSearchParams();
   const location = useLocation();
   const handledResourceLink = useRef(null);
@@ -97,15 +91,22 @@ export default function LibraryPage() {
   const author = searchParams.get("author") || "all";
   const part = searchParams.get("part") || "all";
   const date = searchParams.get("date") || "all";
+  const requestedYear = searchParams.get("year");
+  const year = requestedYear === "unknown" ? "unknown" : normalizeAcademicYear(requestedYear) || "all";
   const [showFilters, setShowFilters] = useState(false);
   const [showUpload, setShowUpload] = useState(false);
   const [showModulePicker, setShowModulePicker] = useState(false);
   const [moduleQuery, setModuleQuery] = useState("");
   const [documentPage, setDocumentPage] = useState(0);
+  const [yearEditor, setYearEditor] = useState(null);
+  const [editedYears, setEditedYears] = useState([]);
+  const [savingYears, setSavingYears] = useState(false);
+  const [yearError, setYearError] = useState("");
   const semesterResources = useMemo(
     () =>
       resources.filter(
         (item) =>
+          item.libraryVisible !== false &&
           semesterNumber(item.semester) === semester &&
           item.facultyId === selection?.facultyId &&
           item.filiereId === selection?.filiereId,
@@ -171,7 +172,9 @@ export default function LibraryPage() {
       ].sort(compareParts),
     [semesterResources],
   );
-  const filterCount = [author, part, date].filter(
+  const availableYears = useMemo(() => [...new Set(semesterResources.flatMap(resourceAcademicYears))]
+    .sort((a, b) => compareAcademicYears(a, b, currentAcademicYear)), [semesterResources, currentAcademicYear]);
+  const filterCount = [author, part, date, year].filter(
     (value) => value !== "all",
   ).length;
   const filteredBase = useMemo(
@@ -187,18 +190,21 @@ export default function LibraryPage() {
             haystack.includes(query.trim().toLocaleLowerCase())) &&
           (author === "all" || item.author === author) &&
           (part === "all" || normalizePart(item.part) === part) &&
+          (year === "all" || (year === "unknown" ? !resourceAcademicYears(item).length : resourceAcademicYears(item).includes(year))) &&
           (date === "all" || age <= Number(date) * 86400000)
         );
       }),
-    [semesterResources, module, query, author, part, date],
+    [semesterResources, module, query, author, part, date, year],
   );
   const visible = useMemo(
     () =>
       orderLibraryResources(
         filteredBase.filter((item) => categoryMatches(item, category)),
         sort,
+        currentAcademicYear,
+        year,
       ),
-    [filteredBase, category, sort],
+    [filteredBase, category, sort, currentAcademicYear, year],
   );
   const folders = useMemo(() => groupResourcesByModule(visible), [visible]);
   const lastDocumentPage = Math.max(
@@ -211,9 +217,10 @@ export default function LibraryPage() {
     pageStart,
     pageStart + DOCUMENTS_PER_PAGE,
   );
+  const pageYearGroups = groupResourcesByAcademicYear(pageDocuments, currentAcademicYear, year);
   useEffect(
     () => setDocumentPage(0),
-    [semester, module, category, query, sort, author, part, date],
+    [semester, module, category, query, sort, author, part, date, year],
   );
   useEffect(
     () => setDocumentPage((page) => Math.min(page, lastDocumentPage)),
@@ -254,13 +261,14 @@ export default function LibraryPage() {
       author,
       part,
       date,
+      year,
       ...patch,
     };
     const params = new URLSearchParams(searchParams);
     params.set("semester", String(state.semester));
     if (state.module === null) params.delete("module");
     else params.set("module", state.module);
-    for (const key of ["category", "author", "part", "date"]) {
+    for (const key of ["category", "author", "part", "date", "year"]) {
       if (state[key] === "all") params.delete(key);
       else params.set(key, state[key]);
     }
@@ -291,6 +299,7 @@ export default function LibraryPage() {
       author: "all",
       part: "all",
       date: "all",
+      year: "all",
     });
   const changeSemester = (value) =>
     navigateLibrary({
@@ -299,10 +308,27 @@ export default function LibraryPage() {
       author: "all",
       part: "all",
       date: "all",
+      year: "all",
     });
   const folderLabel = (name) =>
     name || tr("Sans module", "Unclassified", "بدون وحدة");
   const categoryLabel = (key) => (key === "tdtp" ? "TD / TP" : t(key));
+  const openYearEditor = (document) => {
+    setYearEditor(document);
+    setEditedYears(resourceAcademicYears(document));
+    setYearError("");
+  };
+  const saveYears = async () => {
+    if (!yearEditor || savingYears || !updateResourceAcademicYears) return;
+    setSavingYears(true);
+    setYearError("");
+    try {
+      await updateResourceAcademicYears(yearEditor.id, [...new Set(editedYears.map(normalizeAcademicYear).filter(Boolean))]);
+      setYearEditor(null);
+    } catch (error) {
+      setYearError(error.message || tr("L’année n’a pas pu être enregistrée.", "Could not save the academic year.", "تعذر حفظ السنة الجامعية."));
+    } finally { setSavingYears(false); }
+  };
   const tabs = [
     { id: "all", label: t("all"), count: filteredBase.length },
     ...categories.map((id) => ({
@@ -439,6 +465,7 @@ export default function LibraryPage() {
           </Button>
         }
       />
+      <details className="card library-pdf-search"><summary>{tr('Rechercher dans le texte des PDF','Search inside PDF text','البحث في نص ملفات PDF')}</summary><DocumentTextSearch/></details>
       <section
         className="library-navigation card"
         aria-label={tr(
@@ -651,6 +678,20 @@ export default function LibraryPage() {
         )}
       </section>
       {module !== null && resultsContext}
+      <div className="library-academic-year-control">
+        <Field label={tr("Année universitaire d’utilisation", "Academic year of use", "السنة الجامعية للاستخدام")}>
+          <Select className="input" value={year} onChange={(event) => navigateLibrary({ year: event.target.value })}>
+            <option value="all">{tr("Toutes les années", "All academic years", "كل السنوات الجامعية")}</option>
+            {availableYears.map(value => <option key={value} value={value}>{value}{value === currentAcademicYear ? ` · ${tr("année actuelle", "current year", "السنة الحالية")}` : ""}</option>)}
+            <option value="unknown">{tr("Année inconnue", "Unknown year", "سنة غير معروفة")}</option>
+          </Select>
+        </Field>
+        <p className="muted">{tr(
+          "L’année actuelle apparaît d’abord, puis les années précédentes. Les documents sans année restent à la fin.",
+          "Current-year material comes first, followed by previous years. Documents with an unknown year appear last.",
+          "تظهر وثائق السنة الحالية أولاً ثم السنوات السابقة. وتظهر الوثائق ذات السنة غير المعروفة أخيراً.",
+        )}</p>
+      </div>
       <div className="library-category-tabs">
         <span className="library-section-label">
           {tr("Type de document", "Document type", "نوع الوثيقة")}
@@ -809,9 +850,29 @@ export default function LibraryPage() {
       {visible.length > 0 ? (
         module === null ? null : (
           <>
-            <div className="library-document-grid">
-              {pageDocuments.map((document) => (
-                <DocumentCard key={document.id} document={document} />
+            <div className="library-year-groups">
+              {pageYearGroups.map(group => (
+                <section className="library-year-group" key={group.year || "unknown"} aria-label={group.year || tr("Année inconnue", "Unknown year", "سنة غير معروفة")}>
+                  <div className="library-year-heading">
+                    <h3>{group.year || tr("Année inconnue", "Unknown year", "سنة غير معروفة")}</h3>
+                    {group.year && group.year === currentAcademicYear && <span className="library-current-year">{tr("Année actuelle", "Current year", "السنة الحالية")}</span>}
+                  </div>
+                  <div className="library-document-grid">
+                    {group.documents.map(document => (
+                      <div className="library-year-document" key={document.id}>
+                        <DocumentCard document={document} />
+                        <div className="library-document-year-meta">
+                          {resourceAcademicYears(document).length > 1 && <span className="muted">{tr("Utilisé en", "Used in", "استُخدم في")} {resourceAcademicYears(document).join(" · ")}</span>}
+                          {updateResourceAcademicYears && (document.can_manage_academic_years === true || document.canManageAcademicYears === true || String(document.author_id) === String(user?.id)) && (
+                            <button className="library-edit-year" type="button" onClick={() => openYearEditor(document)} aria-label={tr(`Corriger l’année de ${document.originalName || document.title}`, `Correct the year for ${document.originalName || document.title}`, `تصحيح سنة ${document.originalName || document.title}`)}>
+                              <Pencil size={12} aria-hidden="true" />{tr("Corriger l’année", "Correct year", "تصحيح السنة")}
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </section>
               ))}
             </div>
             {visible.length > DOCUMENTS_PER_PAGE && (
@@ -905,6 +966,21 @@ export default function LibraryPage() {
         )}
       </p>
       {showUpload && <UploadModal onClose={() => setShowUpload(false)} />}
+      {yearEditor && <Modal title={tr("Années d’utilisation du document", "Years the material was used", "سنوات استخدام الوثيقة")} onClose={() => { if (!savingYears) setYearEditor(null); }} footer={<div className="library-year-editor-footer"><Button variant="ghost" disabled={savingYears} onClick={() => setYearEditor(null)}>{t("cancel")}</Button><Button variant="primary" disabled={savingYears} onClick={saveYears}>{savingYears ? tr("Enregistrement…", "Saving…", "جارٍ الحفظ…") : tr("Enregistrer", "Save", "حفظ")}</Button></div>}>
+        <p className="muted library-year-editor-note">{yearEditor.originalName || yearEditor.title}</p>
+        <p className="muted library-year-editor-note">{tr("Corrigez le classement ou ajoutez une année de réutilisation. Le fichier reste conservé une seule fois.", "Correct the classification or add a year when the material was reused. The stored file is kept once.", "صحّح التصنيف أو أضف سنة أُعيد فيها استخدام الوثيقة. يبقى الملف مخزناً مرة واحدة.")}</p>
+        {yearError && <div className="upload-error" role="alert">{yearError}</div>}
+        {(editedYears.length ? editedYears : [""]).map((value, index) => <div className="library-year-editor-row" key={index}>
+          <Field label={tr("Année universitaire", "Academic year", "السنة الجامعية")}><Select className="input" value={value} disabled={savingYears} onChange={(event) => setEditedYears(previous => {
+            const next = [...previous]; next[index] = event.target.value; return next;
+          })}>
+            <option value="">{tr("Année inconnue", "Unknown year", "سنة غير معروفة")}</option>
+            {academicYearOptions(currentAcademicYear, [...availableYears, ...editedYears]).map(option => <option key={option} value={option}>{option}</option>)}
+          </Select></Field>
+          {editedYears.length > 1 && <button className="icon-btn" disabled={savingYears} onClick={() => setEditedYears(previous => previous.filter((_, position) => position !== index))} aria-label={tr("Retirer cette année", "Remove this year", "إزالة هذه السنة")}><X size={16} /></button>}
+        </div>)}
+        <Button variant="ghost" icon={Plus} disabled={savingYears || !editedYears.some(Boolean) || editedYears.length >= 30} onClick={() => setEditedYears(previous => [...previous, academicYearOptions(currentAcademicYear, availableYears).find(option => !previous.includes(option)) || ""])}>{tr("Ajouter une année de réutilisation", "Add a year of reuse", "إضافة سنة إعادة استخدام")}</Button>
+      </Modal>}
     </div>
   );
 }
