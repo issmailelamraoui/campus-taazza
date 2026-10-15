@@ -30,7 +30,7 @@ Cloning requires a distinct, absent or empty target schema and refuses to overwr
 - `COOKIE_SECURE=true`: secure cookies behind deployed HTTPS.
 - `CAMPUS_DATA_DIR`: source directory for the explicit legacy importer only.
 - `CAMPUS_DB_SCHEMA=campuslink_prj`: this application's dedicated metadata schema.
-- `CAMPUS_DB_MIGRATE=true`: apply additive target migrations at startup. Set false for a deliberately read-only migration check.
+- `CAMPUS_DB_MIGRATE=true`: apply additive target migrations at startup. Set false to require an explicitly prepared schema; ordinary startup may still initialize existing owner/channel defaults. Read-only diagnostics should use the PostgreSQL catalog directly.
 - `CAMPUS_DB_SEED=false`: imported reference/catalog data already exists. Explicit `db:seed` remains available for a separately initialized schema.
 - `CAMPUS_STORAGE_PREFIX=campuslink-prj/`: all new upload, replacement and avatar keys belong to this project. Existing source object keys remain readable. Automatic cleanup/deletion skips keys outside this prefix so target operations cannot delete source assets.
 
@@ -71,6 +71,22 @@ The current interface also persists profile `name` / `bio`, accepts avatars up t
 Administrative capabilities from the source remain available: review admissions; provision accounts; assign roles/faculties; suspend/reactivate sessions; delete student profiles; block/unblock chat access; rename discussions or make them read-only; review/resolve reports; answer/close contact requests; publish announcements and calendar events in one/all faculties; edit resource classification/status; replace files with version history; withdraw files; remove messages and pin them into announcements. Global, faculty-administrator and moderator permissions are checked on the server. `GET /api/admin` now includes announcements/events for those authorized roles, and scoped announcement edit/delete plus report notes preserve existing interface actions.
 
 Scoped administration, contacts, calendar, notifications and profile preferences keep their current behavior. Contact forms persist review requests; they do not send email or perform automatic password resets.
+
+The active platform owner can issue a temporary password from Administration → Comptes or a linked Assistance request after verifying the student's identity. Anonymous requests require manual account selection. Protected staff, owner, inactive and unapproved accounts are excluded. `POST /api/admin/users/:id/password-reset` requires `temporary_password` (16–128 characters), a private audit `reason` (10–500 characters), a UUID `operation_id`, `identity_verified: true`, and optionally a matching `contact_id`. Neon Auth must authorize the owner's existing provider-admin session. A password is usable only after an explicit provider confirmation; the UI keeps the secret in memory for manual delivery and never sends it through notifications or contact replies.
+
+Migration 028 stores a salted password verifier for idempotency, the operation's outcome and audit metadata. It stores no plaintext passwords. Issuance revokes existing application sessions and requires a distinct personal password through `POST /api/password-reset/complete` within 24 hours before private API access. Same-operation checks never repeat a provider password mutation. Uncertain outcomes remain restricted until an explicit fresh rotation succeeds; durable pending/change claims prevent concurrent issuance and first-login changes from overwriting each other.
+
+## Schema readiness and migration repair
+
+API startup verifies the complete migration ledger/checksums and required table/column catalog before creating provider clients or initializing permissions. An incomplete schema stops startup with a sanitized, actionable diagnostic. `/api/health` checks database/schema readiness, briefly caches successful probes, and returns a generic `503` on failure without leaking connection details.
+
+`npm run db:migrate` applies additive migrations and does not seed existing metadata. Reference seeding requires the separate `db:seed` command or explicit `db:migrate -- --seed`. Never edit an applied migration or replace its recorded checksum to conceal drift. Migration `012` is restored to its original recorded bytes; feedback attachments/program scope are introduced by `027`. The configured application's schema was upgraded through `027` on 12 October 2026 under the requested server repair, after a private metadata snapshot. Owner, accounts, Auth IDs, private object keys and existing record counts were checked after upgrading.
+
+## Additional Labs languages
+
+Python, C and C++ use the official Web Tree-sitter runtime and language grammars inside bounded workers. Source is limited to 16 KB, checks to two concurrent workers and three seconds, with separate 64 MiB JavaScript heap and WebAssembly memory ceilings. Programs, imports and includes are never executed or resolved. Syntax diagnostics do not claim compiler semantics or runtime correctness. Infrastructure failures return `validation_unavailable` and do not consume practice potential. New languages do not award JavaScript practice XP.
+
+Vercel packaging includes the Web Tree-sitter runtime and each grammar's `.wasm` asset. Local success does not verify a deployed function package; keep the existing no-migration/no-seed Vercel startup behavior and verify packaging in an approved preview before publishing code.
 
 Reports and contact requests insert administrative notifications transactionally with the request. Global administrators receive them across faculties; faculty administrators receive their own faculty's requests, and moderators receive only their own faculty's reports. Anonymous contacts reach global administrators. Notices use the recipient's faculty so cross-faculty global requests remain visible in bootstrap. Administrative notification preferences are respected. Authorized SSE updates refresh the inbox even when notifications are muted; connected clients display only new unread administrative arrivals, with links to the appropriate tab.
 

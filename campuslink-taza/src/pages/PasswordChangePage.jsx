@@ -1,0 +1,34 @@
+import React,{useEffect,useRef,useState} from 'react';
+import {useNavigate} from 'react-router-dom';
+import {LockKeyhole,LogOut,Mail,RefreshCw} from 'lucide-react';
+import {useApp} from '../context';
+import {api} from '../api';
+import {accountDestination} from '../lib/backend';
+import {Button,Field} from '../components/ui';
+import {PublicHeader,PublicFooter} from './PublicPages';
+import './password-change.css';
+
+export default function PasswordChangePage(){
+ const {user,tr,refreshAccount,logout,setDialog}=useApp(),navigate=useNavigate();
+ const [currentPassword,setCurrentPassword]=useState(''),[newPassword,setNewPassword]=useState(''),[confirmation,setConfirmation]=useState('');
+ const [busy,setBusy]=useState(false),[error,setError]=useState('');
+ const request=useRef(false),alive=useRef(true);
+ useEffect(()=>{alive.current=true;return()=>{alive.current=false;};},[]);
+ const state=user?.passwordResetState||user?.password_reset_state||'unknown',issued=state==='issued';
+ async function submit(event){
+  event.preventDefault();if(request.current||!issued)return;
+  if(!currentPassword||newPassword.length<10||newPassword.length>128||newPassword===currentPassword||newPassword!==confirmation){setError(tr('Choisissez un mot de passe de 10 à 128 caractères différent du mot de passe temporaire et confirmez-le.','Choose and confirm a password of 10–128 characters different from the temporary password.','اختر كلمة مرور من 10 إلى 128 حرفاً مختلفة عن المؤقتة وأكدها.'));return;}
+  request.current=true;setBusy(true);setError('');
+  try{
+   const result=await api('/password-reset/complete',{method:'POST',timeout:60000,body:{currentPassword,newPassword}});
+   if(result.ok!==true||result.user?.must_change_password!==false)throw new Error(tr('Le changement n’a pas été confirmé. Vérifiez le statut de votre compte.','The change was not confirmed. Check your account status.','لم يتم تأكيد التغيير. تحقق من حالة حسابك.'));
+   setCurrentPassword('');setNewPassword('');setConfirmation('');
+   const next=await refreshAccount();if(alive.current)navigate(accountDestination(next,next?.facultyId&&(next.filiereId||next.has_admin_access)),{replace:true});
+  }catch(failure){if(alive.current){setCurrentPassword('');setNewPassword('');setConfirmation('');setError(failure.message);if(['PASSWORD_RESET_EXPIRED','PASSWORD_RESET_PENDING','PASSWORD_RESET_UNKNOWN'].includes(failure.data?.code))await refreshAccount().catch(()=>{});}}
+  finally{request.current=false;if(alive.current)setBusy(false);}
+ }
+ async function check(){if(request.current)return;request.current=true;setBusy(true);setError('');try{await refreshAccount();}catch(failure){if(alive.current)setError(failure.message);}finally{request.current=false;if(alive.current)setBusy(false);}}
+ async function leave(){if(request.current)return;request.current=true;setBusy(true);try{await logout();navigate('/login',{replace:true});}catch(failure){if(alive.current)setError(failure.message);}finally{request.current=false;if(alive.current)setBusy(false);}}
+ const description=issued?tr('Votre administration vous a fourni un mot de passe temporaire valable 24 heures. Choisissez votre propre mot de passe pour accéder à votre campus.','Your administrator supplied a temporary password valid for 24 hours. Choose your own password to access your campus.','قدمت لك الإدارة كلمة مرور مؤقتة صالحة لمدة 24 ساعة. اختر كلمة مرور خاصة للوصول إلى فضاءك.'):state==='expired'?tr('Votre mot de passe temporaire a expiré. Demandez un nouvel accès à l’administration.','Your temporary password expired. Ask administration for new access.','انتهت صلاحية كلمة المرور المؤقتة. اطلب بيانات دخول جديدة من الإدارة.'):state==='pending'?tr('Votre changement de mot de passe est en cours. Vérifiez le statut dans un instant ou contactez l’administration.','Your password change is in progress. Check again shortly or contact administration.','تغيير كلمة المرور قيد التنفيذ. تحقق بعد قليل أو تواصل مع الإدارة.'):tr('Votre nouveau mot de passe temporaire n’est pas encore confirmé. Contactez l’administration pour obtenir un accès confirmé.','Your temporary password is not confirmed yet. Contact administration for confirmed access.','لم يتم تأكيد كلمة المرور المؤقتة بعد. تواصل مع الإدارة للحصول على بيانات دخول مؤكدة.');
+ return <div className="public-page password-change-page"><PublicHeader/><main className="password-change-main"><section className="password-change-card" aria-busy={busy}><div className="password-change-icon"><LockKeyhole size={28}/></div><h1>{tr('Choisissez votre mot de passe','Choose your password','اختر كلمة المرور الخاصة بك')}</h1><p className="muted">{description}</p><p className="password-change-account"><bdi>{user?.name}</bdi><span><bdi>{user?.username}</bdi></span></p>{issued&&<form onSubmit={submit} noValidate className="password-change-form"><Field label={tr('Mot de passe temporaire','Temporary password','كلمة المرور المؤقتة')}><input className="input" type="password" name="currentPassword" autoComplete="current-password" aria-label={tr('Mot de passe temporaire','Temporary password','كلمة المرور المؤقتة')} maxLength={128} value={currentPassword} onChange={event=>setCurrentPassword(event.target.value)} disabled={busy} required/></Field><Field label={tr('Nouveau mot de passe','New password','كلمة المرور الجديدة')} hint={tr('Au moins 10 caractères.','At least 10 characters.','10 أحرف على الأقل.')}><input className="input" type="password" name="newPassword" autoComplete="new-password" aria-label={tr('Nouveau mot de passe','New password','كلمة المرور الجديدة')} minLength={10} maxLength={128} value={newPassword} onChange={event=>setNewPassword(event.target.value)} disabled={busy} required/></Field><Field label={tr('Confirmer le nouveau mot de passe','Confirm new password','تأكيد كلمة المرور الجديدة')}><input className="input" type="password" name="confirmation" autoComplete="new-password" aria-label={tr('Confirmer le nouveau mot de passe','Confirm new password','تأكيد كلمة المرور الجديدة')} maxLength={128} value={confirmation} onChange={event=>setConfirmation(event.target.value)} disabled={busy} required/></Field><Button type="submit" variant="primary" disabled={busy}>{busy?tr('Enregistrement…','Saving…','جارٍ الحفظ…'):tr('Enregistrer mon mot de passe','Save my password','حفظ كلمة المرور')}</Button></form>}{error&&<p className="public-form-error" role="alert">{error}</p>}<div className="password-change-actions"><Button icon={RefreshCw} disabled={busy} onClick={check}>{tr('Vérifier le statut','Check status','التحقق من الحالة')}</Button><Button icon={Mail} variant="ghost" disabled={busy} onClick={()=>setDialog({type:'contact'})}>{tr('Contacter l’administration','Contact administration','التواصل مع الإدارة')}</Button><Button icon={LogOut} variant="ghost" disabled={busy} onClick={leave}>{tr('Se déconnecter','Sign out','تسجيل الخروج')}</Button></div></section></main><PublicFooter/></div>;
+}

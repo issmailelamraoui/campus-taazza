@@ -57,13 +57,16 @@
   --accentDeep: #9e6749;
   --focus: #f1ce93;
   --shadow: 0 20px 70px rgba(0, 0, 0, 0.2);
+  --card-shadow: 0 4px 14px rgba(0, 0, 0, 0.12);
 
   /* Shared component aliases derive from the palette in either theme. */
   --bg: var(--canvas);
   --text: var(--ink);
+  --text-muted: var(--muted);
   --border: var(--line);
   --surface-alt: var(--surface2);
   --surface-2: var(--surface2);
+  --surface-raised: var(--surface2);
   --surface-hover: color-mix(in srgb, var(--surface2) 85%, var(--ink));
   --accent-solid: var(--accent);
   --accent-soft: color-mix(in srgb, var(--accent) 10%, transparent);
@@ -97,6 +100,7 @@
   --accentDeep: #75492f;
   --focus: #b88755;
   --shadow: 0 20px 70px rgba(40, 30, 20, 0.06);
+  --card-shadow: 0 4px 14px rgba(40, 30, 20, 0.04);
   --accent-solid-hover: var(--accentDeep);
   --accent-ink: var(--accentDeep);
   --on-accent: #ffffff;
@@ -217,6 +221,27 @@ input::placeholder,
 textarea::placeholder {
   color: var(--muted);
 }
+input[type="file"] {
+  font-size: 12px;
+  overflow: hidden;
+}
+input[type="file"]::file-selector-button {
+  margin-inline-end: 10px;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  color: var(--ink);
+  background: var(--surface2);
+  font: inherit;
+  cursor: pointer;
+}
+input[type="range"] {
+  padding-inline: 0;
+  accent-color: var(--accent-solid);
+}
+progress {
+  accent-color: var(--accent-solid);
+}
 input[type="checkbox"],
 input[type="radio"] {
   width: 17px;
@@ -246,17 +271,36 @@ hr {
   color: var(--muted);
   text-transform: uppercase;
 }
-[data-theme="dark"] .card {
+.card,
+.panel {
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  box-shadow: 10px 8px 0px #00000076;
+  box-shadow: var(--card-shadow);
+  min-width: 0;
 }
-.card {
-  background: var(--surface);
-  border: 1px solid rgba(0, 0, 0, 0.2);
-  border-radius: var(--radius);
-  box-shadow: -8px 6px 5px rgba(0, 0, 0, 0.2);
+.notice {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  margin-block: 0 18px;
+  padding: 13px 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface2);
+  color: var(--ink);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.notice[role="alert"] {
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 32%, var(--line));
+  background: color-mix(in srgb, var(--danger) 6%, var(--surface));
+}
+.notice > .btn,
+.notice > .text-link {
+  flex-shrink: 0;
 }
 .stack {
   display: flex;
@@ -279,7 +323,13 @@ hr {
     background var(--transition),
     border-color var(--transition),
     color var(--transition);
-  white-space: nowrap;
+  max-width: 100%;
+  white-space: normal;
+  text-align: center;
+}
+.btn > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .btn-primary {
   background: var(--accent-solid);
@@ -304,7 +354,7 @@ hr {
 }
 .btn-ghost:hover {
   color: var(--ink);
-  background: #ca764f5e;
+  background: var(--surface2);
 }
 .icon-btn {
   width: 40px;
@@ -486,6 +536,15 @@ hr {
   justify-content: space-between;
   gap: 24px;
   margin-bottom: 30px;
+  flex-wrap: wrap;
+}
+.page-heading > div:first-child {
+  flex: 1 1 260px;
+  min-width: 0;
+}
+.page-heading :is(h1, p),
+.empty-state :is(h3, p) {
+  overflow-wrap: anywhere;
 }
 .page-heading .eyebrow {
   margin-bottom: 8px;
@@ -541,6 +600,12 @@ hr {
   flex-direction: column;
   padding: 28px 17px 16px;
   z-index: 50;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  scrollbar-width: thin;
+}
+.sidebar > * {
+  flex-shrink: 0;
 }
 .sidebar > .brand {
   margin-inline-start: 12px;
@@ -982,7 +1047,7 @@ hr {
   gap: 12px;
   border: 1px solid var(--line);
   border-radius: 9px;
-  background: #12120f1a;
+  background: var(--surface2);
   padding: 17px 15px;
   min-width: 0;
   transition:
@@ -1020,34 +1085,19 @@ hr {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 14px;
 }
-[data-theme="dark"] .document-card {
-  display: flex;
-  flex-direction: column;
-  background: var(--surface);
-  border: 1px solid #b6b6b645;
-  box-shadow: 7px 9px 10px #000000;
-  border-radius: 10px;
-  min-width: 0;
-  overflow: hidden;
-  transition: border-color var(--transition);
-}
 .document-card {
   display: flex;
   flex-direction: column;
   background: var(--surface);
-  border: 1px solid #b6b6b645;
-  box-shadow: -10px 10px 10px rgba(0, 0, 0, 0.15);
+  border: 1px solid var(--line);
+  box-shadow: var(--card-shadow);
   border-radius: 10px;
   min-width: 0;
   overflow: hidden;
   transition: border-color var(--transition);
 }
-[data-theme="dark"] .document-card:hover {
-  border-color: #44382b45;
-  box-shadow: 5px 5px 10px #000000bc;
-}
 .document-card:hover {
-  border-color: #44382b45;
+  border-color: color-mix(in srgb, var(--accent) 50%, var(--line));
 }
 .document-main {
   width: 100%;
@@ -1061,21 +1111,12 @@ hr {
   align-items: stretch;
   min-height: 0;
 }
-[data-theme="dark"] .document-heading {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  min-width: 0;
-  background: linear-gradient(45deg, #2b4755, transparent);
-  border-radius: 7px;
-  padding: 10px 5px;
-}
 .document-heading {
   display: flex;
   align-items: flex-start;
   gap: 10px;
   min-width: 0;
-  background: linear-gradient(45deg, #ffd298, transparent);
+  background: linear-gradient(45deg, var(--accent-soft), transparent);
   padding: 10px 5px;
   border-radius: 7px;
 }
@@ -1370,6 +1411,8 @@ hr {
 }
 .modal-header h2 {
   font-size: 17px;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .modal-body {
   padding: 25px;
@@ -1402,6 +1445,10 @@ hr {
 }
 .toast > svg {
   color: var(--accent-ink);
+}
+.toast > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .toast .icon-btn {
   height: 29px;
@@ -1652,10 +1699,13 @@ html[data-input-modality="keyboard"] .search-input-row input:focus-visible {
   display: block;
   font-size: 13px;
   font-weight: 400;
+  overflow-wrap: anywhere;
 }
 .search-result small {
+  display: block;
   font-size: 11px;
   color: var(--muted);
+  overflow-wrap: anywhere;
 }
 .search-footer {
   padding: 10px 23px;
@@ -1728,11 +1778,13 @@ html[data-input-modality="keyboard"] .search-input-row input:focus-visible {
   font-size: 13px;
   font-weight: 600;
   display: block;
+  overflow-wrap: anywhere;
 }
 .notification-content p {
   font-size: 12px;
   color: var(--muted);
   margin: 5px 0;
+  overflow-wrap: anywhere;
 }
 .notification-content small {
   font-size: 10px;
@@ -1764,11 +1816,13 @@ html[data-input-modality="keyboard"] .search-input-row input:focus-visible {
   align-items: center;
   gap: 12px;
   margin-bottom: 22px;
+  flex-wrap: wrap;
 }
 .search-field {
   position: relative;
   max-width: 460px;
   flex: 1;
+  min-width: min(100%, 200px);
 }
 .search-field > svg {
   position: absolute;
@@ -1779,8 +1833,10 @@ html[data-input-modality="keyboard"] .search-input-row input:focus-visible {
 .search-field input {
   padding-inline-start: 40px;
 }
-.toolbar select {
+.toolbar select,
+.toolbar > .custom-select {
   width: 180px;
+  max-width: 100%;
 }
 .announcements-list {
   display: grid;
@@ -1813,6 +1869,7 @@ html[data-input-modality="keyboard"] .search-input-row input:focus-visible {
   display: grid;
   grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
   gap: 24px;
+  align-items: start;
 }
 .profile-card {
   padding: 27px;
@@ -1825,6 +1882,10 @@ html[data-input-modality="keyboard"] .search-input-row input:focus-visible {
 }
 .profile-intro h2 {
   font-size: 21px;
+}
+.profile-intro > div {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .profile-intro p {
   font-size: 12px;
@@ -1853,6 +1914,10 @@ html[data-input-modality="keyboard"] .search-input-row input:focus-visible {
 }
 .locked-field svg {
   flex-shrink: 0;
+}
+.locked-field bdi {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .profile-lock-message {
   display: flex;
@@ -1974,6 +2039,7 @@ html[data-input-modality="keyboard"] .switch input:focus-visible + span {
 .saved-discussion p {
   font-size: 12px;
   color: var(--muted);
+  overflow-wrap: anywhere;
 }
 .saved-discussion small {
   font-size: 10px;
@@ -2484,6 +2550,10 @@ html[data-input-modality="keyboard"] .switch input:focus-visible + span {
   .page-heading {
     flex-direction: column;
     gap: 17px;
+  }
+  .page-heading > div:first-child {
+    flex-basis: auto;
+    width: 100%;
   }
   .page-actions {
     width: 100%;

@@ -1,0 +1,16 @@
+.supplemental-files{border-top:1px solid var(--border);min-width:0;font-size:12px}.supplemental-files>summary{display:flex;align-items:center;gap:7px;padding:10px;cursor:pointer;font-weight:600;color:var(--text)}.supplemental-files>summary::before{content:'›';font-size:17px;color:var(--text-muted)}.supplemental-files[open]>summary::before{transform:rotate(90deg)}.supplemental-files-body{padding:0 12px 12px;max-height:55dvh;overflow:auto;overscroll-behavior:contain}.supplemental-files-body p{line-height:1.6;margin:8px 0}.supplemental-file-actions{display:flex;gap:7px;flex-wrap:wrap}.supplemental-files .btn{font-size:11px;padding:7px 9px;white-space:normal}.supplemental-files ul{list-style:none;padding:0;margin:10px 0}.supplemental-files li{display:flex;align-items:center;gap:6px;border:1px solid var(--border);border-radius:8px;padding:9px;margin:7px 0;min-width:0}.supplemental-file-name{display:flex;align-items:center;gap:7px;flex:1;min-width:0;background:none;border:0;padding:0;color:var(--text);text-align:start;cursor:pointer}.supplemental-file-name>span{display:flex;flex-direction:column;gap:3px;min-width:0}.supplemental-file-name strong{font-size:12px;overflow-wrap:anywhere}.supplemental-file-name small{font-size:10px;color:var(--text-muted);overflow-wrap:anywhere}.supplemental-file-name>svg{flex:none}.supplemental-files-body>small{display:block;margin-top:8px;line-height:1.5}@media(max-width:700px){.supplemental-files-body{padding:0 9px 10px}.supplemental-files li{padding:8px;flex-wrap:wrap}.supplemental-file-name{flex-basis:calc(100% - 38px)}.supplemental-files .btn{font-size:10px}.supplemental-file-name strong{font-size:11px}}
+
+.supplemental-files>summary{list-style:none;line-height:1.6}
+.supplemental-files>summary::-webkit-details-marker{display:none}
+.supplemental-files>summary>svg{flex:none;color:var(--accent-ink)}
+.supplemental-files>summary::before{flex:none;transition:transform var(--transition)}
+.supplemental-files:dir(rtl)>summary::before{transform:scaleX(-1)}
+.supplemental-files:dir(rtl)[open]>summary::before{transform:rotate(90deg)}
+.supplemental-files>summary:hover{background:var(--surface2)}
+.supplemental-files li{background:var(--surface2)}
+.supplemental-files .btn{max-width:100%;text-align:center}
+.supplemental-file-name{font:inherit;line-height:1.5}
+button.supplemental-file-name:hover strong{text-decoration:underline;text-underline-offset:3px}
+span.supplemental-file-name{color:var(--muted);cursor:default;overflow-wrap:anywhere}
+.supplemental-files-body p,.supplemental-files-body>small{overflow-wrap:anywhere}
+@media(max-width:700px){.supplemental-files .btn{font-size:11px;min-height:36px}.supplemental-file-name strong{font-size:12px}}

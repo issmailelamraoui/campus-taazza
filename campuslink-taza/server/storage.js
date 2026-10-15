@@ -1,11 +1,12 @@
 import './env.js';
 import { randomUUID } from 'node:crypto';
 import { extname } from 'node:path';
+import { EDUCATIONAL_EXTENSIONS } from './files.js';
 import {
   S3Client, PutObjectCommand, GetObjectCommand, HeadObjectCommand, DeleteObjectCommand,
 } from '@aws-sdk/client-s3';
 
-const extensions = new Set(['.pdf', '.png', '.jpg', '.jpeg', '.webp', '.gif', '.doc', '.docx', '.ppt', '.pptx', '.xls', '.xlsx', '.odt', '.txt']);
+const extensions = EDUCATIONAL_EXTENSIONS;
 export function storageObjectKey(key, env = process.env) {
   const prefix = env.CAMPUS_STORAGE_PREFIX || '';
   if (prefix && !/^(?:[a-z0-9][a-z0-9_-]*\/)+$/.test(prefix)) throw new Error('Invalid CAMPUS_STORAGE_PREFIX.');

@@ -44,15 +44,34 @@ async function setup({ count = 8, width = 390, height = 844, theme = 'dark', lan
     }
   }, { prefix, theme, language, legacyAPIs });
   let fixtureLoaded = false, bootstrapLoads = 0;
-  const saved = [];
+  const saved = [], positions = new Map();
   const user = { id: 1, username: 'sara.demo', name: 'Sara Benali', role: 'student', faculty_id: 'flaa', filiere_id: 'french_studies', current_semester: 1, account_status: 'approved', language };
   const apiDocument = file => ({ ...file, faculty_id: file.facultyId, filiere_id: file.filiereId, filename: file.originalName, size: 1468006, part_number: file.part, teacher_name: file.author, created_at: file.date, author: { id: 1, name: file.uploader }, resource_type: file.category, library_visible: true });
   let documents = fixtures.map(apiDocument);
   const payload = () => ({ user, faculty: {id:'flaa',code:'FLAA',name:'Faculté des Langues, des Lettres et des Arts'}, resources:documents, messages:[{id:101,faculty_id:'flaa',channel:'general',content:'Échanges autour des ressources du campus.',created_at:'2026-10-09T09:00:00Z',author:{id:2,name:'Yassine',username:'yassine'}},{id:102,faculty_id:'flaa',filiere_id:'french_studies',channel:'filiere',semester:1,content:'Un espace pour préparer les cours ensemble.',created_at:'2026-10-09T09:00:00Z',author:{id:2,name:'Yassine',username:'yassine'}}], announcements:[{id:201,faculty_id:'flaa',title:'Actualités de votre faculté',content:'Retrouvez les dates et informations utiles du campus.',created_at:'2026-10-09T09:00:00Z',author:{name:'Administration'}},{id:202,faculty_id:'flaa',title:'Les ressources de votre filière',content:'Consultez les cours et les documents partagés.',created_at:'2026-10-09T09:00:00Z',author:{name:'Administration'}}], notifications:[], events:[], saved, history:[], channels:[], members:[] });
   await context.route('**/api/**', async route => {
-    const path = new URL(route.request().url()).pathname;
+    const request = route.request(), path = new URL(request.url()).pathname;
     if (path === '/api/bootstrap') { fixtureLoaded = true; bootstrapLoads++; return route.fulfill({json:payload()}); }
     if (path === '/api/session') return route.fulfill({json:{user}});
+    if (request.method() === 'GET' && (path === '/api/knowledge' || path === '/api/study-tools')) return route.fulfill({json:{items:[]}});
+    if (request.method() === 'GET' && path === '/api/reading') return route.fulfill({json:{positions:[...positions].map(([resourceId, position])=>({resourceId,...position}))}});
+    const reading = /^\/api\/reading\/([^/]+)(\/position)?$/.exec(path);
+    if (reading) {
+      const resource = documents.find(file => String(file.id) === reading[1]);
+      assert.ok(resource, 'Reading requests must reference an injected document: ' + reading[1]);
+      if (!reading[2] && request.method() === 'GET') return route.fulfill({json:{document:{...resource,version:1,currentVersion:1,url:'/api/files/'+resource.id},position:positions.get(resource.id)||null,previousPositions:[],recovery:[]}});
+      if (reading[2] && request.method() === 'PUT') {
+        const body = request.postDataJSON(), prior = positions.get(resource.id);
+        assert.equal(body.version, 1);
+        assert.ok(Number.isInteger(body.page) && body.page >= 1);
+        assert.ok(Number.isFinite(body.zoom) && body.zoom > 0);
+        assert.ok(Number.isFinite(body.scrollRatio) && body.scrollRatio >= 0 && body.scrollRatio <= 1);
+        if (body.expectedRevision !== (prior?.revision || 0)) return route.fulfill({status:409,json:{error:'Fixture reading position changed.',position:prior}});
+        const position = {...body,revision:(prior?.revision||0)+1};
+        positions.set(resource.id, position);
+        return route.fulfill({json:{position}});
+      }
+    }
     if (path === '/api/saved') {
       const body = route.request().postDataJSON(), at = saved.findIndex(item => item.type === body.type && item.id === body.id);
       if(at < 0) saved.push({type:body.type,id:body.id}); else saved.splice(at,1);
@@ -191,7 +210,7 @@ try {
     await front.locator('.document-main').tap();
     await expect(page.locator('.preview-modal')).toBeVisible();
     await expect(page.locator('.preview-modal')).toContainText(fixtures[0].title);
-    await expect(page.locator('.preview-meta')).toContainText(fixtures[0].module);
+    await expect(page.locator('.reader-document-meta')).toContainText(fixtures[0].module);
     await page.keyboard.press('Escape');
     assert.deepEqual(saved.map(item=>item.id), [fixtures[0].id]);
     await screenshot(page, 'mobile-dark-front'); await context.close();

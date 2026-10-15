@@ -6,7 +6,8 @@
   "outputDirectory": "dist",
   "functions": {
     "api/backend.js": {
-      "includeFiles": "server/migrations/**"
+      "includeFiles": "{server/**,node_modules/pdfjs-dist/**,node_modules/@napi-rs/canvas*/**,node_modules/*tree-sitter*/**}",
+      "maxDuration": 60
     }
   },
   "rewrites": [

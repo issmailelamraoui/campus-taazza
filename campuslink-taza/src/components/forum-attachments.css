@@ -1,0 +1,31 @@
+.forum-attachments{border-top:1px solid var(--border);border-bottom:1px solid var(--border);margin:18px 0;padding:15px 0;min-width:0}
+.forum-attachments-heading{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.forum-attachments-heading h3{display:flex;align-items:center;gap:7px;margin:0;font-size:14px}
+.forum-attachments .btn{font-size:11px;padding:7px 9px;white-space:normal}
+.forum-attachments>p,.forum-attachment-form>p{font-size:12px;line-height:1.6}
+.forum-attachment-list,.forum-attachment-queue{list-style:none;padding:0;margin:12px 0}
+.forum-attachment-list>li{border:1px solid var(--border);border-radius:9px;padding:10px;margin:8px 0;min-width:0}
+.forum-attachment-row{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+.forum-attachment-name{flex:1;min-width:120px;overflow-wrap:anywhere;display:flex;flex-direction:column;gap:4px}
+.forum-attachment-name strong{font-size:12px}.forum-attachment-name small{font-size:10px;color:var(--text-muted)}
+.forum-attachment-image{display:block;max-width:100%;max-height:500px;object-fit:contain;margin:12px auto 0;border-radius:7px}
+.forum-attachment-form{margin-top:15px}.forum-attachment-form input[type=file]{max-width:100%;min-width:0;font-size:12px}
+.forum-attachment-queue li{display:flex;align-items:center;gap:7px;font-size:12px;line-height:1.5;padding:6px 0}.forum-attachment-queue li span{flex:1;min-width:0;overflow-wrap:anywhere}
+@media(max-width:600px){.forum-attachment-name{flex-basis:100%}.forum-attachments-heading .btn{font-size:10px}.forum-attachment-image{max-height:350px}}
+
+.forum-attachments-heading h3{min-width:0;line-height:1.5}
+.forum-attachments-heading h3>svg{flex:none;color:var(--accent-ink)}
+.forum-attachments .btn{max-width:100%;text-align:center}
+.forum-attachment-list>li{background:var(--surface2)}
+.forum-attachment-name{min-width:0;flex-basis:180px;line-height:1.5}
+.forum-attachment-image{background:var(--canvas);border:1px solid var(--border)}
+.forum-attachment-form{display:grid;gap:12px}
+.forum-attachment-form>.btn{justify-self:start}
+.forum-attachment-form input[type=file]{width:100%;padding:10px;border:1px dashed var(--border);border-radius:8px;background:var(--surface2);color:var(--text)}
+.forum-attachment-form input[type=file]::file-selector-button{border:1px solid var(--border);border-radius:6px;padding:7px 10px;margin-inline-end:10px;background:var(--surface);color:var(--text);font:inherit;cursor:pointer}
+.forum-attachment-form input[type=file]:disabled::file-selector-button{cursor:default}
+.forum-attachment-queue{margin:0}
+.forum-attachment-queue li{border-bottom:1px solid var(--border);padding:8px 0}
+.forum-attachment-queue .icon-btn{flex:none}
+.forum-attachments>p,.forum-attachment-form>p{overflow-wrap:anywhere}
+@media(max-width:600px){.forum-attachments .btn{font-size:11px;min-height:36px}.forum-attachment-name{flex-basis:100%}.forum-attachment-form input[type=file]{padding:8px}.forum-attachment-form>.btn{width:100%}.forum-attachment-queue .icon-btn{width:36px;height:36px}}

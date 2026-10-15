@@ -1,0 +1,23 @@
+.document-relations{border-top:1px solid var(--border);font-size:12px;min-width:0}.document-relations>summary{display:flex;align-items:center;gap:7px;cursor:pointer;padding:10px;color:var(--text);font-weight:600}.document-relations>summary::before{content:'›';font-size:17px;color:var(--text-muted)}.document-relations[open]>summary::before{transform:rotate(90deg)}.document-relations-body{padding:0 12px 14px;max-height:70dvh;overflow-y:auto;overscroll-behavior:contain;min-width:0}.document-relations-body p{line-height:1.6;margin:8px 0;overflow-wrap:anywhere}.document-relations-body h4{font-size:12px;margin:12px 0 8px}.document-relations-tools{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:8px 0}.document-relations .btn{font-size:11px;padding:7px 9px;max-width:100%;white-space:normal}.document-relation-card{padding:11px;border:1px solid var(--border);border-radius:9px;background:var(--surface);margin:8px 0;min-width:0}.document-relation-source{display:flex;align-items:center;gap:7px;width:100%;padding:0;text-align:start;border:0;background:none;color:var(--text);cursor:pointer}.document-relation-source strong{font-size:12px;overflow-wrap:anywhere;min-width:0;flex:1}.document-relation-source>span{font-size:10px;color:var(--text-muted);flex:none}.document-relation-evidence{display:flex;gap:5px;align-items:center;flex-wrap:wrap}.document-relation-evidence bdi{padding:2px 6px;background:var(--accent-soft);border-radius:5px;color:var(--accent);font-size:11px}.document-relation-form{margin:12px 0;padding:12px;border:1px solid var(--border);border-radius:10px}.document-relation-form .field{margin-bottom:10px}.document-relations .field-label{font-size:11px}.document-relations input,.document-relations textarea{font-size:12px;min-width:0}.document-relation-pages{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.document-relation-status{display:inline-block;border:1px solid var(--border);border-radius:99px;padding:3px 7px;font-size:10px;color:var(--text-muted)}.relation-verified .document-relation-status{background:var(--accent-soft);color:var(--accent);border-color:var(--accent)}.document-relation-inline-source{padding:0;border:0;background:none;text-align:start;color:var(--accent);cursor:pointer;font:inherit;overflow-wrap:anywhere}.document-relation-reason{white-space:pre-wrap}.document-relation-actions{display:flex;gap:6px;flex-wrap:wrap}.document-relation-card form>.btn{margin-inline-end:6px}.document-relations small{display:block;line-height:1.5}.document-relations .pdf-index-control{max-width:100%}.document-relations .field-error{margin-top:10px}
+@media(max-width:700px){.document-relations-body{padding:0 9px 10px;max-height:68dvh}.document-relation-form,.document-relation-card{padding:9px}.document-relations-tools{align-items:stretch}.document-relations .btn{font-size:10px}.document-relation-pages{gap:7px}.document-relation-source strong{font-size:11px}.document-relation-evidence bdi{font-size:10px}}
+
+.document-relations>summary{list-style:none;line-height:1.6}
+.document-relations>summary::-webkit-details-marker{display:none}
+.document-relations>summary>svg{flex:none;color:var(--accent-ink)}
+.document-relations>summary::before{flex:none;transition:transform var(--transition)}
+.document-relations:dir(rtl)>summary::before{transform:scaleX(-1)}
+.document-relations:dir(rtl)[open]>summary::before{transform:rotate(90deg)}
+.document-relations>summary:hover{background:var(--surface2)}
+.document-relation-card,.document-relation-form{background:var(--surface2)}
+.document-relation-source{flex-wrap:wrap;line-height:1.5;min-height:28px}
+.document-relation-source>svg{flex:none;color:var(--accent-ink)}
+.document-relation-source>span{overflow-wrap:anywhere;max-width:100%}
+.document-relation-source:hover strong,.document-relation-inline-source:hover{text-decoration:underline;text-underline-offset:3px}
+.document-relation-form h4{margin-top:0}
+.document-relation-form>.pdf-index-control{margin-bottom:12px}
+.document-relation-card form{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}
+.document-relation-card form>.field{width:100%}
+.document-relation-status{line-height:1.5}
+.relation-rejected .document-relation-status{color:var(--danger);border-color:color-mix(in srgb,var(--danger) 40%,var(--border));background:color-mix(in srgb,var(--danger) 8%,var(--surface))}
+.document-relations textarea{resize:vertical}
+@media(max-width:700px){.document-relations .btn{font-size:11px;min-height:36px}.document-relation-source strong{font-size:12px}.document-relations-tools{max-width:100%}}

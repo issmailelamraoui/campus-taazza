@@ -15,14 +15,17 @@ import {
   UploadCloud,
 } from "lucide-react";
 import { useApp } from "../context";
-import { getFilieres, getFiliere } from "../data/studies";
+import { api } from "../api.js";
+import { getFiliere } from "../data/studies";
+import { FACULTIES } from "../data/mock";
 import {
   SUPPORTED_FILE_ACCEPT,
-  isSupportedFile,
   fileTypeLabel,
   sizeLabel,
   filesFromDrop,
   fileKey,
+  uploadFileIssue,
+  MAX_UPLOAD_BATCH_FILES,
 } from "../lib/files";
 import {
   moduleSuggestions,
@@ -30,6 +33,10 @@ import {
   normalizePart,
   partLabel,
   findResourceConflicts,
+  normalizeAcademicYear,
+  academicYearOptions,
+  resourceAcademicYears,
+  uploadScopesForUser,
 } from "../lib/resources";
 import { Button, Field, Modal } from "./ui";
 import { Select, Autocomplete } from "./Select";
@@ -80,6 +87,9 @@ export default function UploadModal({
   initialEntries = [],
   existingAttachments = [],
   onConfirm,
+  supplementFor = null,
+  supplementLimit = 20,
+  onComplete,
 }) {
   const {
     t,
@@ -87,33 +97,47 @@ export default function UploadModal({
     language,
     user,
     selection: accountSelection,
-    faculty,
-    isAdmin,
+    faculty: accountFaculty,
     resources,
     allResources,
     uploadResource,
     closeDialog,
   } = useApp();
-  const [program, setProgram] = useState(accountSelection?.filiereId || "");
-  const selection = { ...accountSelection, filiereId: isAdmin ? program : accountSelection?.filiereId };
+  const isSupplement = !!supplementFor;
+  const maximumFiles = isSupplement ? Math.max(1,Math.min(20,Number(supplementLimit)||20)) : MAX_UPLOAD_BATCH_FILES;
+  const supplementCategory = ['td','tp'].includes(supplementFor?.resource_type) ? supplementFor.resource_type : ['correction','corrections'].includes(supplementFor?.resource_type) ? 'corrections' : supplementFor?.category;
+  const supplementPart = normalizePart(supplementFor?.part ?? supplementFor?.part_number);
+  const uploadScopes = uploadScopesForUser(user);
+  const [program, setProgram] = useState(() => supplementFor?.filiereId || supplementFor?.filiere_id || uploadScopes.find(scope => scope.filiereId === accountSelection?.filiereId)?.filiereId || uploadScopes[0]?.filiereId || "");
+  const authorizedScope = uploadScopes.find(scope => scope.filiereId === program);
+  const allowedSemesters = authorizedScope?.semesters || [];
+  const selection = { ...accountSelection, facultyId: authorizedScope?.facultyId, filiereId: authorizedScope?.filiereId };
+  const faculty = FACULTIES.find(item => item.id === selection.facultyId) || accountFaculty;
+  const canChooseProgram = !isSupplement && uploadScopes.length > 1;
   const filiere = getFiliere(selection.filiereId);
   const isChat = mode === "chat";
-  const initialSemester = semesterNumber(selection?.semester || 1);
+  const accountSemester = semesterNumber(supplementFor?.semester ?? accountSelection?.semester);
+  const initialSemester = allowedSemesters.includes(accountSemester) ? accountSemester : allowedSemesters[0] || accountSemester || 1;
+  const currentAcademicYear = normalizeAcademicYear(user?.currentAcademicYear ?? user?.current_academic_year);
+  const initialAcademicYear = isSupplement ? normalizeAcademicYear(supplementFor.academicYear ?? supplementFor.academic_year) : currentAcademicYear;
+  const yearOptions = academicYearOptions(currentAcademicYear, (allResources || []).flatMap(resourceAcademicYears));
   const modulesFor = (semester, query = "") =>
     moduleSuggestions(resources, { ...selection, semester }, query);
   const initialFiles = () =>
     initialEntries
-      .filter((item) => isSupportedFile(item.file))
+      .filter((item) => !uploadFileIssue(item.file, item.path))
+      .slice(0, maximumFiles)
       .map(({ file, path }) => ({
         file,
         path: path || file.name,
         key: fileKey(file, path),
         meta: {
           semester: initialSemester,
-          module: "",
-          category: "courses",
+          module: supplementFor?.module || "",
+          category: supplementCategory || "courses",
           author: "",
-          part: "",
+          academicYear: initialAcademicYear,
+          part: isSupplement ? supplementPart : "",
           title: file.name.replace(/\.[^.]+$/, ""),
         },
       }));
@@ -121,10 +145,11 @@ export default function UploadModal({
   const [files, setFiles] = useState(initialFiles);
   const [batch, setBatch] = useState({
     semester: initialSemester,
-    module: "",
-    category: "courses",
+    module: supplementFor?.module || "",
+    category: supplementCategory || "courses",
     author: "",
-    part: "",
+    academicYear: initialAcademicYear,
+    part: isSupplement ? supplementPart : "",
   });
   const [editing, setEditing] = useState(
     isChat && initialEntries.length
@@ -137,6 +162,7 @@ export default function UploadModal({
   const [uploadedCount, setUploadedCount] = useState(0);
   const [currentUpload, setCurrentUpload] = useState(null);
   const uploaded = useRef(new Set());
+  const supplementRequest = useRef(null);
   const [error, setError] = useState("");
   const [batchApplied, setBatchApplied] = useState(false);
   const fileInput = useRef(null);
@@ -151,6 +177,7 @@ export default function UploadModal({
     closed.current = false;
     return () => {
       closed.current = true;
+      supplementRequest.current?.abort();
     };
   }, []);
   useEffect(() => {
@@ -177,7 +204,9 @@ export default function UploadModal({
             module: batch.module,
             category: batch.category,
             author: batch.author,
-            title: files.length > 1 ? moduleDisplayName(batch.module) : item.meta.title,
+            academicYear: batch.academicYear,
+            ...(isSupplement ? {part: supplementPart} : {}),
+            title: !isSupplement && files.length > 1 ? moduleDisplayName(batch.module) : item.meta.title,
           },
         },
   );
@@ -194,7 +223,7 @@ export default function UploadModal({
 
   const addFiles = (selected) => {
     if (closed.current) return;
-    const valid = selected.filter((item) => isSupportedFile(item.file));
+    const valid = selected.filter((item) => !uploadFileIssue(item.file, item.path)).slice(0, Math.max(0, maximumFiles - files.length));
     const skipped = selected.length - valid.length;
     setFiles((current) => {
       const existing = new Set(current.map((item) => item.key));
@@ -205,7 +234,7 @@ export default function UploadModal({
           key: fileKey(file, path),
           meta: {
             ...batch,
-            part: "",
+            part: isSupplement ? supplementPart : "",
             title: file.name.replace(/\.[^.]+$/, ""),
           },
         }))
@@ -221,9 +250,9 @@ export default function UploadModal({
     setError(
       skipped
         ? tr(
-            `${skipped} fichier(s) ignoré(s) : format non pris en charge.`,
-            `${skipped} file(s) skipped: unsupported format.`,
-            `تم تجاهل ${skipped} ملف: صيغة غير مدعومة.`,
+            `${skipped} fichier(s) ignoré(s) : format, chemin ou taille invalide (20 Mo par fichier, 1 000 fichiers maximum).`,
+            `${skipped} file(s) skipped: unsupported format, invalid path or size limit (20 MB per file, up to 1,000 files).`,
+            `تم تجاهل ${skipped} ملف: صيغة أو مسار غير صالح أو تجاوز الحد (20 ميغابايت للملف، 1000 ملف كحد أقصى).`,
           )
         : "",
     );
@@ -270,6 +299,7 @@ export default function UploadModal({
     setError("");
   };
   const changeBatch = (field, value) => {
+    if (isSupplement) return;
     setBatch((current) => ({ ...current, [field]: value }));
     setBatchApplied(false);
     setError("");
@@ -284,18 +314,28 @@ export default function UploadModal({
     filiereId: selection?.filiereId,
     originalName: item.file.name,
   }));
-  const conflicts = findResourceConflicts(
+  const conflicts = (isSupplement ? [] : findResourceConflicts(
     candidates,
     isChat ? existingAttachments : allResources,
-  ).filter((item) => !uploaded.current.has(files[item.index]?.key));
+  )).filter((item) => !uploaded.current.has(files[item.index]?.key));
   const conflictByIndex = new Map(conflicts.map((item) => [item.index, item]));
   const validate = () => {
+    if (!authorizedScope || !allowedSemesters.includes(Number(batch.semester))) {
+      setError(tr(
+        "Ce classement dépasse vos autorisations d’envoi actuelles. Choisissez une filière et un semestre autorisés.",
+        "This classification exceeds your current upload permissions. Choose an authorized program and semester.",
+        "هذا التصنيف يتجاوز صلاحيات الرفع الحالية. اختر مسلكاً وفصلاً مسموحاً بهما.",
+      ));
+      return false;
+    }
     const invalid = classifiedFiles.find(
       (item) =>
         !uploaded.current.has(item.key) && (
         !item.meta.title.trim() ||
         !item.meta.module.trim() ||
-        ![1, 2, 3, 4, 5, 6].includes(Number(item.meta.semester)) ||
+        !allowedSemesters.includes(Number(item.meta.semester)) ||
+        (item.meta.academicYear && !normalizeAcademicYear(item.meta.academicYear)) ||
+        uploadFileIssue(item.file, item.path) ||
         !categoryKeys.includes(item.meta.category) ||
         !normalizePart(item.meta.part)),
     );
@@ -319,9 +359,9 @@ export default function UploadModal({
       const first = conflicts[0];
       setError(
         tr(
-          `Conflit : ${first.resource.originalName} utilise le même ${partLabel(first.resource.part)} que ${first.conflict.originalName || first.conflict.title} dans ce module, semestre et catégorie.`,
-          `Conflict: ${first.resource.originalName} shares ${partLabel(first.resource.part, "en")} with ${first.conflict.originalName || first.conflict.title} in this module, semester and category.`,
-          `تعارض: ${first.resource.originalName} و${first.conflict.originalName || first.conflict.title} يستخدمان نفس ${partLabel(first.resource.part, "ar")} داخل نفس الوحدة والفصل والفئة.`,
+          `Conflit : ${first.resource.originalName} utilise le même ${partLabel(first.resource.part)} que ${first.conflict.originalName || first.conflict.title} dans ce module, semestre, catégorie et année universitaire.`,
+          `Conflict: ${first.resource.originalName} shares ${partLabel(first.resource.part, "en")} with ${first.conflict.originalName || first.conflict.title} in this module, semester, category and academic year.`,
+          `تعارض: ${first.resource.originalName} و${first.conflict.originalName || first.conflict.title} يستخدمان نفس ${partLabel(first.resource.part, "ar")} داخل نفس الوحدة والفصل والفئة والسنة الجامعية.`,
         ),
       );
       setEditing(files[first.index].key);
@@ -352,6 +392,7 @@ export default function UploadModal({
             category: item.meta.category,
             part: normalizePart(item.meta.part),
             author: item.meta.author.trim(),
+            academicYear: normalizeAcademicYear(item.meta.academicYear) || null,
             facultyId: selection.facultyId,
             filiereId: selection.filiereId,
             facultyName: faculty?.name || selection.facultyId,
@@ -372,9 +413,14 @@ export default function UploadModal({
       // completed entries so retrying a partially failed folder sends only
       // the files that still need to be uploaded.
       for (const item of classifiedFiles) {
+        if (closed.current) return;
         if (uploaded.current.has(item.key)) continue;
         setCurrentUpload(item);
-        await uploadResource({
+        if (isSupplement) {
+          const form = new FormData(); form.set('file',item.file,item.file.name); form.set('relative_path',item.path); form.set('title',item.meta.title.trim()); form.set('main_version',String(supplementFor.version || 1));
+          const controller=new AbortController();supplementRequest.current=controller;
+          await api('/resource-supplements/'+supplementFor.id+'/upload',{method:'POST',body:form,timeout:120000,signal:controller.signal});
+        } else await uploadResource({
           file: item.file,
           path: item.path,
           meta: {
@@ -384,10 +430,12 @@ export default function UploadModal({
             category: item.meta.category,
             part: normalizePart(item.meta.part),
             author: item.meta.author.trim(),
+            academicYear: normalizeAcademicYear(item.meta.academicYear) || null,
             facultyId: selection.facultyId,
             filiereId: selection.filiereId,
           },
         });
+        if (closed.current) return;
         uploaded.current.add(item.key);
         setFiles((current) => current.map((file) =>
           file.key === item.key ? { ...file, meta: { ...item.meta } } : file,
@@ -395,6 +443,7 @@ export default function UploadModal({
         setUploadedCount(uploaded.current.size);
       }
       setStep(4);
+      if (isSupplement) { window.dispatchEvent(new CustomEvent('campus-supplements-changed',{detail:{mainResourceId:String(supplementFor.id)}})); onComplete?.(); }
     } catch (error) {
       setError(error.message || tr("L’envoi a échoué. Réessayez.", "Upload failed. Try again.", "تعذر الرفع. حاول مجدداً."));
       setStep(2);
@@ -413,11 +462,11 @@ export default function UploadModal({
         options={["1", "2", "3", "4", "5", "Complet"]}
         showOnEmpty
         required
-        disabled={disabled}
+        disabled={disabled || isSupplement}
         hint={tr(
-          "Un nombre entier positif sans limite, ou Complet. Un seul fichier par emplacement.",
-          "Any positive integer, or Complete. One file per slot.",
-          "أي عدد صحيح موجب أو Complet (كامل). ملف واحد لكل جزء.",
+          isSupplement ? "Tous les compléments conservent la partie du document principal." : "Un nombre entier positif sans limite, ou Complet. Un seul fichier par emplacement.",
+          isSupplement ? "All supplements retain the main document’s part." : "Any positive integer, or Complete. One file per slot.",
+          isSupplement ? "تحتفظ جميع الملفات المكمّلة بجزء المستند الرئيسي." : "أي عدد صحيح موجب أو Complet (كامل). ملف واحد لكل جزء.",
         )}
       />
     ) : (
@@ -425,14 +474,25 @@ export default function UploadModal({
         <Field label={`${t("semester")} *`}>
           <Select
             className="input"
+            disabled={disabled || isSupplement}
             value={meta.semester}
             onChange={(event) => change("semester", Number(event.target.value))}
           >
-            {[1, 2, 3, 4, 5, 6].map((value) => (
+            {allowedSemesters.map((value) => (
               <option value={value} key={value}>
                 S{value}
               </option>
             ))}
+          </Select>
+        </Field>
+        <Field label={tr("Année universitaire", "Academic year", "السنة الجامعية")} hint={tr(
+          "Année d’utilisation du document, distincte de sa date d’envoi. Laissez inconnue si nécessaire.",
+          "The year the material was used, separate from its upload date. Choose unknown when unsure.",
+          "سنة استخدام الوثيقة وليست تاريخ رفعها. اختر غير معروفة عند عدم التأكد.",
+        )}>
+          <Select className="input" disabled={disabled || isSupplement} value={meta.academicYear} onChange={(event) => change("academicYear", event.target.value)}>
+            <option value="">{tr("Année inconnue", "Unknown year", "سنة غير معروفة")}</option>
+            {yearOptions.map(year => <option key={year} value={year}>{year}{year === currentAcademicYear ? ` · ${tr("année actuelle", "current year", "السنة الحالية")}` : ""}</option>)}
           </Select>
         </Field>
         <SuggestedField
@@ -441,6 +501,7 @@ export default function UploadModal({
           onChange={(value) => change("module", value)}
           options={modulesFor(meta.semester, meta.module)}
           required
+          disabled={disabled || isSupplement}
           hint={tr(
             "Tapez un nom librement ou choisissez une suggestion issue des fichiers existants.",
             "Type any name or choose a suggestion from existing files.",
@@ -450,6 +511,7 @@ export default function UploadModal({
         <Field label={tr("Catégorie *", "Category *", "الفئة *")}>
           <Select
             className="input"
+            disabled={disabled || isSupplement}
             value={meta.category}
             onChange={(event) => change("category", event.target.value)}
           >
@@ -470,6 +532,7 @@ export default function UploadModal({
           <input
             className="input"
             value={meta.author}
+            disabled={disabled || isSupplement}
             onChange={(event) => change("author", event.target.value)}
             placeholder={tr("Facultatif", "Optional", "اختياري")}
             maxLength={100}
@@ -490,6 +553,7 @@ export default function UploadModal({
       </span>
       <span className="upload-classification-labels">
         <span>{t(meta.category)}</span>
+        <span>{meta.academicYear || tr("Année inconnue", "Unknown year", "سنة غير معروفة")}</span>
         <bdi>
           {normalizePart(meta.part)
             ? partLabel(meta.part, language)
@@ -707,7 +771,7 @@ export default function UploadModal({
               "Classify message files",
               "تصنيف ملفات الرسالة",
             )
-          : tr("Partager des documents", "Share documents", "مشاركة الوثائق")
+          : isSupplement ? tr("Ajouter des compléments", "Add supplemental files", "إضافة ملفات مكمّلة") : tr("Partager des documents", "Share documents", "مشاركة الوثائق")
       }
       onClose={close}
       wide
@@ -715,6 +779,7 @@ export default function UploadModal({
       footer={footer}
     >
       <div className="upload-workflow" ref={workflow}>
+        {isSupplement && <p className="notice">{tr('Compléments de','Supplements for','ملفات مكمّلة لـ')} <strong dir="auto">{supplementFor.title}</strong> · {partLabel(supplementPart,language)}. {tr('Le classement et la partie du document principal sont conservés. Ces fichiers apparaissent dans ses compléments.','The main document’s classification and part are preserved. These files appear in its supplements.','يُحفظ تصنيف المستند الرئيسي وجزؤه. تظهر هذه الملفات ضمن مكمّلاته.')}</p>}
         {step < 3 && (
           <ol className="upload-steps">
             {steps.map((label, index) => (
@@ -807,9 +872,9 @@ export default function UploadModal({
               </strong>
               <span className="muted">
                 {tr(
-                  "PDF · Images · Word · PowerPoint · Excel · TXT · Sous-dossiers inclus",
-                  "PDF · Images · Word · PowerPoint · Excel · TXT · Nested folders included",
-                  "PDF · صور · Word · PowerPoint · Excel · TXT · يشمل المجلدات المتداخلة",
+                  "Documents · Images · Code · Tableaux · Archives · Sous-dossiers inclus · 20 Mo par fichier",
+                  "Documents · Images · Code · Spreadsheets · Archives · Nested folders included · 20 MB per file",
+                  "وثائق · صور · شيفرة · جداول · أرشيف · مجلدات متداخلة · 20 ميغابايت للملف",
                 )}
               </span>
               <div>
@@ -890,9 +955,9 @@ export default function UploadModal({
               </Field>
               <Field
                 label={tr(
-                  isAdmin ? "Filière de destination" : "Filière attribuée",
-                  isAdmin ? "Destination program" : "Assigned program",
-                  isAdmin ? "المسلك المستهدف" : "المسلك المخصص",
+                  canChooseProgram ? "Filière de destination" : "Filière attribuée",
+                  canChooseProgram ? "Destination program" : "Assigned program",
+                  canChooseProgram ? "المسلك المستهدف" : "المسلك المخصص",
                 )}
                 hint={
                   isChat
@@ -908,9 +973,21 @@ export default function UploadModal({
                       )
                 }
               >
-                {isAdmin ? <Select className="input" value={program} disabled={uploading || uploaded.current.size > 0} onChange={(event) => { setProgram(event.target.value); setError(""); }} aria-label={tr("Filière de destination", "Destination program", "المسلك المستهدف")}><option value="">{tr("Choisir une filière", "Choose a program", "اختر مسلكاً")}</option>{getFilieres(accountSelection?.facultyId || user?.facultyId).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</Select> : <input className="input" value={filiere?.name || ""} disabled />}
+                {canChooseProgram ? <Select className="input" value={program} disabled={uploading || uploaded.current.size > 0} onChange={(event) => {
+                  const scope = uploadScopes.find(item => item.filiereId === event.target.value);
+                  setProgram(event.target.value);
+                  setBatch(previous => ({ ...previous, semester: scope?.semesters.includes(previous.semester) ? previous.semester : scope?.semesters[0] || 1, module: "" }));
+                  setError("");
+                }} aria-label={tr("Filière de destination", "Destination program", "المسلك المستهدف")}>{uploadScopes.map(scope => <option key={scope.filiereId} value={scope.filiereId}>{getFiliere(scope.filiereId)?.name || scope.filiereId}</option>)}</Select> : <input className="input" value={filiere?.name || ""} disabled />}
               </Field>
             </div>
+            <p className="muted upload-permission-note" role="status">
+              {allowedSemesters.length ? tr(
+                `Envoi autorisé en ${allowedSemesters.map(value => `S${value}`).join(" / ")} dans cette filière.`,
+                `Uploads authorized to ${allowedSemesters.map(value => `S${value}`).join(" / ")} in this program.`,
+                `الرفع مسموح إلى ${allowedSemesters.map(value => `S${value}`).join(" / ")} في هذا المسلك.`,
+              ) : tr("Aucun classement autorisé pour ce compte.", "No upload scope is available for this account.", "لا يتوفر تصنيف مسموح لهذا الحساب.")}
+            </p>
             <section className="upload-batch">
               <div className="upload-section-title">
                 <div>
@@ -923,9 +1000,9 @@ export default function UploadModal({
                   </h3>
                   <p className="muted">
                     {tr(
-                      "Ces informations sont communes à tous les fichiers. Renseignez ensuite le Part/Chapitre de chacun.",
-                      "These details apply to every file. Then enter each file’s Part/Chapitre.",
-                      "تُطبّق هذه المعلومات على جميع الملفات. أدخل بعدها الجزء/الفصل لكل ملف.",
+                      isSupplement ? "Ces fichiers reprennent le classement et la partie du document principal." : "Ces informations sont communes à tous les fichiers. Renseignez ensuite le Part/Chapitre de chacun.",
+                      isSupplement ? "These files follow the main document’s classification and part." : "These details apply to every file. Then enter each file’s Part/Chapitre.",
+                      isSupplement ? "تتبع هذه الملفات تصنيف المستند الرئيسي وجزءه." : "تُطبّق هذه المعلومات على جميع الملفات. أدخل بعدها الجزء/الفصل لكل ملف.",
                     )}
                   </p>
                 </div>
@@ -943,7 +1020,7 @@ export default function UploadModal({
                 </Field>
               )}
               {metadataFields(batch, changeBatch)}
-              {files.length > 1 && (
+              {files.length > 1 && !isSupplement && (
                 <p className="muted">
                   {tr(
                     "Le titre de chaque document reprend automatiquement le nom du module en MAJUSCULES.",
@@ -968,9 +1045,9 @@ export default function UploadModal({
               {batchApplied && (
                 <p className="muted" role="status">
                   {tr(
-                    "Classement appliqué. Choisissez le Part/Chapitre de chaque fichier.",
-                    "Classification applied. Choose each file’s Part/Chapitre.",
-                    "تم تطبيق التصنيف. اختر الجزء/الفصل لكل ملف.",
+                    isSupplement ? "Classement du document principal conservé." : "Classement appliqué. Choisissez le Part/Chapitre de chaque fichier.",
+                    isSupplement ? "Main document classification retained." : "Classification applied. Choose each file’s Part/Chapitre.",
+                    isSupplement ? "حُفظ تصنيف المستند الرئيسي." : "تم تطبيق التصنيف. اختر الجزء/الفصل لكل ملف.",
                   )}
                 </p>
               )}
@@ -986,9 +1063,9 @@ export default function UploadModal({
                 </h3>
                 <p className="muted">
                   {tr(
-                    "Ouvrez chaque ligne pour renseigner uniquement son Part/Chapitre obligatoire.",
-                    "Expand each row to enter its required Part/Chapitre.",
-                    "افتح كل صف لإدخال الجزء/الفصل الإلزامي فقط.",
+                    isSupplement ? "Les noms et chemins des compléments sont conservés. Leur partie reprend celle du document principal." : "Ouvrez chaque ligne pour renseigner uniquement son Part/Chapitre obligatoire.",
+                    isSupplement ? "Supplement names and paths are retained. Their part follows the main document." : "Expand each row to enter its required Part/Chapitre.",
+                    isSupplement ? "تُحفظ أسماء الملفات المكمّلة ومساراتها. يتبع جزؤها المستند الرئيسي." : "افتح كل صف لإدخال الجزء/الفصل الإلزامي فقط.",
                   )}
                 </p>
               </div>

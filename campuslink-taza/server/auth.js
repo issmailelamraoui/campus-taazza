@@ -10,6 +10,7 @@ export class AuthError extends Error {
 }
 const invalidCredentials=()=>new AuthError(401,'Nom d’utilisateur ou mot de passe incorrect.','INVALID_CREDENTIALS');
 const unavailable=()=>new AuthError(503,'Le service de connexion est indisponible. Réessayez.','AUTH_UNAVAILABLE');
+const passwordResetUnknown=()=>new AuthError(503,'Le résultat de la réinitialisation n’a pas pu être confirmé. Vérifiez la demande avant de créer un autre mot de passe.','AUTH_PASSWORD_RESET_UNKNOWN');
 const header=(req,name)=>req?.get?.(name)||req?.headers?.[name.toLowerCase()]||'';
 const parseCookie=(value,name)=>String(value||'').split(';').map(c=>c.trim()).find(c=>c.startsWith(`${name}=`))?.slice(name.length+1)||'';
 function parseSetCookies(value) {
@@ -51,13 +52,13 @@ export function createAuthService({db,baseUrl=process.env.NEON_AUTH_BASE_URL,jwk
     }));
   }
   function clearCookie(req,res) {if(res)res.append('Set-Cookie',serializeSetCookie({name:AUTH_COOKIE,value:'',path:'/',httpOnly:true,sameSite:'lax',secure:!!req?.secure||process.env.COOKIE_SECURE==='true',maxAge:0}));}
-  async function call(path,{req,res,body,cookies}={}) {
+  async function call(path,{req,res,body,cookies,uncertainPasswordReset=false}={}) {
     const requestHeaders={'origin':origin(req),'x-neon-auth-proxy':'express','accept':'application/json'};
     const cookie=cookies??cookieHeader(req);if(cookie)requestHeaders.cookie=cookie;
     if(body!==undefined)requestHeaders['content-type']='application/json';
     let response;
     try {response=await fetchImpl(new URL(path,base),{method:body===undefined?'GET':'POST',headers:requestHeaders,body:body===undefined?undefined:JSON.stringify(body),signal:AbortSignal.timeout(timeoutMs),redirect:'error'});}
-    catch {throw unavailable();}
+    catch {throw uncertainPasswordReset?passwordResetUnknown():unavailable();}
     const data=await response.json().catch(()=>null);
     const responseCookies=(response.headers.getSetCookie?.()||[]).flatMap(parseSetCookies);
     applyCookies(req,res,responseCookies);
@@ -152,6 +153,9 @@ export function createAuthService({db,baseUrl=process.env.NEON_AUTH_BASE_URL,jwk
     if(!authenticated)throw new AuthError(401,'Connectez-vous pour accéder à votre communauté.');
     const result=await call('change-password',{req,body:{currentPassword:passwordValue(currentPassword),newPassword:passwordValue(newPassword),revokeOtherSessions:true}});
     if(!result.ok) {if(result.status===400||result.status===401)throw new AuthError(403,'Le mot de passe actuel est incorrect.');errorFor(result);}
+    // Better Auth confirms this mutation with the changed user's identity.
+    // An unchanged valid session alone does not prove the password changed.
+    if(result.data?.user?.id!==authenticated.authUserId||!Object.hasOwn(result.data,'token')||result.data.token!==null&&typeof result.data.token!=='string'||result.data.status===false||result.data.success===false)throw passwordResetUnknown();
     applyCookies(req,res,result.cookies);
     // A provider may rotate the session cookie on password change.
     const cookies=jar(result)||cookieHeader(req);
@@ -166,11 +170,37 @@ export function createAuthService({db,baseUrl=process.env.NEON_AUTH_BASE_URL,jwk
     if([401,403,404].includes(result.status))return {supported:false};
     if(!result.ok)errorFor(result);return {supported:true};
   }
+  // Neon Auth's managed Better Auth Admin API verifies the operator's own
+  // provider-admin session. Application owner authorization is enforced by the
+  // caller; provider roles never grant application privileges. Do not forward
+  // Set-Cookie here or sign in as the student: the operator keeps their session.
+  async function resetUserPassword(req,{authUserId,newPassword}={}) {
+    if(!UUID.test(authUserId))throw new AuthError(400,'Identifiant invalide.');
+    newPassword=passwordValue(newPassword);
+    if(newPassword.length<8||newPassword.length>128)throw new AuthError(400,'Le nouveau mot de passe doit contenir entre 8 et 128 caractères.');
+    if(!cookieHeader(req))throw new AuthError(401,'Reconnectez-vous pour réinitialiser un mot de passe.','AUTH_ADMIN_SESSION_EXPIRED');
+    const result=await call('admin/set-user-password',{req,body:{userId:authUserId,newPassword},uncertainPasswordReset:true});
+    // A failed transport or server error can follow a committed provider write.
+    // Never retry this mutation automatically or report a usable password until
+    // the provider explicitly confirms it.
+    if(result.status>=500||result.ok&&result.data?.status!==true)throw passwordResetUnknown();
+    if(result.status===401)throw new AuthError(401,'Votre session a expiré. Reconnectez-vous pour réinitialiser un mot de passe.','AUTH_ADMIN_SESSION_EXPIRED');
+    if(result.status===403||result.status===404)throw new AuthError(503,'La réinitialisation nécessite un compte administrateur Neon Auth autorisé.','AUTH_ADMIN_CONFIGURATION');
+    if(!result.ok)errorFor(result);
+    let providerSessionsRevoked=false;
+    try {
+      const revoked=await call('admin/revoke-user-sessions',{req,body:{userId:authUserId}});
+      providerSessionsRevoked=revoked.ok&&revoked.data?.success===true;
+    } catch { /* A confirmed password change must retain its confirmed outcome. */ }
+    // The caller must also invalidate all application sessions with its durable
+    // local cutoff, independently of optional provider session cleanup.
+    return {confirmed:true,providerSessionsRevoked};
+  }
   async function removeUser(req,authUserId) {
     if(!UUID.test(authUserId))throw new AuthError(400,'Identifiant invalide.');
     const result=await call('admin/remove-user',{req,body:{userId:authUserId}});
     if(!result.ok)errorFor(result);return {ok:true};
   }
-  return {authenticate,signIn,signOut,createUser,changePassword,revokeUserSessions,removeUser,proveIdentity,clearCookie,
+  return {authenticate,signIn,signOut,createUser,changePassword,resetUserPassword,revokeUserSessions,removeUser,proveIdentity,clearCookie,
     session:authenticate,login:signIn,logout:signOut};
 }

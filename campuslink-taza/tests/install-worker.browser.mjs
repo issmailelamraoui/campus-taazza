@@ -49,16 +49,20 @@ try {
     return requests.flat();
   });
   assert.ok(cached.includes('/offline.html'));
-  assert.ok(cached.length > 0 && cached.every(path => path === '/offline.html' || path === '/favicon.svg' || path.startsWith('/icons/')));
-  console.log('PASS API revisions remain live and caches contain only public install assets');
+  assert.ok(cached.length > 0 && cached.every(path => path === '/offline.html' || path === '/index.html' || path === '/favicon.svg' || path.startsWith('/icons/') || /^\/assets\/[\w.-]+\.(?:js|mjs|css)$/.test(path)));
+  console.log('PASS API revisions remain live and caches contain only the public shell and build assets');
 
+  await context.unroute('**/api/**');
   await context.setOffline(true);
   await page.goto(`${baseURL}/app/profile`);
-  await expect(page.locator('#title')).toHaveText('You are offline');
-  await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(18, 18, 16)');
-  await expect(page.locator('#retry')).toHaveText('Try again');
+  await expect(page.getByRole('status')).toContainText('CampusLink Taza');
+  await expect(page.getByRole('button',{name:'Retry',exact:true})).toBeVisible();
+  await expect(page.locator('html')).toHaveAttribute('data-theme','dark');
+  // Reconnecting stays inside the fixture rather than requiring a running
+  // authentication server behind the production preview.
+  await context.route('**/api/**', route => route.fulfill({ json: new URL(route.request().url()).pathname === '/api/session' ? { user: null } : { revision } }));
   await context.setOffline(false);
-  await page.getByRole('button', { name: 'Try again', exact: true }).click();
+  await page.getByRole('button', { name: 'Retry', exact: true }).click();
   await expect(page).toHaveURL(/\/login$/);
   console.log('PASS offline navigation keeps the saved dark theme despite a light OS and reconnect returns to normal authentication');
 } finally {

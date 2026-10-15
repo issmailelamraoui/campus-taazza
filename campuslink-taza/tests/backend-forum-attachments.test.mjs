@@ -1,0 +1,50 @@
+import {test,before,after} from 'node:test';
+import assert from 'node:assert/strict';
+import {once} from 'node:events';
+import {randomUUID} from 'node:crypto';
+import {createTestApp} from './backend-helpers.mjs';
+import {FORUM_ATTACHMENT_POLICY} from '../server/forum-attachments.js';
+
+const integration=process.env.CAMPUS_TEST_DATABASE_URL?test:test.skip;
+let env,server,origin;const cookies={};
+async function request(path,{user='yassine',method='GET',body,raw=false}={}){const response=await fetch(origin+'/api'+path,{method,headers:{cookie:cookies[user]||'',...(body!==undefined?{'Content-Type':'application/json'}:{})},body:body===undefined?undefined:JSON.stringify(body)});return{status:response.status,data:raw?await response.text():await response.json(),headers:response.headers};}
+async function question(){return env.db.prepare("INSERT INTO campus_questions(faculty_id,filiere_id,author_id,title,body,created_at) VALUES('flaa','french_studies',3,'An attached source question','A manually written explanation request.',?) RETURNING *").get(new Date().toISOString());}
+async function upload(q,{user='yassine',filename='method.js',content='window.forumExecuted = true;',clientId=randomUUID()}={}){const body=new FormData();body.append('file',new Blob([content]),filename);body.append('client_id',clientId);const r=await fetch(origin+`/api/campus/forum/${q.id}/attachments`,{method:'POST',headers:{cookie:cookies[user]||''},body});return{status:r.status,data:await r.json(),clientId};}
+const list=q=>request(`/campus/forum/${q.id}/attachments`);
+const remove=(q,a,user)=>request(`/campus/forum/${q.id}/attachments/${a.id}`,{method:'DELETE',user});
+before(async()=>{if(!process.env.CAMPUS_TEST_DATABASE_URL)return;env=await createTestApp();server=env.app.listen(0,'127.0.0.1');await once(server,'listening');origin='http://127.0.0.1:'+server.address().port;for(const username of ['yassine','sara','nour','hamza','admin']){const r=await fetch(origin+'/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username,password:username==='admin'?'Admin2026!':'Campus2026!'})});assert.equal(r.status,200);cookies[username]=r.headers.getSetCookie().find(c=>c.startsWith('campus_neon_test_session=')).split(';')[0];}});
+after(async()=>{env?.app.locals.endStreams();server?.closeAllConnections();if(server)await new Promise(resolve=>server.close(resolve));await env?.close();});
+
+integration('Forum attachments are authorized private objects, inert downloads, and never library resources',async()=>{
+ const q=await question(),created=await upload(q);assert.equal(created.status,201,JSON.stringify(created.data));const attachment=created.data.attachment;assert.equal('object_key' in attachment,false);assert.equal('sha256' in attachment,false);
+ const result=await request(`/campus/forum/${q.id}/attachments`,{user:'sara'});assert.equal(result.status,200);assert.equal(result.data.attachments[0].can_delete,false);assert.equal(result.data.can_upload,false);assert.equal(result.headers.get('cache-control'),'private, no-store');
+ const file=await request(attachment.url.replace('/api',''),{user:'sara',raw:true});assert.equal(file.status,200);assert.equal(file.data,'window.forumExecuted = true;');assert.match(file.headers.get('content-disposition'),/^attachment/);assert.match(file.headers.get('content-type'),/^text\/plain/);assert.match(file.headers.get('content-security-policy'),/sandbox/);
+ for(const user of ['nour','hamza']){assert.equal((await request(attachment.url.replace('/api',''),{user,raw:true})).status,404);assert.equal((await request(`/campus/forum/${q.id}/attachments`,{user})).status,404);}
+ assert.equal((await upload(q,{user:'sara'})).status,403);assert.equal((await remove(q,attachment,'sara')).status,403);assert.equal((await env.db.prepare('SELECT COUNT(*)::integer AS count FROM resources WHERE filename=?').get('method.js')).count,0);
+});
+integration('Stable client IDs and byte duplicates do not create objects or reset quotas',async()=>{
+ const q=await question(),clientId=randomUUID(),first=await upload(q,{clientId,content:'duplicate source '+randomUUID()});assert.equal(first.status,201);const bytes=env.storage.objects.size,record=await env.db.prepare('SELECT * FROM forum_attachments WHERE id=?').get(first.data.attachment.id);const retry=await upload(q,{clientId,content:env.storage.objects.get(record.object_key).buffer});assert.equal(retry.status,200);assert.equal(retry.data.attachment.id,first.data.attachment.id);
+ const alias=await upload(q,{content:env.storage.objects.get(record.object_key).buffer,filename:'alias.txt'});assert.equal(alias.status,200);assert.equal(env.storage.objects.size,bytes);assert.equal((await upload(q,{clientId,content:'changed content'})).status,409);assert.equal((await list(q)).data.attachments.length,1);
+});
+integration('Question count, bytes, and user rate caps count reservations and prevent concurrent overflow',async()=>{
+ const q=await question();for(let i=0;i<4;i++)assert.equal((await upload(q,{filename:`part-${i}.txt`,content:'bound '+randomUUID()})).status,201);
+ const concurrent=await Promise.all([upload(q,{content:'first '+randomUUID()}),upload(q,{content:'second '+randomUUID()})]);assert.deepEqual(concurrent.map(r=>r.status).sort(),[201,429]);assert.equal((await list(q)).data.attachments.length,FORUM_ATTACHMENT_POLICY.maxFiles);
+ const item=(await list(q)).data.attachments[0];assert.equal((await remove(q,item)).status,200);assert.equal((await upload(q,{content:'freed slot '+randomUUID()})).status,201);
+ const byteQ=await question();for(let i=0;i<3;i++){const id=randomUUID();await env.db.prepare("INSERT INTO forum_attachments(id,question_id,author_id,client_id,filename,object_key,sha256,size,mime,status,created_at,updated_at) VALUES(?,?,3,?,'quota.txt',?,?,?,'text/plain','uploading',?,?)").run(id,byteQ.id,randomUUID(),'quota/'+id,id,17*1024*1024,new Date().toISOString(),new Date().toISOString());}assert.equal((await upload(byteQ,{content:'over 50 megabytes'})).status,429);
+ const dailyQ=await question();for(let i=0;i<50;i++){const id=randomUUID();await env.db.prepare("INSERT INTO forum_attachments(id,question_id,author_id,client_id,filename,object_key,sha256,size,mime,status,file_deleted_at,created_at,updated_at) VALUES(?,?,3,?,'removed.txt',?,?,1,'text/plain','removed',?,?,?)").run(id,dailyQ.id,randomUUID(),'daily/'+id,id,new Date().toISOString(),new Date().toISOString(),new Date().toISOString());}assert.equal((await upload(dailyQ)).status,429);await env.db.prepare('UPDATE forum_attachments SET created_at=? WHERE author_id=3').run(new Date(Date.now()-2*86400000).toISOString());
+});
+integration('Failed storage deposits are not public and terminal retries require a fresh operation identifier',async()=>{
+ const q=await question();env.storage.failNextPut=true;const first=await upload(q);assert.equal(first.status,502);assert.equal(first.data.code,'ATTACHMENT_RETRY_REQUIRED');assert.deepEqual((await list(q)).data.attachments,[]);const retry=await upload(q,{clientId:first.clientId});assert.equal(retry.status,409);assert.equal(retry.data.code,'ATTACHMENT_RETRY_REQUIRED');assert.equal((await upload(q)).status,201);
+ assert.equal((await upload(q,{filename:'program.exe'})).status,400);assert.equal((await upload(q,{filename:'faked.png',content:'not a png'})).status,400);
+});
+integration('Finalization and streamed files recheck current question and account authorization after storage waits',async()=>{
+ const q=await question(),put=env.storage.put.bind(env.storage),before=env.storage.objects.size;env.storage.put=async(...args)=>{await put(...args);await env.db.prepare("UPDATE users SET filiere_id='arabic_studies' WHERE id=3").run();};
+ try{assert.equal((await upload(q)).status,403);assert.equal(env.storage.objects.size,before);assert.equal((await env.db.prepare("SELECT COUNT(*)::integer AS count FROM forum_attachments WHERE question_id=? AND status='ready'").get(q.id)).count,0);}finally{env.storage.put=put;await env.db.prepare("UPDATE users SET filiere_id='french_studies' WHERE id=3").run();}
+ const created=await upload(q),attachment=created.data.attachment,get=env.storage.get.bind(env.storage);env.storage.get=async(...args)=>{const file=await get(...args);await env.db.prepare('UPDATE campus_questions SET removed=TRUE WHERE id=?').run(q.id);return file;};try{assert.equal((await request(attachment.url.replace('/api',''),{user:'sara',raw:true})).status,404);}finally{env.storage.get=get;await env.db.prepare('UPDATE campus_questions SET removed=FALSE WHERE id=?').run(q.id);}
+});
+integration('Author removal is immediate, idempotent, and retries durable object cleanup after a storage failure',async()=>{
+ const q=await question(),created=await upload(q),attachment=created.data.attachment,raw=await env.db.prepare('SELECT * FROM forum_attachments WHERE id=?').get(attachment.id);env.storage.failNextDelete=true;assert.equal((await remove(q,attachment)).status,200);assert.equal((await request(attachment.url.replace('/api',''),{user:'sara',raw:true})).status,404);assert.equal((await env.db.prepare('SELECT cleanup_pending FROM forum_attachments WHERE id=?').get(attachment.id)).cleanup_pending,true);await list(q);assert.equal(env.storage.objects.has(raw.object_key),false);assert.equal((await env.db.prepare('SELECT cleanup_pending FROM forum_attachments WHERE id=?').get(attachment.id)).cleanup_pending,false);assert.equal((await remove(q,attachment)).status,200);
+});
+integration('Explicit scoped moderators remove an attachment with real actor audit and cannot upload for its author',async()=>{
+ const q=await question(),attachment=(await upload(q)).data.attachment;assert.equal((await upload(q,{user:'admin'})).status,403);assert.equal((await remove(q,attachment,'admin')).status,200);const audit=await env.db.prepare("SELECT actor_id,details FROM administrative_audit WHERE action='forum.attachment-remove' AND target_id=?").get(String(q.id));const actor=await env.db.prepare("SELECT id FROM users WHERE username='admin'").get();assert.equal(audit.actor_id,actor.id);assert.equal(audit.details.attachment_id,attachment.id);
+});

@@ -184,6 +184,54 @@ html[data-input-modality="keyboard"] .admin-search-field input:focus-visible { o
 .admin-version-list summary { color: var(--ink); cursor: pointer; }
 .admin-version-list ul { padding-inline-start: 18px; }
 .admin-row-actions button:disabled { opacity: .4; cursor: default; }
+.admin-status.rejected,.admin-status.disabled,.admin-status.revoked { color: var(--danger); background: color-mix(in srgb, var(--danger) 8%, var(--surface)); border-color: color-mix(in srgb, var(--danger) 22%, var(--line)); }
+.admin-page .admin-section-header > div,.admin-announcement-top > span:first-child { min-width: 0; }
+.admin-account-person > div,.admin-assistance-person > div { min-width: 0; }
+.admin-account-person strong,.admin-account-person span,.admin-account-context,.admin-resource-title strong,.admin-resource-title span,.admin-announcement-card h3,.admin-assistance-row h3,.admin-assistance-row p,.admin-assistance-row div > span,.admin-detail-list dd { overflow-wrap: anywhere; }
+.admin-announcement-card h3 > svg { color: var(--accent-ink); vertical-align: -.18em; margin-inline-end: 3px; }
+.admin-announcement-card { display: flex; flex-direction: column; }
+.admin-channels-empty { grid-column: 1 / -1; }
+.admin-announcement-footer { margin-top: auto; padding-top: 15px; }
+.admin-announcement-excerpt { margin-bottom: 19px; }
+.admin-form-error { border-color: color-mix(in srgb, var(--danger) 28%, var(--line)); background: color-mix(in srgb, var(--danger) 8%, var(--surface)); line-height: 1.7; }
+.permissions-page { min-width: 0; }
+.permissions-form { display: grid; gap: 24px; padding: 24px; }
+.permissions-fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; }
+.permissions-form > .btn { justify-self: start; }
+.permissions-capabilities { border: 0; margin: 0; padding: 0; min-width: 0; }
+.permissions-capabilities legend { padding: 0; font-size: 12px; font-weight: 600; margin-bottom: 12px; color: var(--ink); }
+.permissions-capabilities > div { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.permissions-capability { display: flex; align-items: flex-start; gap: 11px; min-width: 0; padding: 13px 14px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface2); font-size: 12px; line-height: 1.7; cursor: pointer; }
+.permissions-capability input { margin: 3px 0 0; }
+.permissions-capability span { overflow-wrap: anywhere; }
+.permissions-capability:hover { border-color: var(--accent); }
+.permissions-capability.selected { border-color: var(--accent); background: var(--accent-soft); }
+.permissions-capabilities:disabled { opacity: .65; }
+.permissions-capabilities:disabled label { cursor: default; }
+.permissions-appointments { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.permissions-appointment { display: flex; flex-direction: column; min-width: 0; padding: 22px; }
+.permissions-appointment-heading { display: flex; justify-content: space-between; gap: 15px; align-items: flex-start; }
+.permissions-appointment-heading > div { min-width: 0; }
+.permissions-appointment-heading strong { display: block; font-size: 14px; line-height: 1.6; overflow-wrap: anywhere; }
+.permissions-appointment-heading div > span { display: block; margin-top: 5px; font-size: 11px; color: var(--muted); line-height: 1.7; }
+.permissions-appointment-context { margin: 13px 0; font-size: 12px; color: var(--muted); line-height: 1.8; overflow-wrap: anywhere; }
+.permissions-granted-list { margin: 0 0 18px; padding-inline-start: 18px; font-size: 12px; line-height: 1.8; }
+.permissions-granted-list li::marker { color: var(--accent-ink); }
+.permissions-appointment-actions { display: flex; margin-top: auto; padding-top: 15px; border-top: 1px solid var(--line); }
+@media (max-width: 1050px) { .permissions-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); } .permissions-fields > .field:last-child { grid-column: 1 / -1; } }
+@media (max-width: 760px) { .permissions-appointments { grid-template-columns: 1fr; } }
+@media (max-width: 600px) {
+  .permissions-form { padding: 18px; gap: 20px; }
+  .permissions-fields,.permissions-capabilities > div { grid-template-columns: 1fr; gap: 12px; }
+  .permissions-form > .btn { justify-self: stretch; }
+  .permissions-appointment { padding: 18px; }
+  .permissions-appointment-actions .btn { flex: 1; }
+  .admin-row-actions { flex-wrap: wrap; }
+  .admin-page .admin-community-actions button,.admin-page .admin-row-actions button,.admin-page .admin-admission-actions .btn { min-height: 42px; }
+  .admin-resource-row > .btn { margin-inline-start: 46px; min-height: 42px; }
+  .admin-resource-row > .admin-status { white-space: normal; }
+  .admin-announcement-top .admin-status { white-space: normal; text-align: end; }
+}
 [dir='rtl'] .admin-stat-arrow,[dir='rtl'] .admin-task > svg,[dir='rtl'] .admin-quick-actions button > svg:last-child { transform: rotate(180deg); }
 @media (max-width: 1120px) { .admin-accounts-table td,.admin-accounts-table th { padding-inline: 14px; } .admin-overview-stats { gap: 10px; } .admin-stat { padding: 18px; } .admin-overview-columns { gap: 14px; } .admin-overview-section { padding: 19px; } }
 @media (max-width: 850px) { .admin-overview-stats { grid-template-columns: 1fr 1fr; } .admin-overview-columns { grid-template-columns: 1fr; } .admin-announcement-list { grid-template-columns: 1fr; } .admin-organization-grid { grid-template-columns: 1fr; } .admin-accounts-table { min-width: 680px; } }

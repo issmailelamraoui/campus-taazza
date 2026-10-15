@@ -691,7 +691,7 @@ export default function CommunityPage() {
   }
   function scrollMessage(id, focus = false) {
     const history = historyRef.current;
-    const node = document.getElementById(id);
+    const node = document.getElementById(`message-${id}`);
     if (!history || !node || !history.contains(node)) return;
     history.scrollTo({
       top:
@@ -1333,7 +1333,7 @@ export default function CommunityPage() {
                         )}
                         <MessageActions
                           className={`community-message ${own ? "is-own" : ""} ${grouped ? "is-grouped" : ""} ${message.pinned ? "is-pinned" : ""} ${message.id === highlight ? "is-highlighted" : ""} ${message.deliveryStatus ? `is-${message.deliveryStatus}` : ''}`}
-                          id={message.id}
+                          id={`message-${message.id}`}
                           data-message-id={message.id}
                           data-delivery-status={message.deliveryStatus}
                           aria-busy={message.deliveryStatus === 'sending'}
