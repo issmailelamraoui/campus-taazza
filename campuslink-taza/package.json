@@ -51,7 +51,9 @@
     "test:password-recovery": "node --test tests/backend-auth.test.mjs tests/backend-password-reset.test.mjs",
     "test:password-reset-ui": "node tests/admin-password-reset.browser.mjs",
     "test:password-change-ui": "node tests/password-change.browser.mjs",
-    "test:feedback": "node tests/feedback.browser.mjs"
+    "test:feedback": "node tests/feedback.browser.mjs",
+    "test:admin-mobile": "node tests/admin-mobile.browser.mjs",
+    "test:profile-photo": "node tests/profile-photo.browser.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1146.0",

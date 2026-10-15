@@ -1,0 +1,31 @@
+.profile-photo-editor {
+  min-width: 0;
+  margin-bottom: 22px;
+  padding-bottom: 22px;
+  border-bottom: 1px solid var(--line);
+}
+.profile-photo-editor .profile-intro { gap: 16px; margin-bottom: 16px; }
+.profile-photo-editor .profile-intro .avatar { flex: 0 0 76px; width: 76px; height: 76px; }
+.profile-photo-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.profile-photo-actions .btn { min-height: 44px; padding: 10px 13px; font-size: 12px; }
+.profile-photo-actions .btn-ghost { border: 1px solid var(--line); }
+.profile-photo-hint { margin: 9px 0 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
+.profile-photo-status { margin-top: 10px; color: var(--muted); font-size: 12px; }
+.profile-photo-pending {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 13px;
+  padding: 10px 12px;
+  border-inline-start: 2px solid var(--accent);
+  border-radius: 0 8px 8px 0;
+  background: var(--accent-soft);
+}
+.profile-photo-pending p { flex: 1; min-width: 0; font-size: 12px; line-height: 1.5; }
+.profile-photo-pending .text-link { flex: 0 0 auto; min-height: 44px; font-size: 12px; }
+.profile-photo-editor > .field-error { display: block; margin-top: 10px; }
+@media (max-width: 480px) {
+  .profile-photo-actions .btn { flex: 1 1 135px; }
+  .profile-photo-editor .profile-intro { gap: 14px; }
+  .profile-photo-editor .profile-intro .avatar { flex-basis: 64px; width: 64px; height: 64px; font-size: 21px; }
+}

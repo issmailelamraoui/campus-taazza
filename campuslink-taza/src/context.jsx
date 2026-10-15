@@ -148,7 +148,7 @@ export function AppProvider({children}){
   clearSession();commit(epoch.current,()=>({...emptyData(),user:next}));await refresh();return true;
  }
  async function logout(){if(navigator.onLine===false){localStorage.setItem(key+'logout-pending','true');clearSession();return true;}try{await api('/logout',{method:'POST'});clearSession();localStorage.removeItem(key+'logout-pending');return true;}catch(error){notify(error.message,'error');throw error;}}
- async function updateProfile(patch){const owner=epoch.current,result=await api('/profile',{method:'PATCH',body:patch,timeout:60000});requireCurrent(owner);commit(owner,previous=>({...previous,user:normalizeUser(result.user)}));notify(t('preferencesSaved'));return normalizeUser(result.user);}
+ async function updateProfile(patch){const owner=epoch.current,result=await api('/profile',{method:'PATCH',body:patch,timeout:60000});requireCurrent(owner);const next=normalizeUser(result.user);if(patch.avatar&&next.avatar.startsWith('/api/avatars/'))next.avatar+=(next.avatar.includes('?')?'&':'?')+'v='+Date.now().toString(36);commit(owner,previous=>({...previous,user:next}));notify(t('preferencesSaved'));return next;}
  function setLanguage(next){changeLanguage(next);if(user?.accountStatus==='approved'&&!requiresPasswordChange(user)){const owner=epoch.current;api('/profile',{method:'PATCH',body:{language:next}}).then(result=>commit(owner,previous=>({...previous,user:normalizeUser(result.user)}))).catch(error=>{if(owner===epoch.current)notify(error.message,'error');});}}
  function setPreferences(change){return locked('preferences',async owner=>{
   const prefs=preferencesFor(current.current.user),next=typeof change==='function'?change(prefs):{...prefs,...change};

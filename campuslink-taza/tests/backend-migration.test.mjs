@@ -93,9 +93,23 @@ test('profile name, bio, independent mentions and 2 MB avatar persist without ro
   const changed=await request('/profile',{cookie:student,method:'PATCH',body:{name:'Yassine Modifié',bio:'Étudiant · ressources et révisions',preferences:{mentions:false}}});assert.equal(changed.status,200);assert.equal(changed.data.user.name,'Yassine Modifié');assert.equal(changed.data.user.bio,'Étudiant · ressources et révisions');assert.equal(changed.data.user.preferences.mentions,false);
   assert.equal((await request('/profile',{cookie:student,method:'PATCH',body:{role:'global_admin'}})).status,403);
   const png=Buffer.alloc(1024*1024+64);Buffer.from([137,80,78,71,13,10,26,10]).copy(png);
-  const avatar=await request('/profile',{cookie:student,method:'PATCH',body:{avatar:'data:image/png;base64,'+png.toString('base64')}});assert.equal(avatar.status,200);assert.equal((await request('/avatars/'+changed.data.user.id,{cookie:student})).data.length,png.length);
-  await request('/profile',{cookie:student,method:'PATCH',body:{avatar:''}});
-  const session=await request('/session',{cookie:await login('yassine')});assert.equal(session.data.user.bio,'Étudiant · ressources et révisions');
+  const otherAvatar=await request('/profile',{cookie:otherMajor,method:'PATCH',body:{avatar:'data:image/png;base64,'+png.toString('base64')}});assert.equal(otherAvatar.status,200);
+  const protectedObjects=new Map(env.storage.objects);
+  const otherProfiles=await env.db.prepare('SELECT id,avatar,avatar_object_key FROM users WHERE id<>? ORDER BY id').all(changed.data.user.id);
+  const avatar=await request('/profile',{cookie:student,method:'PATCH',body:{avatar:'data:image/png;base64,'+png.toString('base64')}});assert.equal(avatar.status,200);
+  const file=await request('/avatars/'+changed.data.user.id,{cookie:student});assert.equal(file.status,200);assert.equal(file.data.length,png.length);assert.equal(file.headers.get('cache-control'),'private, no-store');
+  const stored=await env.db.prepare('SELECT avatar,avatar_object_key FROM users WHERE id=?').get(changed.data.user.id);assert.ok(env.storage.objects.has(stored.avatar_object_key));
+  assert.equal((await request('/profile',{method:'PATCH',body:{avatar:''}})).status,401);
+  assert.ok(env.storage.objects.has(stored.avatar_object_key),'Unauthenticated requests cannot delete an avatar');
+  const removed=await request('/profile',{cookie:student,method:'PATCH',body:{avatar:'',user_id:otherAvatar.data.user.id}});assert.equal(removed.status,200);assert.equal(removed.data.user.avatar,'');
+  assert.deepEqual(await env.db.prepare('SELECT avatar,avatar_object_key FROM users WHERE id=?').get(changed.data.user.id),{avatar:'',avatar_object_key:null});
+  assert.equal((await request('/avatars/'+changed.data.user.id+'?v=previous',{cookie:student})).status,404);
+  assert.equal(env.storage.objects.has(stored.avatar_object_key),false);
+  assert.deepEqual(env.storage.objects,protectedObjects,'Removing a profile image preserves other avatars and document objects');
+  assert.deepEqual(await env.db.prepare('SELECT id,avatar,avatar_object_key FROM users WHERE id<>? ORDER BY id').all(changed.data.user.id),otherProfiles,'The session determines whose image is removed');
+  assert.equal((await request('/avatars/'+otherAvatar.data.user.id,{cookie:student})).status,200);
+  assert.equal((await request('/profile',{cookie:student,method:'PATCH',body:{avatar:''}})).status,200,'Removing an already absent image is safe');
+  const session=await request('/session',{cookie:await login('yassine')});assert.equal(session.data.user.bio,'Étudiant · ressources et révisions');assert.equal(session.data.user.avatar,'');
 });
 
 test('history, saves, replies and mentions respect permissions and preferences',async()=>{
@@ -193,5 +207,5 @@ test('target storage names are isolated and imported source objects cannot be de
   assert.equal(storageObjectKey('avatars/1/test.png',{CAMPUS_STORAGE_PREFIX:'campuslink-prj/'}),'campuslink-prj/avatars/1/test.png');
   assert.throws(()=>storageObjectKey('anything',{CAMPUS_STORAGE_PREFIX:'../'}),/Invalid/);
   const storage=createStorage({R2_ENDPOINT:'https://private-storage.invalid',R2_ACCESS_KEY_ID:'test-only',R2_SECRET_ACCESS_KEY:'test-only',R2_BUCKET_NAME:'uploads',R2_REGION:'auto',CAMPUS_STORAGE_PREFIX:'campuslink-prj/'});
-  try {await storage.delete('resources/imported-source-object.pdf');await assert.rejects(storage.put('resources/source-overwrite.pdf',Buffer.from('private'), 'application/pdf'),/application prefix/);} finally {storage.close();}
+  try {await storage.delete('resources/imported-source-object.pdf');await storage.delete('avatars/1/imported-source-avatar.png');await assert.rejects(storage.put('resources/source-overwrite.pdf',Buffer.from('private'), 'application/pdf'),/application prefix/);} finally {storage.close();}
 });

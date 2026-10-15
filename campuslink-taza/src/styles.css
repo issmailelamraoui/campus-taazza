@@ -426,6 +426,7 @@ hr {
 .avatar {
   width: 36px;
   height: 36px;
+  aspect-ratio: 1;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -449,9 +450,12 @@ hr {
   font-size: 24px;
 }
 .avatar img {
+  display: block;
   width: 100%;
   height: 100%;
   object-fit: cover;
+  object-position: center;
+  border-radius: inherit;
 }
 .field {
   display: flex;

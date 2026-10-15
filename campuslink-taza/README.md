@@ -70,6 +70,8 @@ Les réponses d’assistance deviennent des notifications dans CampusLink. Elles
 
 Le profil permet de modifier le nom, la présentation, la photo et les préférences. Après attribution, la faculté, la filière et le semestre sont gérés par l’administration ; le profil propose un lien vers l’assistance pour demander une correction. Un changement de parcours confirmé par le serveur recharge les données du nouveau contexte et ferme les brouillons et aperçus associés à l’ancien.
 
+Dans le profil, « Supprimer la photo » affiche les initiales en aperçu ; « Enregistrer les modifications » confirme sa suppression. « Annuler » restaure la photo avant enregistrement. Les photos portrait et paysage utilisent le même cadre circulaire, sans déformation.
+
 ## Interface conservée
 
 Les thèmes chauds clair/sombre, le français/anglais/arabe, les sélecteurs personnalisés, les bulles de discussion et le menu par appui prolongé restent en place. Sur mobile, les quatre onglets du bas restent Accueil, Discussions, Library et Annonces. Le calendrier et l’administration utilisent les destinations secondaires.
@@ -100,6 +102,8 @@ npm run test:install-app
 npm run test:frontend-design
 npm run test:reader-workspace
 npm run test:feedback
+npm run test:admin-mobile
+npm run test:profile-photo
 node tests/install-worker.browser.mjs
 ```
 
