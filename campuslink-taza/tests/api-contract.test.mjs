@@ -17,6 +17,8 @@ test('paired study-year chats and replies round-trip through the API contract',(
  for(const semester of [1,3,5])assert.deepEqual(chatRequest(`year-${semester}`),{channel:'filiere',semester});
  const message=normalizeMessage({id:90,faculty_id:'fsa',filiere_id:'data_science',channel:'filiere',semester:6,content:'Voici le cours',reply_to:87,author:{id:7,name:'Sara',username:'sara',avatar:'/api/avatars/7'},attachments:[resource],reactions:{like:2,heart:1},my_reactions:['heart']});
  const legacy=normalizeMessage({id:91,channel:'general',resource_id:42,author:{id:7,name:'Sara'}},[normalizeResource(resource)]);assert.equal(legacy.attachments.length,1);assert.equal(legacy.attachment,null);assert.equal(message.channel,'year-5');assert.equal(message.replyTo,'87');assert.equal(message.authorId,'7');assert.equal(message.attachments[0].id,'42');assert.equal(message.reactions.like,2);assert.deepEqual(message.myReactions,['heart']);
+ const bootstrap=normalizeBootstrap({resources:[resource],messages:[{id:91,resource_id:42},{id:92,attachments:[{...resource,id:43}],resource_id:42}]});
+ assert.equal(bootstrap.messages[0].attachments[0].id,'42');assert.equal(bootstrap.messages[1].attachments[0].id,'43');
 });
 test('saved items, history and notification destinations survive backend normalization',()=>{
  const data=normalizeBootstrap({user:{id:7,faculty_id:'fsa',filiere_id:'data_science',role:'student',current_semester:5,account_status:'approved'},resources:[resource],saved:[{type:'resource',id:42},{type:'message',id:90}],history:[{resource_id:42}],notifications:[{id:8,type:'important',read:false,created_at:'2026-10-09T10:00:00Z',path:'/app/chat/filiere?semester=6#message-90'},{id:9,type:'calendar',read:true,path:'/app/calendar#event-3'}]});

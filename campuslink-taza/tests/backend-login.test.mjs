@@ -24,6 +24,7 @@ async function loginFixture(t) {
     async authenticate() { return null; },
     async signIn() {
       state.signIns++;
+      if(state.signInBarrier)await state.signInBarrier;
       if (state.providerFailure) throw Object.assign(new Error('Le service de connexion est indisponible. Réessayez.'), { status: 503 });
       if (state.invalidPassword) throw Object.assign(new Error('Nom d’utilisateur ou mot de passe incorrect.'), { status: 401 });
       return { user: profile };
@@ -71,4 +72,20 @@ integration('incorrect credentials still reach the existing login attempt limit'
   for (let attempt = 0; attempt < 12; attempt++) assert.equal((await login()).status, 401);
   assert.equal((await login()).status, 429);
   assert.equal(state.signIns, 12, 'A rate-limited request must not call the identity provider again.');
+});
+
+integration('simultaneous incorrect logins reserve the limit before the provider responds',async t=>{
+  const {state,login}=await loginFixture(t);
+  let release;
+  state.invalidPassword=true;
+  state.signInBarrier=new Promise(resolve=>{release=resolve;});
+  const pending=Array.from({length:12},()=>login());
+  try{
+    const deadline=Date.now()+5000;
+    while(state.signIns<12&&Date.now()<deadline)await new Promise(resolve=>setTimeout(resolve,10));
+    assert.equal(state.signIns,12,'All reserved calls reached the controlled provider.');
+    assert.equal((await login()).status,429,'An in-flight credential check must consume its allowance.');
+  }finally{release();}
+  assert.ok((await Promise.all(pending)).every(result=>result.status===401));
+  assert.equal((await login()).status,429,'Concurrent failures cannot overwrite each other’s counters.');
 });

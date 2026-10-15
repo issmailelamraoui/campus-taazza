@@ -68,7 +68,7 @@ Les capacités migrées et leurs limites par rôle sont détaillées dans [docs/
 
 Les réponses d’assistance deviennent des notifications dans CampusLink. Elles n’envoient pas d’e-mail externe. Le changement personnel de mot de passe utilise Neon Auth ; la réinitialisation arbitraire du mot de passe d’un autre compte n’est pas une capacité du backend original.
 
-Le profil permet de modifier le nom, la présentation, la photo, les préférences, la filière et le semestre actuel. La faculté reste fixe. Un changement de parcours recharge les données du nouveau contexte et ferme les brouillons et aperçus associés à l’ancien.
+Le profil permet de modifier le nom, la présentation, la photo et les préférences. Après attribution, la faculté, la filière et le semestre sont gérés par l’administration ; le profil propose un lien vers l’assistance pour demander une correction. Un changement de parcours confirmé par le serveur recharge les données du nouveau contexte et ferme les brouillons et aperçus associés à l’ancien.
 
 ## Interface conservée
 
@@ -99,10 +99,13 @@ npm run test:module-library
 npm run test:install-app
 npm run test:frontend-design
 npm run test:reader-workspace
+npm run test:feedback
 node tests/install-worker.browser.mjs
 ```
 
 Les tests d’intégration utilisent les véritables routes API et un schéma PostgreSQL temporaire, avec des doubles explicites pour l’identité et les octets des fichiers. Ils ne modifient pas les comptes Neon ou les fichiers du projet original. Les schémas temporaires sont supprimés à la fin. `CAMPUS_TEST_DATABASE_URL` peut fournir une base PostgreSQL de test ; à défaut la connexion configurée est utilisée avec un schéma isolé.
+
+Le compte rendu de la revue et des corrections du 15 octobre 2026 est dans [docs/code-audit-2026-10-15.md](docs/code-audit-2026-10-15.md).
 
 `test:frontend-design` vérifie les pages et onglets sur ordinateur, tablette et téléphone, avec les deux thèmes et le français, l’anglais et l’arabe. Il utilise Vite sur 5180 et des réponses API contrôlées, sans modifier les données du campus. Le rapport est enregistré dans `test-results/frontend-consistency/report.json` ; `CAMPUS_DESIGN_SCREENSHOTS=1 npm run test:frontend-design` conserve aussi les captures.
 

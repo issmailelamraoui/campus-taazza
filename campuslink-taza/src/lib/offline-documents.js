@@ -18,8 +18,10 @@ async function cachePublicReaderAssets(){
 export async function listOfflineDocuments(userId){const db=await database();return(await request(db.transaction(STORE).objectStore(STORE).index('owner').getAll(String(userId)))).filter(value=>value.expiresAt>Date.now()).map(({blob,...metadata})=>metadata);}
 export async function getOfflineDocument(userId,resourceId,version){const owner=generation,db=await database();const records=version?[await request(db.transaction(STORE).objectStore(STORE).get(key(userId,resourceId,version)))]:await request(db.transaction(STORE).objectStore(STORE).index('owner').getAll(String(userId)));if(owner!==generation)return null;const found=records.filter(value=>value&&String(value.resourceId)===String(resourceId)&&value.expiresAt>Date.now()).sort((a,b)=>b.version-a.version)[0];return found||null;}
 export async function saveOfflineDocument(userId,payload){
+ const owner=generation;
  await cachePublicReaderAssets();
- const owner=generation,document=payload.document;if(Number(document.size)>OFFLINE_FILE_LIMIT)throw new Error('Limite hors ligne : 50 Mo par document.');
+ if(owner!==generation)throw new Error('La session a changé.');
+ const document=payload.document;if(Number(document.size)>OFFLINE_FILE_LIMIT)throw new Error('Limite hors ligne : 50 Mo par document.');
  const response=await fetch(document.url,{credentials:'same-origin'});if(!response.ok)throw new Error('Impossible de vérifier et télécharger ce document pour le mode hors ligne.');if(Number(response.headers.get('content-length'))>OFFLINE_FILE_LIMIT)throw new Error('Limite hors ligne : 50 Mo par document.');
  const reader=response.body?.getReader(),parts=[];let total=0;if(reader){try{for(;;){const{value,done}=await reader.read();if(done)break;total+=value.byteLength;if(total>OFFLINE_FILE_LIMIT){await reader.cancel();throw new Error('Limite hors ligne : 50 Mo par document.');}parts.push(value);}}finally{reader.releaseLock();}}else{const bytes=await response.arrayBuffer();if(bytes.byteLength>OFFLINE_FILE_LIMIT)throw new Error('Limite hors ligne : 50 Mo par document.');parts.push(bytes);}
  if(owner!==generation)throw new Error('La session a changé.');

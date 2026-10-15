@@ -9,7 +9,7 @@ const installed = '/home/issmail/.cache/ms-playwright/chromium-1243/chrome-linux
 const browser = await chromium.launch({ ...(existsSync(installed) ? { executablePath: installed } : {}), headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage'] });
 const context = await browser.newContext({ viewport: { width: 1280, height: 900 }, reducedMotion: 'reduce' });
 const errors = [], heldMessages = [], messageRequests = [];
-let heldRead;
+let heldView, heldDeparture;
 try {
   await context.addInitScript(() => {
     window.EventSource = undefined;
@@ -36,9 +36,15 @@ try {
     const request = route.request(), path = new URL(request.url()).pathname;
     if (path === '/api/session') return route.fulfill({ json: { user } });
     if (path === '/api/bootstrap') return route.fulfill({ json: payload() });
-    if (path === '/api/notifications/read') {
-      const body = request.postDataJSON();
-      heldRead = async () => { notifications.forEach(item => { if (!body.ids || body.ids.map(String).includes(String(item.id))) item.read = true; }); await route.fulfill({ json: { ok: true } }); };
+    if (/^\/api\/members\/\d+\/achievements$/.test(path)) return route.fulfill({ json: { achievements: [] } });
+    if (path === '/api/notifications/1/viewed') {
+      assert.equal(request.postDataJSON().path, notifications[0].path);
+      heldView = async () => route.fulfill({ json: { visit_token: 'fixture-visit-token' } });
+      return;
+    }
+    if (path === '/api/notifications/1/departed') {
+      assert.equal(request.postDataJSON().visit_token, 'fixture-visit-token');
+      heldDeparture = async () => { notifications[0].read = true; await route.fulfill({ json: { ok: true } }); };
       return;
     }
     if (path === '/api/messages' && request.method() === 'POST') {
@@ -70,11 +76,18 @@ try {
   await page.getByRole('tab', { name: /^Non lu/ }).click();
   await page.locator('.notification-content').click();
   await expect(page).toHaveURL(url => url.pathname === '/app/community' && url.searchParams.get('message') === '101');
-  await expect.poll(() => Boolean(heldRead)).toBe(true);
+  await expect.poll(() => Boolean(heldView)).toBe(true);
   await expect(page.locator('.app-write-status')).toBeVisible();
-  await heldRead(); heldRead = null;
+  assert.equal(notifications[0].read, false, 'Opening a destination does not mark it read before leaving');
+  await heldView(); heldView = null;
   await expect(page.locator('.app-write-status')).toHaveCount(0);
-  console.log('PASS unread notification defaults, explicit read history, and navigation before read acknowledgment');
+  await page.locator('.sidebar a[href="/app/notifications"]').click();
+  await expect.poll(() => Boolean(heldDeparture)).toBe(true);
+  await expect(page.locator('.notification-item')).toHaveCount(1);
+  await heldDeparture(); heldDeparture = null;
+  await expect(page.locator('.notification-item')).toHaveCount(0);
+  await page.locator('.sidebar a[href="/app/community"]').click();
+  console.log('PASS unread defaults, explicit read history, immediate navigation and acknowledgment after leaving');
 
   const source = page.locator('.community-message').filter({ hasText: 'Message à copier.' });
   await source.focus();
@@ -151,7 +164,8 @@ try {
   assert.deepEqual(errors, []);
   console.log('PASS removed calendar/support channels, mobile long-press copy, transparent taps, and unobscured pending composer');
 } finally {
-  if (heldRead) await heldRead().catch(() => {});
+  if (heldView) await heldView().catch(() => {});
+  if (heldDeparture) await heldDeparture().catch(() => {});
   for (const pending of heldMessages) await pending.route.fulfill({ status: 503, json: { error: 'Fixture cleanup' } }).catch(() => {});
   await context.close();
   await browser.close();

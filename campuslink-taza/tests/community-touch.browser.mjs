@@ -127,7 +127,9 @@ try {
         await expect(page.getByRole('menu')).toHaveCount(0);
         const trace = await page.evaluate(() => window.__touchTrace);
         assert.ok(trace.some(event => event.type === 'pointerdown' && event.pointerType === 'touch'));
-        assert.ok(trace.some(event => event.type === 'click' && event.pointerType === 'touch' && event.action.includes('Copier le message')));
+        // The touch action may commit on pointerup and suppress Chrome's
+        // compatibility click. Both native paths must target the copy action.
+        assert.ok(trace.some(event => ['pointerup', 'click'].includes(event.type) && event.pointerType === 'touch' && event.action.includes('Copier le message')));
         assert.deepEqual(errors, []);
         assert.deepEqual(writes, []);
         console.log(`PASS ${viewport.width}x${viewport.height} ${theme}: native hold, all portal release actions blocked, new tap, outside dismissal, compact bubbles, temporary/resettable reply highlight, pan cancels hold`);

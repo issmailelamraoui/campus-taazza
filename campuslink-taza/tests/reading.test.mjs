@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {validatePosition,validateAnchors,validateKnowledge,validateStudyTool} from '../server/reading.js';
-import {parseCSV,sourcePath,referenceText,normalizeSelection,createPositionSync,beginStudySession,clearStudyCache,studyCache} from '../src/lib/reading.js';
+import {parseCSV,sourcePath,referenceText,normalizeSelection,createPositionSync,beginStudySession,clearStudyCache,studyCache,writeStudyCache,loadKnowledge,loadStudyTools,saveKnowledge,syncStudyQueue} from '../src/lib/reading.js';
 const pos={page:18,version:2,scrollRatio:.6,zoom:1.2,expectedRevision:3,deviceId:'device-fixture',operationId:'operation-fixture',preferences:{tone:'night',brightness:.6}};
 test('position validation rejects manipulated coordinates, revisions and viewer preferences',()=>{
  assert.deepEqual(validatePosition(pos),pos);
@@ -16,3 +16,74 @@ function localFixture(){const original=globalThis.localStorage;const values=new 
 test('regular saves keep each document independent and update a pending revision after an in-flight save',async()=>{const fixture=localFixture();let resolve;const sent=[];try{beginStudySession(3);const first=createPositionSync({userId:3,resourceId:1,version:1,send:async(path,options)=>{sent.push({path,body:options.body});return new Promise(done=>resolve=done);}}),second=createPositionSync({userId:3,resourceId:2,version:1,send:async()=>({position:{revision:1}})});first.update({page:18});second.update({page:4});const saving=first.flush();first.update({scrollRatio:.7});resolve({position:{revision:1}});await saving;assert.equal(studyCache(3,'position:1:1').page,18);assert.equal(studyCache(3,'position:1:1').expectedRevision,1);assert.equal(studyCache(3,'position:2:1').page,4);const next=first.flush();resolve({position:{revision:2}});await next;await first.dispose();await second.dispose();assert.equal(sent[1].body.expectedRevision,1);}finally{fixture.close();}});
 test('offline resume keeps its original revision so a newer device requires explicit recovery',async()=>{const fixture=localFixture();let state,body;try{beginStudySession(3);fixture.values.set('campuslink-private-study-v1:3:position:1:1',JSON.stringify({...pos,version:1,expectedRevision:3,pending:true}));const sync=createPositionSync({userId:3,resourceId:1,version:1,position:{page:20,revision:4},send:async(_path,options)=>{body=options.body;throw Object.assign(new Error('Conflict'),{status:409,data:{position:{page:20,revision:4,zoom:1,scrollRatio:0}}});},onState:value=>state=value});await sync.flush();assert.equal(body.expectedRevision,3);assert.equal(state,'conflict');assert.equal(studyCache(3,'position:1:1').page,18);await sync.dispose();}finally{fixture.close();}});
 test('logout removes all account-scoped personal caches and late saves cannot recreate them',async()=>{const fixture=localFixture();let resolve;try{beginStudySession(3);const sync=createPositionSync({userId:3,resourceId:1,version:1,send:async()=>new Promise(done=>resolve=done)});sync.update({page:8});const saving=sync.flush();clearStudyCache();resolve({position:{revision:1}});await saving;assert.equal(fixture.values.size,0);await sync.dispose();}finally{fixture.close();}});
+test('closing a reader drains the latest position after an in-flight save',async()=>{
+ const fixture=localFixture(),pending=[],sent=[];let sync;
+ try{
+  sync=createPositionSync({userId:3,resourceId:1,version:1,send:async(_path,{body})=>{sent.push(body);return new Promise(resolve=>pending.push(resolve));}});
+  sync.update({page:4});const saving=sync.flush();sync.update({page:9});const closing=sync.dispose();
+  pending.shift()({position:{revision:1}});
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(sent.length,2);assert.equal(sent[1].page,9);assert.equal(sent[1].expectedRevision,1);
+  pending.shift()({position:{revision:2}});await Promise.all([saving,closing]);
+  assert.equal(studyCache(3,'position:1:1').pending,false);assert.equal(studyCache(3,'position:1:1').page,9);
+ }finally{clearStudyCache();await sync?.dispose();fixture.close();}
+});
+test('editing a queued offline update coalesces it before sending the latest revision',async()=>{
+ const fixture=localFixture(),originalFetch=globalThis.fetch,navigatorDescriptor=Object.getOwnPropertyDescriptor(globalThis,'navigator'),sent=[];
+ const navigator={onLine:false};Object.defineProperty(globalThis,'navigator',{configurable:true,value:navigator});
+ try{
+  const item={id:'knowledge-fixture',revision:1,title:'Definition',content:'Offline draft'};
+  await saveKnowledge(3,item);navigator.onLine=true;
+  globalThis.fetch=async(_url,{body})=>{const value=JSON.parse(body);sent.push(value);return Response.json({item:{...value,revision:2}});};
+  await saveKnowledge(3,{...item,content:'Latest edit'});
+  assert.equal(sent.length,0);assert.equal(studyCache(3,'queue').length,1);
+  await syncStudyQueue(3);
+  assert.equal(sent.length,1);assert.equal(sent[0].content,'Latest edit');assert.equal(sent[0].revision,1);
+  assert.deepEqual(studyCache(3,'queue'),[]);assert.equal(studyCache(3,'knowledge')[0].revision,2);
+ }finally{globalThis.fetch=originalFetch;if(navigatorDescriptor)Object.defineProperty(globalThis,'navigator',navigatorDescriptor);else delete globalThis.navigator;fixture.close();}
+});
+test('a new account sync runs independently of a previous account request',async()=>{
+ const fixture=localFixture(),originalFetch=globalThis.fetch,navigatorDescriptor=Object.getOwnPropertyDescriptor(globalThis,'navigator'),pending=[];
+ const navigator={onLine:false};Object.defineProperty(globalThis,'navigator',{configurable:true,value:navigator});
+ try{
+  globalThis.fetch=async(_url,{body})=>new Promise(resolve=>pending.push(()=>resolve(Response.json({item:{...JSON.parse(body),revision:2}}))));
+  await saveKnowledge(3,{id:'previous-note',revision:1,title:'Previous'});navigator.onLine=true;
+  const previous=syncStudyQueue(3);
+  beginStudySession(4);navigator.onLine=false;await saveKnowledge(4,{id:'current-note',revision:1,title:'Current'});navigator.onLine=true;
+  const current=syncStudyQueue(4);assert.equal(pending.length,2);
+  pending[0]();await previous;assert.equal(syncStudyQueue(4),current);
+  pending[1]();await current;assert.deepEqual(studyCache(4,'queue'),[]);assert.equal(studyCache(4,'knowledge')[0].id,'current-note');
+ }finally{globalThis.fetch=originalFetch;if(navigatorDescriptor)Object.defineProperty(globalThis,'navigator',navigatorDescriptor);else delete globalThis.navigator;fixture.close();}
+});
+test('late study read failures cannot return caches from a newer login',async()=>{
+ const fixture=localFixture(),originalFetch=globalThis.fetch,pending=[];
+ try{
+  globalThis.fetch=()=>new Promise(resolve=>pending.push(resolve));
+  const knowledge=loadKnowledge(3),tools=loadStudyTools(3);
+  clearStudyCache();beginStudySession(3);
+  writeStudyCache(3,'knowledge',[{id:'new-session-note',content:'Private note'}]);
+  writeStudyCache(3,'tools',[{id:'new-session-tool',title:'Private plan'}]);
+  pending.forEach(resolve=>resolve(Response.json({error:'Unavailable'},{status:503})));
+  assert.deepEqual(await knowledge,[]);assert.deepEqual(await tools,[]);
+  assert.equal(studyCache(3,'knowledge')[0].id,'new-session-note');assert.equal(studyCache(3,'tools')[0].id,'new-session-tool');
+  // A current-session transport failure still uses its explicit private cache.
+  globalThis.fetch=async()=>Response.json({error:'Unavailable'},{status:503});
+  assert.equal((await loadKnowledge(3))[0].id,'new-session-note');assert.equal((await loadStudyTools(3))[0].id,'new-session-tool');
+ }finally{globalThis.fetch=originalFetch;fixture.close();}
+});
+test('late conflicts from an earlier account cannot publish its private operation',async()=>{
+ const fixture=localFixture(),originalFetch=globalThis.fetch,windowDescriptor=Object.getOwnPropertyDescriptor(globalThis,'window'),events=[];
+ Object.defineProperty(globalThis,'window',{configurable:true,value:new EventTarget()});window.addEventListener('campus-study-conflict',event=>events.push(event.detail));
+ let complete;
+ try{
+  beginStudySession(3);writeStudyCache(3,'queue',[{id:'previous-operation',entity:'knowledge',method:'PATCH',item:{id:'previous-note',revision:1,content:'Previous account private note'}}]);
+  globalThis.fetch=()=>new Promise(resolve=>complete=resolve);
+  const previous=syncStudyQueue(3);beginStudySession(4);
+  complete(Response.json({error:'Conflict',item:{id:'previous-note',content:'Previous account remote note'}},{status:409}));
+  await previous;assert.deepEqual(events,[]);
+  writeStudyCache(4,'queue',[{id:'current-operation',entity:'knowledge',method:'PATCH',item:{id:'current-note',revision:1}}]);
+  globalThis.fetch=async()=>Response.json({error:'Conflict',item:{id:'current-note',revision:2}},{status:409});
+  await assert.rejects(syncStudyQueue(4),error=>error.status===409);
+  assert.equal(events.length,1);assert.equal(events[0].operation.id,'current-operation');assert.equal(events[0].remote.id,'current-note');
+ }finally{globalThis.fetch=originalFetch;if(windowDescriptor)Object.defineProperty(globalThis,'window',windowDescriptor);else delete globalThis.window;fixture.close();}
+});

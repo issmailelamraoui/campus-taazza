@@ -85,20 +85,18 @@ try{
   await page.reload();await expect(page.getByLabel('Nom affiché',{exact:true})).toHaveValue('Sara Intégration');assert.equal((await json(page,'/session')).user.bio,'Profil enregistré dans PostgreSQL');
   await expect(page.locator('#preferences').getByRole('checkbox',{name:'Nouvelles ressources',exact:true})).not.toBeChecked();await expect(page.locator('#preferences').getByRole('checkbox',{name:'Messages de l’administration',exact:true})).not.toBeChecked();await context.close();
  });
- await scenario('Student semester changes through profile settings persist across reloads',async()=>{
+ await scenario('Assigned academic context stays protected and students can request a correction',async()=>{
   const {context,page}=await pageFor();active=page;await login(page,'sara');await page.goto(origin+'/app/profile');
   const initial=(await json(page,'/session')).user,semester=Number(initial.current_semester),nextSemester=semester===1?2:1;
   const academic=page.locator('.academic-settings');await expect(academic).toBeVisible();
-  await chooseOption(academic.getByRole('combobox',{name:'Votre semestre actuel',exact:true}),String(nextSemester));
-  await academic.getByRole('button',{name:'Enregistrer mon parcours',exact:true}).click();
-  await expect.poll(async()=>(await json(page,'/session')).user.current_semester).toBe(nextSemester);
-  assert.equal((await json(page,'/session')).user.filiere_id,initial.filiere_id);await page.reload();
-  await expect(page.locator('.academic-settings').getByRole('combobox',{name:'Votre semestre actuel',exact:true})).toContainText('S'+nextSemester);
-  assert.equal((await json(page,'/bootstrap')).user.current_semester,nextSemester);
-  await chooseOption(page.locator('.academic-settings').getByRole('combobox',{name:'Votre semestre actuel',exact:true}),String(semester));
-  await page.locator('.academic-settings').getByRole('button',{name:'Enregistrer mon parcours',exact:true}).click();
-  await expect.poll(async()=>(await json(page,'/session')).user.current_semester).toBe(semester);await page.reload();
-  await expect(page.locator('.academic-settings').getByRole('combobox',{name:'Votre semestre actuel',exact:true})).toContainText('S'+semester);await context.close();
+  await expect(academic).toContainText('S'+semester);await expect(academic.getByRole('combobox')).toHaveCount(0);
+  const forbidden=await page.request.patch(origin+'/api/profile',{data:{current_semester:nextSemester}});
+  assert.equal(forbidden.status(),403,'Assigned university identity is changed by administration.');
+  await page.reload();await expect(page.locator('.academic-settings')).toContainText('S'+semester);
+  const persisted=(await json(page,'/session')).user;
+  assert.equal(persisted.current_semester,semester);assert.equal(persisted.filiere_id,initial.filiere_id);
+  await page.locator('.academic-settings').getByRole('link',{name:'Demander une correction',exact:true}).click();
+  await expect(page).toHaveURL(origin+'/app/feedback');await expect(page.locator('h1')).toBeVisible();await context.close();
  });
  await scenario('Global administrator retains existing eight tabs with real accounts and publications',async()=>{
   const {context,page}=await pageFor();active=page;await login(page,'admin','Admin2026!');await expect(page.locator('.admin-page')).toBeVisible();await expect(page.locator('.admin-page [role=tab]')).toHaveCount(8);
@@ -121,7 +119,7 @@ try{
  });
  await scenario('Source faculty and moderator permissions remain enforced by UI and API',async()=>{
   const faculty=await pageFor();active=faculty.page;await login(faculty.page,'professeure');await faculty.page.goto(origin+'/app/admin?tab=accounts');await expect(faculty.page.locator('.admin-page')).toBeVisible();
-  await expect(faculty.page.locator('.admin-page [role=tab]')).toHaveCount(8);await expect(faculty.page.getByRole('button',{name:'Ajouter un compte',exact:true})).toBeDisabled();await expect(faculty.page.locator('#admin-admissions-title')).toHaveCount(0);
+  await expect(faculty.page.locator('.admin-page [role=tab]')).toHaveCount(7);await expect(faculty.page.getByRole('tab',{name:'Organisation',exact:true})).toHaveCount(0);await expect(faculty.page.getByRole('button',{name:'Ajouter un compte',exact:true})).toBeDisabled();await expect(faculty.page.locator('#admin-admissions-title')).toHaveCount(0);
   const records=await json(faculty.page,'/admin');assert.ok(records.users.length>0);assert.ok(records.users.every(item=>item.faculty_id==='flaa'));assert.ok(records.resources.every(item=>item.faculty_id==='flaa'));
   assert.equal((await faculty.page.request.get(origin+'/api/admin/registrations')).status(),403);assert.equal((await faculty.page.request.get(origin+'/api/chat/blocks')).status(),403);await faculty.context.close();
   const {context,page}=await pageFor();active=page;await login(page,'amina');await page.goto(origin+'/app/admin');await expect(page.locator('.admin-page')).toBeVisible();await expect(page.locator('.admin-page [role=tab]')).toHaveCount(3);const denied=await page.request.get(origin+'/api/admin/registrations');assert.equal(denied.status(),403);await context.close();

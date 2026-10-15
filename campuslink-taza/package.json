@@ -50,7 +50,8 @@
     "test:labs-languages": "node tests/labs-languages.browser.mjs",
     "test:password-recovery": "node --test tests/backend-auth.test.mjs tests/backend-password-reset.test.mjs",
     "test:password-reset-ui": "node tests/admin-password-reset.browser.mjs",
-    "test:password-change-ui": "node tests/password-change.browser.mjs"
+    "test:password-change-ui": "node tests/password-change.browser.mjs",
+    "test:feedback": "node tests/feedback.browser.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1146.0",

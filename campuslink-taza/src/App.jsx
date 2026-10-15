@@ -3,8 +3,8 @@ import {Navigate,Route,Routes,useLocation} from 'react-router-dom';
 import {AlertCircle,Check,X} from 'lucide-react';
 import {useApp} from './context';
 import {accountDestination,requiresPasswordChange} from './lib/backend';
-import AppShell from './components/AppShell';
-import Dialogs from './components/Modals';
+const AppShell=React.lazy(()=>import('./components/AppShell'));
+const Dialogs=React.lazy(()=>import('./components/Modals'));
 import {LandingPage,LoginPage,OnboardingPage,RegisterPage,AccountReviewPage} from './pages/PublicPages';
 const LibraryPage=React.lazy(()=>import('./pages/LibraryPage'));
 const CommunityPage=React.lazy(()=>import('./pages/CommunityPage'));
@@ -17,7 +17,12 @@ const FeedbackPage=React.lazy(()=>import('./pages/FeedbackPage'));
 const XPPage=React.lazy(()=>import('./pages/XPPage'));
 const PermissionsPage=React.lazy(()=>import('./pages/PermissionsPage'));
 const PasswordChangePage=React.lazy(()=>import('./pages/PasswordChangePage'));
-import {HomePage,AnnouncementsPage,NotificationsPage,SavedPage,ProfilePage} from './pages/StudentPages';
+const studentPage=name=>React.lazy(()=>import('./pages/StudentPages').then(module=>({default:module[name]})));
+const HomePage=studentPage('HomePage');
+const AnnouncementsPage=studentPage('AnnouncementsPage');
+const NotificationsPage=studentPage('NotificationsPage');
+const SavedPage=studentPage('SavedPage');
+const ProfilePage=studentPage('ProfilePage');
 import './styles/interaction-overrides.css';
 
 function SessionStatus(){
@@ -59,7 +64,7 @@ function NotificationLifecycle(){
  return null;
 }
 export default function App(){
- const {user,selection,isAdmin,loading,toast,setToast,t}=useApp(),destination=accountDestination(user,selection,isAdmin);
+ const {user,selection,isAdmin,loading,dialog,toast,setToast,t}=useApp(),destination=accountDestination(user,selection,isAdmin);
  return <><ScrollReset/><NotificationLifecycle/><React.Suspense fallback={<SessionStatus/>}><Routes>
   <Route path="/" element={<LandingPage/>}/>
   <Route path="/login" element={loading?<SessionStatus/>:user?<Navigate to={destination} replace/>:<LoginPage/>}/>
@@ -70,5 +75,5 @@ export default function App(){
   <Route path="/app" element={<Protected/>}>
    <Route index element={<HomePage/>}/><Route path="library" element={<LibraryPage/>}/><Route path="community" element={<CommunityPage/>}/><Route path="study" element={<StudyPage/>}/><Route path="scanner" element={<ScannerPage/>}/><Route path="campus" element={<CampusPage/>}/><Route path="labs" element={<CampusLabs/>}/><Route path="feedback" element={<FeedbackPage/>}/><Route path="xp" element={<XPPage/>}/><Route path="permissions" element={user?.role==='global_admin'?<PermissionsPage/>:<Navigate to="/app" replace/>}/><Route path="announcements" element={<AnnouncementsPage/>}/><Route path="notifications" element={<NotificationsPage/>}/><Route path="saved" element={<SavedPage/>}/><Route path="profile" element={<ProfilePage/>}/><Route path="admin" element={isAdmin?<AdminPage/>:<Navigate to="/app" replace/>}/><Route path="*" element={<Navigate to="/app" replace/>}/>
   </Route><Route path="*" element={<Navigate to="/" replace/>}/>
- </Routes></React.Suspense><Dialogs/>{toast&&<div className="toast" role={toast.type==='error'?'alert':'status'} aria-live="polite">{toast.type==='error'?<AlertCircle size={17}/>:<Check size={17}/>}<span>{toast.message}</span><button className="icon-btn" aria-label={t('close')} onClick={()=>setToast(null)}><X size={15}/></button></div>}</>;
+ </Routes></React.Suspense>{dialog&&<React.Suspense fallback={null}><Dialogs/></React.Suspense>}{toast&&<div className="toast" role={toast.type==='error'?'alert':'status'} aria-live="polite">{toast.type==='error'?<AlertCircle size={17}/>:<Check size={17}/>}<span>{toast.message}</span><button className="icon-btn" aria-label={t('close')} onClick={()=>setToast(null)}><X size={15}/></button></div>}</>;
 }

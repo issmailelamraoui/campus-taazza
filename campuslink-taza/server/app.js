@@ -11,6 +11,7 @@ import { createStorage, resourceObjectKey, storageObjectKey } from './storage.js
 import { uploadFilePath } from './upload-path.js';
 import { moduleName, RESOURCE_MODULE_SQL, resolveModule } from './modules.js';
 import { createPermissions } from './permissions.js';
+import { createRateLimiter } from './rate-limit.js';
 import { detectFile, mayInlineFile } from './files.js';
 import { academicYear, academicYears, yearsOf, compareAcademicYears, yearsOverlap } from './academic-years.js';
 import { installCoreRoutes } from './core-routes.js';
@@ -68,10 +69,12 @@ function uploadBoolean(value, fallback) {
 
 export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: suppliedStorage, connectionString = process.env.DATABASE_URL, schema, migrate = process.env.CAMPUS_DB_MIGRATE !== 'false', seed = process.env.CAMPUS_DB_SEED !== 'false', appOrigin = process.env.APP_ORIGIN } = {}) {
   const db = suppliedDb || await openDatabase({connectionString,schema,migrate});
-  try{await assertSchemaReady(db);}catch(error){if(!suppliedDb)await db.close();throw error;}
+  let app,storage=suppliedStorage,auth=suppliedAuth;
+  try {
+  await assertSchemaReady(db);
   const checkReadiness=createSchemaReadinessCheck(db);
-  const storage = suppliedStorage || createStorage();
-  const auth = suppliedAuth || createAuthService({db,appOrigin});
+  storage = suppliedStorage || createStorage();
+  auth = suppliedAuth || createAuthService({db,appOrigin});
   if (seed) await seedDatabase(db);
   const permissions=await createPermissions(db);
   const {isOwner}=permissions;
@@ -79,14 +82,14 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
   const channelDefaults={general:['Chat général','Échanges autour des cours et de la vie universitaire.'],filiere:['Chats de filière','Échanges de votre filière par semestre.'],important:['Discussions importantes','Informations prioritaires et échéances à retenir.']};
   const addChannel=db.prepare('INSERT INTO channels (id,faculty_id,name,description) VALUES (?,?,?,?) ON CONFLICT (id,faculty_id) DO NOTHING');
   for(const faculty of (await db.prepare('SELECT id FROM faculties').all()))for(const [id,[name,description]]of Object.entries(channelDefaults))(await addChannel.run(id,faculty.id,name,description));
-  const app = express();
+  app = express();
   app.disable('x-powered-by');
   app.use(express.json({ limit: '3mb' }));
   const clients = new Map();
   const heartbeats = new Set();
-  const attempts = new Map();
-  const registrationAttempts = new Map();
-  const contactAttempts = new Map();
+  const attempts = createRateLimiter({limit:12,windowMs:900000,message:'Trop de tentatives. Réessayez dans 15 minutes.'});
+  const registrationAttempts = createRateLimiter({limit:120,windowMs:900000,message:'Trop de demandes d’inscription. Réessayez dans 15 minutes.'});
+  const contactAttempts = createRateLimiter({limit:8,windowMs:3600000,message:'Trop de demandes. Réessayez dans une heure.'});
   const upload = multer({storage: multer.memoryStorage(), limits: {fileSize: 20 * 1024 * 1024, files: 1, fields: 20, fieldSize: 10000}});
   app.locals.db = db;
   app.locals.storage = storage;
@@ -118,7 +121,7 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
       } else {
         if(req.user.password_change_required&&!['/session','/login','/logout','/health','/contact','/password-reset/complete'].includes(req.path))throw Object.assign(problem(403,'Changez votre mot de passe temporaire avant de continuer.'),{code:'PASSWORD_CHANGE_REQUIRED'});
         req.user.chat_blocked=await isChatBlocked(req.user);
-        await db.prepare('UPDATE users SET last_seen=? WHERE id=?').run(now(),req.user.id);
+        await db.prepare('UPDATE users SET last_seen=? WHERE id=? AND (last_seen IS NULL OR last_seen<?)').run(now(),req.user.id,new Date(Date.now()-60000).toISOString());
       }
     }
     next();
@@ -425,9 +428,7 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
   });
   app.post('/api/register',async(req,res)=>{
     if(req.user)throw problem(409,'Déconnectez-vous avant de créer un compte.');
-    const key=req.ip,previous=registrationAttempts.get(key);
-    if(previous?.expires>Date.now()&&previous.count>=120)throw problem(429,'Trop de demandes d’inscription. Réessayez dans 15 minutes.');
-    registrationAttempts.set(key,{count:previous?.expires>Date.now()?previous.count+1:1,expires:Date.now()+900000});
+    registrationAttempts.take(req.ip);
     const username=string(req.body.username,'Nom d’utilisateur',40),name=string(req.body.name,'Nom',100),email=string(req.body.email,'Adresse e-mail',160).toLowerCase(),password=passwordValue(req.body.password);
     if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))throw problem(400,'Adresse e-mail invalide.');
     if(!/^[\p{L}\p{N}_.-]{3,40}$/u.test(username))throw problem(400,'Nom d’utilisateur invalide.');
@@ -461,8 +462,7 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
     const username = string(req.body.username, 'Nom d’utilisateur', 160);
     const password = passwordValue(req.body.password);
     const key = req.ip;
-    const attempt = attempts.get(key);
-    if (attempt && attempt.expires > Date.now() && attempt.count >= 12) throw problem(429, 'Trop de tentatives. Réessayez dans 15 minutes.');
+    const releaseAttempt = attempts.take(key);
     let u;
     try {
       const profile=await db.prepare('SELECT * FROM users WHERE LOWER(username)=LOWER(?) OR LOWER(email)=LOWER(?)').get(username,username);
@@ -472,10 +472,10 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
       u=signed.user;
     } catch(error) {
       // Temporary database/provider outages are not incorrect credentials.
-      if (error.status === 401) attempts.set(key, {count:attempt?.expires > Date.now() ? attempt.count+1 : 1, expires:Date.now()+900000});
+      if (error.status !== 401) releaseAttempt();
       throw error;
     }
-    attempts.delete(key);
+    attempts.reset(key);
     res.json({user:await selfUser(u)});
   });
   app.post('/api/logout', async (req, res) => {
@@ -828,19 +828,17 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
     await broadcast(req.user.faculty_id);await broadcastAdminInbox(recipients);res.status(201).json({id});
   });
   app.post('/api/contact', async (req,res) => {
-    const key=req.ip, attempt=contactAttempts.get(key);
-    if(attempt && attempt.expires>Date.now() && attempt.count>=8) throw problem(429,'Trop de demandes. Réessayez dans une heure.');
     const name=string(req.body.name||req.user?.name||'','Nom',100,!req.user);
     const email=string(req.body.email||'','Adresse e-mail',160,!req.user);
     if(email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw problem(400,'Adresse e-mail invalide.');
     const subject=string(req.body.subject,'Objet',160), content=string(req.body.message,'Message',4000);
+    const releaseAttempt=contactAttempts.take(req.ip);
     const {id,recipients}=await transaction(async()=>{
       const faculty=req.user?.faculty_id||null;
       const id=Number((await db.prepare('INSERT INTO contacts (faculty_id,user_id,name,email,subject,message,created_at,filiere_id) VALUES (?,?,?,?,?,?,?,?)').run(faculty,req.user?.id||null,name,email,subject,content,now(),req.user?.filiere_id||null)).lastInsertRowid);
       const recipients=await notifyAdminInbox(faculty,'Nouvelle demande de contact',name||req.user?.name||subject,`/app/admin?tab=contacts&contact=${id}`,{filiereId:req.user?.filiere_id||null});
       return {id,recipients};
-    });
-    contactAttempts.set(key,{count:attempt?.expires>Date.now()?attempt.count+1:1,expires:Date.now()+3600000});
+    }).catch(error=>{releaseAttempt();throw error;});
     await broadcastAdminInbox(recipients);
     res.status(201).json({id,ok:true});
   });
@@ -920,16 +918,26 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
     if(date&&!/^\d{4}-\d{2}-\d{2}$/.test(date))throw problem(400,'Date invalide.');
     const results=[];
     const matches=(text)=>!q||text.toLocaleLowerCase().includes(q);
-    const baseMatches=async (row)=>{const a=row.public_author_label?{id:null,username:'',name:row.public_author_label}:(await author(row.author_id||row.id));return (!authorFilter||String(a.id)===authorFilter||a.username===authorFilter)&&(!date||String(row.created_at||'').startsWith(date));};
-    if(!type||type==='resource'||CATEGORIES.includes(type))for(const r of (await db.prepare('SELECT * FROM resources WHERE faculty_id=? AND filiere_id=ANY(?) AND removed=0 AND library_visible=1 ORDER BY created_at DESC').all(req.user.faculty_id,accessibleFilieres(req.user)))){
-      const category=classificationCategory(r.category,r.resource_type);
-      if(type&&type!=='resource'&&category!==type)continue;
-      if(semester&&r.semester!==semester||module&&r.module.toLocaleLowerCase()!==module||!await baseMatches(r)||!matches(`${r.title} ${r.filename} ${r.module} ${r.teacher_name||''} ${r.part_number||''}`))continue;
-      results.push({id:r.id,type:category,title:r.title,context:`${r.filename} · ${r.module}${r.semester?` · S${r.semester}`:''}`,path:resourcePath(r),author:(await author(r.author_id)),semester:r.semester,module:r.module,academic_year:r.academic_year,academic_years:yearsOf(r),date:r.created_at});
-    }
-    if((!type||type==='message')&&!module)for(const m of (await db.prepare('SELECT * FROM messages WHERE faculty_id=? AND removed=0 ORDER BY created_at DESC').all(req.user.faculty_id)))if(canReadMessage(m,req.user)&&(!semester||m.channel==='filiere'&&getChatSemester(m.semester)===getChatSemester(semester))&&matches(m.content)&&await baseMatches(m))results.push({id:m.id,type:'message',title:m.content.slice(0,100),context:`#${m.channel}${m.channel==='filiere'?` · ${getChatSemesterLabel(m.semester)}`:''} · ${(await author(m.author_id)).name}`,path:messagePath(m),author:(await author(m.author_id)),semester:m.channel==='filiere'?getChatSemester(m.semester):m.semester,filiere_id:m.filiere_id,date:m.created_at});
-    if((!type||type==='announcement')&&!semester&&!module)for(const a of (await db.prepare('SELECT * FROM announcements WHERE faculty_id=? ORDER BY created_at DESC').all(req.user.faculty_id)))if((await canReadAnnouncement(a,req.user))&&matches(a.content)&&await baseMatches(a))results.push({id:a.id,type:'announcement',title:a.content.slice(0,100),context:a.public_author_label||(await author(a.author_id)).name,path:`/app/announcements#announcement-${a.id}`,author:a.public_author_label?{id:null,name:a.public_author_label,username:'',avatar:'',role:'student'}:(await author(a.author_id)),date:a.created_at});
-    if((!type||type==='member')&&!semester&&!module&&!date)for(const raw of (await db.prepare("SELECT id,name,username,avatar,role FROM users WHERE faculty_id=? AND disabled=0 AND account_status='approved' ORDER BY name").all(req.user.faculty_id))){const u=studentProfile(raw);if(matches(`${u.name} ${u.username}`)&&(!authorFilter||String(u.id)===authorFilter||u.username===authorFilter))results.push({id:u.id,type:'member',title:u.name,context:`@${u.username}`,path:`/app/members#member-${u.id}`,author:u});}
+    const [resourceRows,messageRows,announcementRows,memberRows]=await Promise.all([
+      !type||type==='resource'||CATEGORIES.includes(type)?db.prepare('SELECT * FROM resources WHERE faculty_id=? AND filiere_id=ANY(?) AND removed=0 AND library_visible=1 ORDER BY created_at DESC').all(req.user.faculty_id,accessibleFilieres(req.user)):[],
+      (!type||type==='message')&&!module?db.prepare('SELECT * FROM messages WHERE faculty_id=? AND removed=0 ORDER BY created_at DESC').all(req.user.faculty_id):[],
+      (!type||type==='announcement')&&!semester&&!module?db.prepare('SELECT * FROM announcements WHERE faculty_id=? ORDER BY created_at DESC').all(req.user.faculty_id):[],
+      (!type||type==='member')&&!semester&&!module&&!date?db.prepare("SELECT id,name,username,avatar,role FROM users WHERE faculty_id=? AND disabled=0 AND account_status='approved' ORDER BY name").all(req.user.faculty_id):[],
+    ]);
+    const access=await readability(req.user,{messages:messageRows,announcements:announcementRows});
+    const onDate=row=>!date||String(row.created_at||'').startsWith(date);
+    const resources=resourceRows.filter(r=>(!type||type==='resource'||classificationCategory(r.category,r.resource_type)===type)&&(!semester||r.semester===semester)&&(!module||r.module.toLocaleLowerCase()===module)&&onDate(r)&&matches(`${r.title} ${r.filename} ${r.module} ${r.teacher_name||''} ${r.part_number||''}`));
+    const messages=messageRows.filter(m=>canReadMessage(m,req.user)&&(!semester||m.channel==='filiere'&&getChatSemester(m.semester)===getChatSemester(semester))&&onDate(m)&&matches(m.content));
+    const announcements=announcementRows.filter(a=>access.readable('announcements',a)&&onDate(a)&&matches(a.content));
+    const authorIds=[...new Set([...resources,...messages,...announcements].filter(row=>!row.public_author_label).map(row=>row.author_id).filter(Boolean))];
+    const authors=authorIds.length?await db.prepare('SELECT id,name,username,avatar,account_status FROM users WHERE id=ANY(?)').all(authorIds):[];
+    const authorsById=new Map((await publicProfiles(authors)).map(u=>[u.id,u]));
+    const searchAuthor=row=>row.public_author_label?{id:null,name:row.public_author_label,username:'',avatar:'',role:'student'}:authorsById.get(row.author_id)||{id:row.author_id,name:'Utilisateur',username:'',avatar:'',role:'student',achievements:[]};
+    const byAuthor=a=>!authorFilter||String(a.id)===authorFilter||a.username===authorFilter;
+    for(const r of resources){const a=searchAuthor(r);if(byAuthor(a))results.push({id:r.id,type:classificationCategory(r.category,r.resource_type),title:r.title,context:`${r.filename} · ${r.module}${r.semester?` · S${r.semester}`:''}`,path:resourcePath(r),author:a,semester:r.semester,module:r.module,academic_year:r.academic_year,academic_years:yearsOf(r),date:r.created_at});}
+    for(const m of messages){const a=searchAuthor(m);if(byAuthor(a))results.push({id:m.id,type:'message',title:m.content.slice(0,100),context:`#${m.channel}${m.channel==='filiere'?` · ${getChatSemesterLabel(m.semester)}`:''} · ${a.name}`,path:messagePath(m),author:a,semester:m.channel==='filiere'?getChatSemester(m.semester):m.semester,filiere_id:m.filiere_id,date:m.created_at});}
+    for(const row of announcements){const a=searchAuthor(row);if(byAuthor(a))results.push({id:row.id,type:'announcement',title:row.content.slice(0,100),context:a.name,path:`/app/announcements#announcement-${row.id}`,author:a,date:row.created_at});}
+    for(const raw of memberRows){const u=studentProfile(raw);if(matches(`${u.name} ${u.username}`)&&byAuthor(u))results.push({id:u.id,type:'member',title:u.name,context:`@${u.username}`,path:`/app/members#member-${u.id}`,author:u});}
     results.sort((a,b)=>compareAcademicYears(a,b,req.user.current_academic_year||academicYear(process.env.CAMPUS_ACADEMIC_YEAR)));
     res.json({results:results.slice(0,100)});
   });
@@ -1325,4 +1333,12 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
     res.status(status).json({error:message,...(err.code&&['ACCOUNT_PENDING','ACCOUNT_REJECTED','RESOURCE_SLOT_CONFLICT','DOCUMENT_INDEX_REQUIRED','READING_SESSION_REPLACED','ATTACHMENT_RETRY_REQUIRED','PASSWORD_CHANGE_REQUIRED','PASSWORD_RESET_PENDING','PASSWORD_RESET_UNKNOWN','PASSWORD_RESET_EXPIRED','AUTH_ADMIN_CONFIGURATION','AUTH_ADMIN_SESSION_EXPIRED'].includes(err.code)?{code:err.code}:{}),...(err.resource?{resource:err.resource}:{})});
   });
   return app;
+  } catch(error) {
+    // Retryable startup failures must release only the resources this attempt
+    // created. Cleanup failures must not replace the original startup error.
+    try{app?.locals.endStreams?.();}catch{}
+    const owned=[!suppliedDb&&db,!suppliedStorage&&storage,!suppliedAuth&&auth].filter(Boolean);
+    await Promise.allSettled(owned.map(resource=>Promise.resolve().then(()=>resource.close?.())));
+    throw error;
+  }
 }

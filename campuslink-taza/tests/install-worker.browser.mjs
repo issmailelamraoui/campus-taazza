@@ -58,6 +58,9 @@ try {
   await expect(page.getByRole('status')).toContainText('CampusLink Taza');
   await expect(page.getByRole('button',{name:'Retry',exact:true})).toBeVisible();
   await expect(page.locator('html')).toHaveAttribute('data-theme','dark');
+  // Reconnecting stays inside the fixture rather than requiring a running
+  // authentication server behind the production preview.
+  await context.route('**/api/**', route => route.fulfill({ json: new URL(route.request().url()).pathname === '/api/session' ? { user: null } : { revision } }));
   await context.setOffline(false);
   await page.getByRole('button', { name: 'Retry', exact: true }).click();
   await expect(page).toHaveURL(/\/login$/);

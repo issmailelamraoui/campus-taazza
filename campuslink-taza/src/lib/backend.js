@@ -40,7 +40,7 @@ export function normalizeResource(raw) {
 export function normalizeMessage(raw, resources = []) {
   const author = typeof raw.author === 'object' ? raw.author : { name: raw.author, id: raw.author_id, username: raw.username };
   let attachments = (raw.attachments || []).map(normalizeResource);
-  const resource = resources.find(item => item.id === id(raw.resource_id));
+  const resource = !attachments.length && raw.resource_id != null ? resources instanceof Map ? resources.get(id(raw.resource_id)) : resources.find(item => item.id === id(raw.resource_id)) : null;
   if (!attachments.length && resource) attachments = [resource];
   const semester = getChatSemester(raw.semester);
   return { ...raw, id: id(raw.id), facultyId: raw.faculty_id, filiereId: raw.filiere_id,
@@ -80,10 +80,11 @@ export function clientPath(path, resources = []) {
 }
 export function normalizeBootstrap(raw) {
   const resources = (raw.resources || []).map(normalizeResource);
+  const resourcesById = new Map(resources.map(resource => [resource.id, resource]));
   const user = normalizeUser(raw.user);
   const hiddenMessages = new Set((raw.messages || []).filter(item => ['help','life'].includes(item.channel)).map(item => id(item.id)));
   return { ...raw, user, resources,
-    messages: (raw.messages || []).filter(item => !['help','life'].includes(item.channel)).map(item => normalizeMessage(item, resources)),
+    messages: (raw.messages || []).filter(item => !['help','life'].includes(item.channel)).map(item => normalizeMessage(item, resourcesById)),
     announcements: (raw.announcements || []).filter(item => !['help','life'].includes(item.channel) && !hiddenMessages.has(id(item.message_id))).map(normalizeAnnouncement),
     notifications: (raw.notifications || []).filter(item => item.type !== 'calendar' && !String(item.path || '').includes('/calendar')).map(item => {
       const target = /#(?:resource|announcement|message|event)-(\d+)/.exec(item.path || '');

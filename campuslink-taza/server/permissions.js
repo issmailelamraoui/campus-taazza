@@ -30,12 +30,22 @@ export async function createPermissions(db) {
     if(!user)return user;
     let passwordResetState=null;
     if(user.password_change_required){const operation=await db.prepare('SELECT status FROM password_reset_operations WHERE operation_id=?').get(user.password_reset_operation_id);passwordResetState=operation?.status==='issued'&&new Date(user.password_reset_expires_at).getTime()<=Date.now()?'expired':operation?.status==='changing'?'pending':operation?.status||'unknown';}
-    const appointments=await db.prepare('SELECT * FROM scoped_appointments WHERE user_id=? AND revoked_at IS NULL').all(user.id);
-    const totals=await db.prepare("SELECT u.id,COALESCE(SUM(e.points) FILTER(WHERE e.status='valid'),0) AS xp FROM users u LEFT JOIN xp_events e ON e.user_id=u.id WHERE u.faculty_id=? AND u.filiere_id=? AND u.role IN('student','faculty_leader') AND u.disabled=0 AND u.account_status='approved' GROUP BY u.id").all(user.faculty_id,user.filiere_id);
-    const highest=Math.max(0,...totals.map(row=>Number(row.xp)));
-    const ranked=totals.find(row=>row.id===user.id);
-    const own=Number(ranked?ranked.xp:(await db.prepare("SELECT COALESCE(SUM(points),0) AS xp FROM xp_events WHERE user_id=? AND status='valid'").get(user.id)).xp); 
-    return {...user,password_reset_state:passwordResetState,appointments,validated_xp:own,xp_upload_leader:!!ranked&&highest>0&&own===highest,owner:isOwner(user)};
+    const [appointments,standing]=await Promise.all([
+      db.prepare('SELECT * FROM scoped_appointments WHERE user_id=? AND revoked_at IS NULL').all(user.id),
+      // Return one summary instead of sending the entire programme ranking to
+      // Node for every authenticated request. Ties and local revocations still
+      // use the current ledger rather than a cached privilege decision.
+      db.prepare(`WITH totals AS (
+        SELECT u.id,COALESCE(SUM(e.points),0) AS xp FROM users u
+        LEFT JOIN xp_events e ON e.user_id=u.id AND e.status='valid'
+        WHERE u.faculty_id=? AND u.filiere_id=? AND u.role IN('student','faculty_leader')
+          AND u.disabled=0 AND u.account_status='approved' GROUP BY u.id
+      ) SELECT COALESCE(MAX(xp),0) AS highest,
+        COALESCE(MAX(xp) FILTER(WHERE id=?),(SELECT SUM(points) FROM xp_events WHERE user_id=? AND status='valid'),0) AS xp,
+        COALESCE(BOOL_OR(id=?),FALSE) AS eligible FROM totals`).get(user.faculty_id,user.filiere_id,user.id,user.id,user.id),
+    ]);
+    const own=Number(standing.xp),highest=Number(standing.highest);
+    return {...user,password_reset_state:passwordResetState,appointments,validated_xp:own,xp_upload_leader:standing.eligible&&highest>0&&own===highest,owner:isOwner(user)};
   }
   function can(user,capability,facultyId,filiereId=null){
     if(isOwner(user))return true;
