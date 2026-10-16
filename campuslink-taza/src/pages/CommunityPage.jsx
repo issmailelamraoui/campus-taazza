@@ -105,6 +105,15 @@ const motion = () =>
     ? "auto"
     : "smooth";
 
+// Keep an active software keyboard open when tapping composer controls. This
+// prevents the pointer's focus transfer, without cancelling the ensuing click.
+function keepComposerFocus(event) {
+  if (event.isPrimary && event.button === 0 &&
+      document.activeElement?.matches(".community-composer-input textarea")) {
+    event.preventDefault();
+  }
+}
+
 function MessageContent({ children, query = "" }) {
   const text = String(children || "");
   const escaped = query.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -379,36 +388,64 @@ function AttachmentPicker({ fileInputRef, folderInputRef, tr, disabled = false }
   const [position, setPosition] = useState({ left: 8, top: 8 });
   const triggerRef = useRef(null);
   const menuRef = useRef(null);
+  const keyboardOrigin = useRef(false);
   const id = React.useId();
   const label = tr('Joindre un document', 'Attach a document', 'إرفاق مستند');
   useLayoutEffect(() => {
     if (!open) return;
-    const trigger = triggerRef.current.getBoundingClientRect();
-    const menu = menuRef.current.getBoundingClientRect();
-    setPosition({ left: Math.max(8, Math.min(trigger.left, window.innerWidth - menu.width - 8)), top: Math.max(8, trigger.top - menu.height - 8) });
-    menuRef.current.querySelector('button')?.focus({ preventScroll: true });
+    const viewport = window.visualViewport;
+    let frame;
+    function place() {
+      const trigger = triggerRef.current.getBoundingClientRect();
+      const menu = menuRef.current.getBoundingClientRect();
+      const left = viewport?.offsetLeft || 0;
+      const top = viewport?.offsetTop || 0;
+      const width = viewport?.width || window.innerWidth;
+      const height = viewport?.height || window.innerHeight;
+      const maxHeight = Math.max(0, height - 16);
+      const menuHeight = Math.min(menu.height, maxHeight);
+      setPosition({
+        left: Math.max(left + 8, Math.min(trigger.left, left + width - menu.width - 8)),
+        top: Math.max(top + 8, Math.min(trigger.top - menuHeight - 8, top + height - menuHeight - 8)),
+        maxHeight,
+      });
+    }
+    function schedule() {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(place);
+    }
+    place();
+    if (keyboardOrigin.current) menuRef.current.querySelector('button')?.focus({ preventScroll: true });
+    viewport?.addEventListener('resize', schedule);
+    viewport?.addEventListener('scroll', schedule);
+    window.addEventListener('resize', schedule);
+    window.addEventListener('scroll', schedule, true);
+    return () => {
+      cancelAnimationFrame(frame);
+      viewport?.removeEventListener('resize', schedule);
+      viewport?.removeEventListener('scroll', schedule);
+      window.removeEventListener('resize', schedule);
+      window.removeEventListener('scroll', schedule, true);
+    };
   }, [open]);
   useEffect(() => {
     if (!open) return;
     const outside = event => {
       if (!menuRef.current?.contains(event.target) && !triggerRef.current?.contains(event.target)) setOpen(false);
     };
-    const dismiss = () => setOpen(false);
     document.addEventListener('pointerdown', outside);
     document.addEventListener('focusin', outside);
-    window.addEventListener('resize', dismiss);
-    window.addEventListener('scroll', dismiss, true);
     return () => {
       document.removeEventListener('pointerdown', outside);
       document.removeEventListener('focusin', outside);
-      window.removeEventListener('resize', dismiss);
-      window.removeEventListener('scroll', dismiss, true);
     };
   }, [open]);
   return <>
     <button ref={triggerRef} type="button" disabled={disabled} className="community-composer-attach" aria-label={label} title={label}
-      aria-haspopup="menu" aria-expanded={open} aria-controls={open ? id : undefined} onClick={() => setOpen(value => !value)}><Plus size={20} /></button>
+      aria-haspopup="menu" aria-expanded={open} aria-controls={open ? id : undefined} onPointerDown={keepComposerFocus}
+      onClick={event => { keyboardOrigin.current = event.detail === 0; setOpen(value => !value); }}><Plus size={20} /></button>
     {open && createPortal(<div ref={menuRef} id={id} role="menu" aria-label={label} className="community-message-menu community-attachment-menu" style={position}
+      onPointerDown={keepComposerFocus}
       onKeyDown={event => {
         const buttons = [...menuRef.current.querySelectorAll('button')];
         const index = buttons.indexOf(document.activeElement);
@@ -646,7 +683,8 @@ export default function CommunityPage() {
   const blocked = Boolean(user.chatBlocked || user.chat_blocked);
   const missingProgram = Boolean(yearInfo && !selection?.filiereId);
   const readOnly = Boolean(!isAdmin && configuredChannel?.read_only);
-  const composerDisabled = sending || blocked || missingProgram || readOnly;
+  const composerUnavailable = blocked || missingProgram || readOnly;
+  const composerDisabled = sending || composerUnavailable;
   useEffect(() => {
     const resourceId = params.get('share_module');
     if (!resourceId) return;
@@ -711,6 +749,7 @@ export default function CommunityPage() {
     const history = historyRef.current;
     const node = document.getElementById(`message-${id}`);
     if (!history || !node || !history.contains(node)) return;
+    autoFollow.current = false;
     history.scrollTo({
       top:
         node.getBoundingClientRect().top -
@@ -796,6 +835,19 @@ export default function CommunityPage() {
       input.style.height = `${Math.min(96, Math.max(38, input.scrollHeight))}px`;
     }
   }, [draft, mobileConversation]);
+  useLayoutEffect(() => {
+    const history = historyRef.current;
+    if (!history) return;
+    // Follow viewport/composer resizing only when already at the latest
+    // messages. Reading older messages must not be interrupted by the keyboard.
+    const observer = new ResizeObserver(() => {
+      if (autoFollow.current && !needle) scrollLatest();
+    });
+    observer.observe(history);
+    const content = history.querySelector('.community-message-list');
+    if (content) observer.observe(content);
+    return () => observer.disconnect();
+  }, [channel, mobileConversation, needle, requestedMessage, visibleMessages.length > 0]);
 
   function changeChannel(id) {
     setMobileConversation(true);
@@ -920,8 +972,7 @@ export default function CommunityPage() {
       setQuery("");
       if (requestedMessage) setParams({ channel: targetChannel }, { replace: true });
       requestAnimationFrame(() => {
-        scrollLatest(motion());
-        composerRef.current?.focus();
+        scrollLatest();
       });
       await delivery;
     } catch (error) {
@@ -1538,7 +1589,7 @@ export default function CommunityPage() {
               <textarea
                 ref={composerRef}
                 value={draft}
-                disabled={composerDisabled}
+                disabled={composerUnavailable}
                 onChange={(event) => setDraft(event.target.value)}
                 onKeyDown={(event) => {
                   if (
@@ -1563,6 +1614,7 @@ export default function CommunityPage() {
               <Button
                 variant="primary"
                 type="submit"
+                onPointerDown={keepComposerFocus}
                 disabled={composerDisabled || (!draft.trim() && !attachments.length && !sharedModule)}
                 aria-busy={sending}
                 icon={Send}

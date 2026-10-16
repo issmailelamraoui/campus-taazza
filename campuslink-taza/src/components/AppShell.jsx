@@ -1,6 +1,6 @@
 import { Select } from './Select';
 import PageLoading from './PageLoading';
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   Link,
   NavLink,
@@ -68,6 +68,43 @@ export default function AppShell() {
   const [notificationTab, setNotificationTab] = useState('unread');
   const [logoutBusy, setLogoutBusy] = useState(false);
   const location = useLocation();
+  const isCommunity = location.pathname.replace(/\/$/, "") === "/app/community";
+  const shellRef = useRef(null);
+  useLayoutEffect(() => {
+    if (!isCommunity) return;
+    const shell = shellRef.current;
+    const viewport = window.visualViewport;
+    let frame;
+    function update() {
+      // The keyboard can resize/pan the visual viewport while 100dvh stays
+      // unchanged. Leave pinch zoom to the browser instead of reflowing it.
+      if (viewport && Math.abs(viewport.scale - 1) > 0.01) return;
+      const height = viewport?.height || window.innerHeight;
+      const top = viewport?.offsetTop || 0;
+      shell.style.setProperty("--community-viewport-height", `${height}px`);
+      shell.style.setProperty("--community-viewport-top", `${top}px`);
+      shell.dataset.keyboardOpen = String(window.innerHeight - height - top > 120);
+      shell.dataset.compactViewport = String(height < 480);
+    }
+    function schedule() {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(update);
+    }
+    update();
+    viewport?.addEventListener("resize", schedule);
+    viewport?.addEventListener("scroll", schedule);
+    window.addEventListener("resize", schedule);
+    return () => {
+      cancelAnimationFrame(frame);
+      viewport?.removeEventListener("resize", schedule);
+      viewport?.removeEventListener("scroll", schedule);
+      window.removeEventListener("resize", schedule);
+      shell.style.removeProperty("--community-viewport-height");
+      shell.style.removeProperty("--community-viewport-top");
+      delete shell.dataset.keyboardOpen;
+      delete shell.dataset.compactViewport;
+    };
+  }, [isCommunity]);
   const navigate = useNavigate();
   const panelRef = useRef(null);
   const menuRef = useRef(null);
@@ -166,7 +203,8 @@ export default function AppShell() {
   }, [drawer]);
   return (
     <div
-      className={`app-shell ${location.pathname.replace(/\/$/, "") === "/app/community" ? "app-shell--community" : ""}`}
+      ref={shellRef}
+      className={`app-shell ${isCommunity ? "app-shell--community" : ""}`}
     >
       <a href="#main-content" className="skip-link">
         {tr("Aller au contenu", "Skip to content", "انتقل إلى المحتوى")}

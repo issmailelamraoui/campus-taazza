@@ -1,6 +1,9 @@
 /* The community route owns a single viewport-sized messaging workspace. */
 .app-shell--community {
-  height: 100dvh;
+  position: fixed;
+  inset-inline: 0;
+  top: var(--community-viewport-top, 0px);
+  height: var(--community-viewport-height, 100dvh);
   min-height: 0;
   overflow: hidden;
 }
@@ -26,6 +29,21 @@
 }
 .app-shell--community .app-footer {
   display: none;
+}
+.app-shell--community .mobile-bottom-nav {
+  position: absolute;
+}
+.app-shell--community[data-keyboard-open="true"] .mobile-bottom-nav {
+  display: none;
+}
+.app-shell--community[data-keyboard-open="true"] .app-main {
+  padding-bottom: 0;
+}
+@media (max-width: 1100px) {
+  .app-shell--community[data-compact-viewport="true"]:is([data-keyboard-open="true"], :has(.community-composer-input textarea:focus))
+    :is(.app-header, .academic-context-bar, .community-composer-help) {
+    display: none;
+  }
 }
 .community-page {
   width: 100%;
@@ -376,6 +394,7 @@ html[data-input-modality="keyboard"] .community-search-bar input:focus-visible {
   overflow-y: auto;
   overflow-x: hidden;
   overscroll-behavior: contain;
+  overflow-anchor: none;
   scrollbar-width: thin;
   scrollbar-color: var(--line) transparent;
   padding: 5px 28px 24px;
@@ -712,6 +731,7 @@ html[data-input-modality="keyboard"] .community-message[tabindex]:focus-visible 
 .community-attachment-menu {
   width: 242px;
   border-radius: 13px;
+  overflow-y: auto;
 }
 .community-attachment-menu small {
   display: block;
@@ -924,7 +944,7 @@ html[data-input-modality="keyboard"] .community-composer-input textarea:focus-vi
   flex: 1;
   min-width: 0;
   min-height: 38px;
-  max-height: 96px;
+  max-height: min(96px, calc(var(--community-viewport-height, 100dvh) / 4));
   resize: none;
   overflow-y: auto;
   box-sizing: border-box;
@@ -943,6 +963,9 @@ html[data-input-modality="keyboard"] .community-composer-input textarea:focus-vi
 }
 .community-composer-input textarea:focus {
   outline: none;
+}
+@media (pointer: coarse) {
+  .community-composer-input textarea { font-size: 16px; }
 }
 .community-composer-input .btn {
   display: flex;

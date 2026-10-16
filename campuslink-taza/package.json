@@ -12,6 +12,7 @@
     "test:community": "node tests/community.browser.mjs",
     "test:community-reference": "node tests/community-reference.browser.mjs",
     "test:community-touch": "node tests/community-touch.browser.mjs",
+    "test:community-keyboard": "node tests/community-keyboard.browser.mjs",
     "test:register-mobile": "node tests/register-mobile.browser.mjs",
     "test:corrections": "node tests/corrections.browser.mjs",
     "test:compact-ui": "node tests/compact-ui.browser.mjs",

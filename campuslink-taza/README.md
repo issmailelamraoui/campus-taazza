@@ -118,6 +118,7 @@ npm run test:admin-mobile
 npm run test:profile-photo
 npm run test:labs-runtime
 npm run test:module-sharing
+npm run test:community-keyboard
 node tests/navigation-loading.browser.mjs
 node tests/install-worker.browser.mjs
 ```
@@ -127,6 +128,8 @@ Les tests d’intégration utilisent les véritables routes API et un schéma Po
 Le compte rendu de la revue du 15 octobre 2026 est dans [docs/code-audit-2026-10-15.md](docs/code-audit-2026-10-15.md). Les nouvelles corrections des dépôts, de la navigation, du lecteur, de Labs et du partage de modules sont décrites dans [docs/ux-reliability-2026-10-16.md](docs/ux-reliability-2026-10-16.md).
 
 `test:frontend-design` vérifie les pages et onglets sur ordinateur, tablette et téléphone, avec les deux thèmes et le français, l’anglais et l’arabe. Il utilise Vite sur 5180 et des réponses API contrôlées, sans modifier les données du campus. Le rapport est enregistré dans `test-results/frontend-consistency/report.json` ; `CAMPUS_DESIGN_SCREENSHOTS=1 npm run test:frontend-design` conserve aussi les captures.
+
+`test:community-keyboard` vérifie la rédaction et le dernier message visibles lors du redimensionnement et du déplacement du viewport visuel, le focus continu après envoi, le menu de pièces jointes dès le premier appui, la lecture des anciens messages et la navigation au clavier. Les API sont simulées ; le backend n’est pas modifié. La suite couvre 320 à 1440 px, le français et l’arabe, les deux thèmes et Firefox avec `CAMPUSLINK_TEST_BROWSER=firefox npm run test:community-keyboard`. Le clavier système n’étant pas disponible en mode headless, ses changements de viewport sont simulés séparément du redimensionnement réel de la fenêtre ; les gestes et le focus utilisent les événements natifs du navigateur.
 
 `test:reader-workspace` vérifie le rendu réel d’un PDF de plusieurs pages, l’espace de lecture, les outils et notes, la recherche, la comparaison, le mode focus et la reprise après une erreur. Le lecteur affiche les pages en défilement continu et ne monte les canevas qu’à proximité de la zone visible. Une seule icône ouvre les réglages, le zoom, les notes, la recherche et les actions secondaires ; les anciennes flèches précédent/suivant ont été retirées. Les tests utilisent des réponses API contrôlées sur Vite 5180.
 
