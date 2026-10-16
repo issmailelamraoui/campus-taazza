@@ -83,6 +83,8 @@ export default function LibraryPage() {
   const handledResourceLink = useRef(null);
   const resultsHeading = useRef(null);
   const modulePicker = useRef(null);
+  const filterChips = useRef(null);
+  const searchInput = useRef(null);
   const pendingModuleScroll = useRef(false);
   // The URL is the single source of filter state, including native Back/Forward.
   const requestedSemester = semesterNumber(
@@ -99,7 +101,8 @@ export default function LibraryPage() {
       ? requestedCategory
       : "all";
   const query = searchParams.get("q") || "";
-  const [sort, setSort] = useState("recent");
+  const requestedSort = searchParams.get("sort");
+  const sort = ["recent", "oldest", "title", "part"].includes(requestedSort) ? requestedSort : "recent";
   const author = searchParams.get("author") || "all";
   const part = searchParams.get("part") || "all";
   const date = searchParams.get("date") || "all";
@@ -187,7 +190,7 @@ export default function LibraryPage() {
   );
   const availableYears = useMemo(() => [...new Set(semesterResources.flatMap(resourceAcademicYears))]
     .sort((a, b) => compareAcademicYears(a, b, currentAcademicYear)), [semesterResources, currentAcademicYear]);
-  const filterCount = [author, part, date, year].filter(
+  const filterCount = [author, part, date].filter(
     (value) => value !== "all",
   ).length;
   const filteredBase = useMemo(
@@ -271,6 +274,7 @@ export default function LibraryPage() {
       module,
       category,
       query,
+      sort,
       author,
       part,
       date,
@@ -285,6 +289,8 @@ export default function LibraryPage() {
       if (state[key] === "all") params.delete(key);
       else params.set(key, state[key]);
     }
+    if (state.sort === "recent") params.delete("sort");
+    else params.set("sort", state.sort);
     if (state.query) params.set("q", state.query);
     else params.delete("q");
     setSearchParams(params, options);
@@ -304,16 +310,18 @@ export default function LibraryPage() {
       }),
     );
   };
-  const clearFilters = () =>
-    navigateLibrary({
-      query: "",
-      module: null,
-      category: "all",
-      author: "all",
-      part: "all",
-      date: "all",
-      year: "all",
+  const clearFilters = (event) => {
+    navigateLibrary({ query: "", category: "all", author: "all", part: "all", date: "all", year: "all" });
+    if (event?.detail === 0) requestAnimationFrame(() => searchInput.current?.focus({ preventScroll: true }));
+  };
+  const removeFilter = (filter, index, event) => {
+    navigateLibrary(filter.patch);
+    if (event.detail === 0) requestAnimationFrame(() => {
+      const buttons = filterChips.current?.querySelectorAll('button');
+      const next = buttons?.[Math.min(index, buttons.length - 1)] || searchInput.current;
+      next?.focus({ preventScroll: true });
     });
+  };
   const changeSemester = (value) =>
     navigateLibrary({
       semester: value,
@@ -350,6 +358,20 @@ export default function LibraryPage() {
       count: filteredBase.filter((item) => categoryMatches(item, id)).length,
     })),
   ];
+  const dateLabels = {
+    "7": tr("7 derniers jours", "Last 7 days", "آخر 7 أيام"),
+    "30": tr("30 derniers jours", "Last 30 days", "آخر 30 يوماً"),
+    "90": tr("3 derniers mois", "Last 3 months", "آخر 3 أشهر"),
+  };
+  const activeFilters = [
+    query.trim() && { key: "query", label: `${t("search")} : ${query.trim()}`, patch: { query: "" } },
+    category !== "all" && { key: "category", label: categoryLabel(category), patch: { category: "all" } },
+    year !== "all" && { key: "year", label: year === "unknown" ? tr("Année inconnue", "Unknown year", "سنة غير معروفة") : year, patch: { year: "all" } },
+    author !== "all" && { key: "author", label: `${t("author")} : ${author}`, patch: { author: "all" } },
+    part !== "all" && { key: "part", label: partLabel(part, language), patch: { part: "all" } },
+    date !== "all" && { key: "date", label: dateLabels[date] || date, patch: { date: "all" } },
+  ].filter(Boolean);
+  const hasActiveFilters = activeFilters.length > 0;
   const resultsContext = (
     <div
       ref={resultsHeading}
@@ -398,7 +420,8 @@ export default function LibraryPage() {
                   ? tr("Modules", "Modules", "الوحدات")
                   : folderLabel(moduleDisplayName(module))}
               </h2>
-              <span className="library-results-count muted">
+              <span className="library-results-count muted" role="status" aria-live="polite" aria-atomic="true">
+                {module === null && <>{folders.length} {tr("modules", "modules", "وحدات")} · </>}
                 {visible.length}{" "}
                 {tr(
                   visible.length === 1 ? "document" : "documents",
@@ -481,7 +504,6 @@ export default function LibraryPage() {
           </Button>
         }
       />
-      <details className="card library-pdf-search"><summary>{tr('Rechercher dans le texte des PDF','Search inside PDF text','البحث في نص ملفات PDF')}</summary><DocumentTextSearch/></details>
       <section
         className="library-navigation card"
         aria-label={tr(
@@ -490,6 +512,7 @@ export default function LibraryPage() {
           "التنقل الأكاديمي",
         )}
       >
+        <div className="library-semester-selector">
         <div className="library-navigation-heading">
           <div>
             <span className="library-step">01</span>
@@ -540,6 +563,8 @@ export default function LibraryPage() {
             </div>
           ))}
         </div>
+        </div>
+        <div className="library-module-selector">
         <div className="library-module-heading">
           <span className="library-step">02</span>
           <span>
@@ -584,11 +609,7 @@ export default function LibraryPage() {
                 ? tr("Tous les modules", "All modules", "كل الوحدات")
                 : folderLabel(moduleDisplayName(module))}
             </strong>
-            <span className="library-module-trigger-action">
-              {module === null
-                ? tr("Choisir un module", "Choose a module", "اختر الوحدة")
-                : tr("Changer de module", "Change module", "تغيير الوحدة")}
-            </span>
+
           </span>
           <ChevronDown
             size={19}
@@ -693,44 +714,23 @@ export default function LibraryPage() {
             )}
           </p>
         )}
+        </div>
       </section>
       {module !== null && resultsContext}
-      <div className="library-academic-year-control">
-        <Field label={tr("Année universitaire d’utilisation", "Academic year of use", "السنة الجامعية للاستخدام")}>
-          <Select className="input" value={year} onChange={(event) => navigateLibrary({ year: event.target.value })}>
-            <option value="all">{tr("Toutes les années", "All academic years", "كل السنوات الجامعية")}</option>
-            {availableYears.map(value => <option key={value} value={value}>{value}{value === currentAcademicYear ? ` · ${tr("année actuelle", "current year", "السنة الحالية")}` : ""}</option>)}
-            <option value="unknown">{tr("Année inconnue", "Unknown year", "سنة غير معروفة")}</option>
-          </Select>
-        </Field>
-        <p className="muted">{tr(
-          "L’année actuelle apparaît d’abord, puis les années précédentes. Les documents sans année restent à la fin.",
-          "Current-year material comes first, followed by previous years. Documents with an unknown year appear last.",
-          "تظهر وثائق السنة الحالية أولاً ثم السنوات السابقة. وتظهر الوثائق ذات السنة غير المعروفة أخيراً.",
-        )}</p>
-      </div>
-      <div className="library-category-tabs">
-        <span className="library-section-label">
-          {tr("Type de document", "Document type", "نوع الوثيقة")}
-        </span>
-        <Tabs
-          items={tabs}
-          value={category}
-          onChange={(value) => navigateLibrary({ category: value })}
-        />
-      </div>
+      <section className="library-browse-controls card" aria-label={tr("Recherche et filtres", "Search and filters", "البحث والفلاتر")}>
       <div className="library-toolbar">
         <label className="library-search">
           <Search size={18} aria-hidden="true" />
           <input
+            ref={searchInput}
             value={query}
             onChange={(event) =>
               navigateLibrary({ query: event.target.value }, { replace: true })
             }
             placeholder={tr(
-              "Rechercher un titre, un module…",
-              "Search a title, a module…",
-              "ابحث عن عنوان أو وحدة…",
+              "Titre, module, auteur…",
+              "Title, module, author…",
+              "عنوان، وحدة، مؤلف…",
             )}
             aria-label={tr(
               "Rechercher des documents",
@@ -766,7 +766,7 @@ export default function LibraryPage() {
             <span className="sr-only">{t("sort")}</span>
             <Select
               value={sort}
-              onChange={(event) => setSort(event.target.value)}
+              onChange={(event) => navigateLibrary({ sort: event.target.value })}
               aria-label={t("sort")}
             >
               <option value="recent">
@@ -780,18 +780,40 @@ export default function LibraryPage() {
               </option>
               <option value="part">
                 {tr(
-                  "Ordre des Parts/Chapitres",
-                  "Part/Chapitre order",
-                  "ترتيب الأجزاء/الفصول",
+                  "Par chapitre",
+                  "By chapter",
+                  "حسب الجزء",
                 )}
               </option>
             </Select>
-            <ChevronDown size={14} />
           </label>
         </div>
       </div>
+        <div className="library-controls-options">
+      <div className="library-category-tabs">
+        <span className="library-section-label">
+          {tr("Type de document", "Document type", "نوع الوثيقة")}
+        </span>
+        <Tabs
+          items={tabs}
+          value={category}
+          onChange={(value) => navigateLibrary({ category: value })}
+        />
+      </div>
+      <div className="library-academic-year-control">
+        <Field label={tr("Année universitaire d’utilisation", "Academic year of use", "السنة الجامعية للاستخدام")}>
+          <Select className="input" value={year} aria-describedby="library-year-hint" onChange={(event) => navigateLibrary({ year: event.target.value })}>
+            <option value="all">{tr("Toutes les années", "All academic years", "كل السنوات الجامعية")}</option>
+            {availableYears.map(value => <option key={value} value={value}>{value}{value === currentAcademicYear ? ` · ${tr("année actuelle", "current year", "السنة الحالية")}` : ""}</option>)}
+            <option value="unknown">{tr("Année inconnue", "Unknown year", "سنة غير معروفة")}</option>
+          </Select>
+        </Field>
+        <p className="muted" id="library-year-hint">{tr("L’année actuelle apparaît d’abord.", "Current-year material appears first.", "تظهر وثائق السنة الحالية أولاً.")}</p>
+      </div>
+        </div>
       {showFilters && (
-        <div className="library-filter-panel card" id="library-filters">
+        <div className="library-filter-panel" id="library-filters">
+          <div className="library-filter-heading"><h3>{tr("Affiner les résultats", "Refine results", "تصفية النتائج")}</h3><Button variant="ghost" icon={X} onClick={() => setShowFilters(false)} aria-label={tr("Masquer les filtres", "Hide filters", "إخفاء الفلاتر")}>{t("close")}</Button></div>
           <div className="form-grid">
             <Field label={t("author")}>
               <Select
@@ -854,15 +876,16 @@ export default function LibraryPage() {
               </Select>
             </Field>
           </div>
-          <Button variant="ghost" icon={X} onClick={clearFilters}>
-            {tr(
-              "Réinitialiser les filtres",
-              "Reset filters",
-              "إعادة ضبط المرشحات",
-            )}
-          </Button>
+
         </div>
       )}
+        {hasActiveFilters && <div className="library-active-filters" aria-label={tr("Filtres actifs", "Active filters", "الفلاتر المفعّلة")}>
+          <span className="library-section-label">{tr("Filtres actifs", "Active filters", "الفلاتر المفعّلة")}</span>
+          <div className="library-filter-chips" ref={filterChips}>{activeFilters.map((filter, index) => <button type="button" key={filter.key} data-filter={filter.key} className="library-filter-chip" onClick={event => removeFilter(filter, index, event)} aria-label={tr(`Retirer le filtre : ${filter.label}`, `Remove filter: ${filter.label}`, `إزالة الفلتر: ${filter.label}`)}><bdi>{filter.label}</bdi><X size={13} aria-hidden="true" /></button>)}</div>
+          <Button className="library-clear-filters" variant="ghost" onClick={clearFilters}>{tr("Tout effacer", "Clear all", "مسح الكل")}</Button>
+        </div>}
+        <details className="library-pdf-search"><summary>{tr('Rechercher dans le texte des PDF','Search inside PDF text','البحث في نص ملفات PDF')}</summary><p className="library-pdf-scope muted">{tr('Cette recherche couvre tous les PDF accessibles, indépendamment du semestre, du module et des filtres ci-dessus.','This search covers all accessible PDFs, independently of the semester, module and filters above.','يشمل هذا البحث جميع ملفات PDF المتاحة، بشكل مستقل عن الفصل والوحدة والفلاتر أعلاه.')}</p><DocumentTextSearch/></details>
+      </section>
       {module === null && resultsContext}
       {visible.length > 0 ? (
         module === null ? null : (
@@ -877,7 +900,7 @@ export default function LibraryPage() {
                   <div className="library-document-grid">
                     {group.documents.map(document => (
                       <div className="library-year-document" key={document.id}>
-                        <DocumentCard document={document} />
+                        <DocumentCard document={document} showOpenLabel />
                         <div className="library-document-year-meta">
                           {resourceAcademicYears(document).length > 1 && <span className="muted">{tr("Utilisé en", "Used in", "استُخدم في")} {resourceAcademicYears(document).join(" · ")}</span>}
                           {updateResourceAcademicYears && (document.can_manage_academic_years === true || document.canManageAcademicYears === true || String(document.author_id) === String(user?.id)) && (
@@ -943,7 +966,7 @@ export default function LibraryPage() {
             "لا توجد وثائق هنا بعد",
           )}
           description={
-            query || filterCount || module !== null || category !== "all"
+            hasActiveFilters || module !== null
               ? tr(
                   "Essayez un autre module ou ajustez vos filtres.",
                   "Try another module or adjust your filters.",
@@ -959,14 +982,14 @@ export default function LibraryPage() {
             <Button
               variant="secondary"
               onClick={
-                query || filterCount || module !== null || category !== "all"
+                hasActiveFilters
                   ? clearFilters
-                  : () => setShowUpload(true)
+                  : module !== null ? () => openModule(null) : () => setShowUpload(true)
               }
             >
-              {query || filterCount || module !== null || category !== "all"
+              {hasActiveFilters
                 ? tr("Effacer les filtres", "Clear filters", "مسح المرشحات")
-                : tr(
+                : module !== null ? tr("Tous les modules", "All modules", "كل الوحدات") : tr(
                     "Partager un document",
                     "Share a document",
                     "مشاركة وثيقة",

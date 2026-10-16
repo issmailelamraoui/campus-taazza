@@ -35,6 +35,7 @@
     "test:frontend-design": "node tests/frontend-consistency.browser.mjs",
     "test:reader-fallback": "node tests/reader-fallback.browser.mjs",
     "test:library-mobile-layout": "node tests/library-module-responsive.browser.mjs",
+    "test:library-browse": "node tests/library-browse-clarity.browser.mjs",
     "test:reader-workspace": "node tests/reader-workspace.browser.mjs",
     "test:student-interactions": "node tests/student-interactions.browser.mjs",
     "test:install-app": "node tests/install-app.browser.mjs",

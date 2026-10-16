@@ -28,16 +28,16 @@ export function Modal({title,children,onClose,footer,wide=false,className=''}){
  },[]);
  return <div className="modal-backdrop" onMouseDown={e=>{if(e.target===e.currentTarget)onClose();}}><section ref={ref} tabIndex={-1} className={`modal ${wide?'modal-wide':''} ${className}`} role="dialog" aria-modal="true" aria-labelledby={id}><header className="modal-header"><h2 id={id}>{title}</h2><button className="icon-btn close-control" aria-label={t('close')} onClick={onClose}><X size={20}/></button></header><div className="modal-body">{children}</div>{footer&&<footer className="modal-footer">{footer}</footer>}</section></div>;
 }
-export function DocumentCard({document:item}){
+export function DocumentCard({document:item,showOpenLabel=false}){
  const {t,tr,language,openDocument,saveItem,isSaved,isPending}=useApp();const saved=isSaved('document',item.id),pending=isPending('saved:document:'+item.id);
  const fileType=String(item.fileType||item.originalName?.split('.').pop()||'PDF').toUpperCase();
  const filename=item.originalName||item.title;const filiere=getFiliere(item.filiereId)?.name||item.filiereId;
  return <article id={`resource-${item.id}`} className="document-card" onClick={e=>{if(!e.target.closest('button'))openDocument(item);}}>
-  <button className="document-main" onClick={()=>openDocument(item)}>
+  <button className="document-main" aria-label={showOpenLabel?`${tr('Ouvrir le document','Open document','فتح المستند')} : ${item.title}`:undefined} onClick={()=>openDocument(item)}>
    <span className="document-heading">
     <span className="file-symbol"><FileText size={21} strokeWidth={1.4}/><span>{fileType}</span></span>
     <span className="document-copy"><h3 dir="auto">{item.title}</h3><span className="document-filename" dir="auto">{filename}</span></span>
-    <ArrowUpRight size={16} className="document-arrow"/>
+    {!showOpenLabel&&<ArrowUpRight size={16} className="document-arrow"/>}
    </span>
    <span className="document-context">
     <span className="document-meta"><bdi>{item.module}</bdi><span className="document-semester">S{item.semester}</span></span>
@@ -47,6 +47,7 @@ export function DocumentCard({document:item}){
     {item.author&&<span className="document-author"><span>{tr('Auteur','Author','المؤلف')}</span><bdi>{item.author}</bdi></span>}
     {item.uploader&&<span className="document-uploader"><span>{tr('Partagé par','Shared by','شارك بواسطة')}</span><bdi>{item.uploader}</bdi></span>}
    </span>}
+   {showOpenLabel&&<span className="document-open-label">{tr('Ouvrir le document','Open document','فتح المستند')}<ChevronRight size={15} aria-hidden="true"/></span>}
   </button>
   <div className="document-footer"><span><span className={`document-category document-category-${item.category}`}>{t(item.category)}</span><span className="document-file-details">{fileType}{item.size&&` · ${item.size}`}</span>{item.date&&<span className="document-date muted">{formatDate(item.date,language)}</span>}</span><button className={`icon-btn save-btn ${saved?'is-saved':''}`} aria-label={t(saved?'unsave':'save')+': '+item.title} aria-pressed={saved} aria-busy={pending} disabled={pending} title={pending?tr('Enregistrement…','Saving…','جارٍ الحفظ…'):undefined} onClick={()=>saveItem('document',item.id)}>{pending?<LoaderCircle size={17} className="action-spinner"/>:saved?<BookmarkCheck size={17}/>:<Bookmark size={17}/>}</button></div>
  </article>;
