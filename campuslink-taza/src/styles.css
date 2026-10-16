@@ -612,7 +612,7 @@ hr {
   flex-shrink: 0;
 }
 .sidebar > .brand {
-  margin-inline-start: 12px;
+  
 }
 .sidebar-context {
   margin: 32px 8px 28px;
@@ -2643,7 +2643,7 @@ html[data-input-modality="keyboard"] .switch input:focus-visible + span {
   display: flex;
 }
 .sidebar > a:first-of-type {
-  margin-inline-start: 12px;
+  
 }
 @media (max-width: 760px) {
   .sidebar:not(.open) {
