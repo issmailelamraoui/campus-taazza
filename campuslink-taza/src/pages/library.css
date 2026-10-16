@@ -94,16 +94,23 @@
   width: 100%;
   margin-top: 10px;
   padding: 13px 14px;
-  border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--line));
+  border: 1px solid color-mix(in srgb, var(--accent) 42%, var(--line));
   border-radius: 10px;
-  background: var(--accent-soft);
+  background: color-mix(in srgb, var(--accent) 7%, var(--surface));
   color: var(--ink);
   text-align: start;
   cursor: pointer;
+  transition: background-color .16s, border-color .16s;
 }
-.library-module-trigger:hover,
 .library-module-trigger.is-open {
-  border-color: color-mix(in srgb, var(--accent) 48%, var(--line));
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 11%, var(--surface));
+}
+@media (hover: hover) and (pointer: fine) {
+  .library-module-trigger:hover {
+    border-color: color-mix(in srgb, var(--accent) 70%, var(--line));
+    background: color-mix(in srgb, var(--accent) 11%, var(--surface));
+  }
 }
 .library-module-trigger-copy {
   display: flex;
@@ -112,9 +119,36 @@
   flex-direction: column;
   gap: 4px;
 }
-.library-module-trigger-copy > span:first-child {
+.library-module-trigger-copy > .library-module-trigger-label {
+  color: var(--accent-ink);
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.library-module-trigger:not(.has-selection) .library-module-trigger-copy strong {
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
+  font-weight: 400;
+}
+.library-module-trigger.has-selection .library-module-trigger-label { font-size: 12px; }
+.library-module-trigger > .library-folder-symbol {
+  width: 42px;
+  height: 42px;
+  flex: 0 0 42px;
+  background: var(--accent-soft);
+  border-color: color-mix(in srgb, var(--accent) 22%, var(--line));
+}
+.library-module-trigger-indicator {
+  display: grid;
+  place-items: center;
+  flex: 0 0 32px;
+  width: 32px;
+  height: 32px;
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--line));
+  border-radius: 8px;
+  background: var(--accent-soft);
+  color: var(--accent-ink);
 }
 .library-module-trigger-copy strong {
   font-size: 14px;
@@ -129,6 +163,7 @@
 .library-module-trigger-chevron {
   flex: 0 0 auto;
   color: var(--accent-ink);
+  transition: transform .16s;
 }
 .library-module-trigger.is-open .library-module-trigger-chevron {
   transform: rotate(180deg);
@@ -1329,6 +1364,8 @@ html[data-input-modality="keyboard"]
   .semester-choice,
   .module-choice,
   .library-module-tile,
+  .library-module-trigger,
+  .library-module-trigger-chevron,
   .upload-dropzone,
   .upload-icon-button,
   .upload-progress-track > span {

@@ -581,7 +581,7 @@ export default function LibraryPage() {
         </div>
         <button
           type="button"
-          className={`library-module-trigger ${showModulePicker ? "is-open" : ""}`}
+          className={`library-module-trigger${module !== null ? " has-selection" : ""}${showModulePicker ? " is-open" : ""}`}
           aria-label={
             module === null
               ? tr("Choisir un module", "Choose a module", "اختر الوحدة")
@@ -591,18 +591,14 @@ export default function LibraryPage() {
           aria-controls="library-module-picker"
           onClick={() => setShowModulePicker((value) => !value)}
         >
-          <span className="library-folder-symbol">
+          <span className="library-folder-symbol" aria-hidden="true">
             <FolderOpen size={22} strokeWidth={1.6} />
           </span>
           <span className="library-module-trigger-copy">
-            <span>
+            <span className="library-module-trigger-label">
               {module === null
-                ? tr(
-                    "Parcourir les dossiers",
-                    "Browse module folders",
-                    "تصفح مجلدات الوحدات",
-                  )
-                : tr("Module ouvert", "Current module", "الوحدة المفتوحة")}
+                ? tr("Choisir un module", "Choose a module", "اختر الوحدة")
+                : tr("Changer de module", "Change module", "تغيير الوحدة")}
             </span>
             <strong dir="auto">
               {module === null
@@ -611,11 +607,9 @@ export default function LibraryPage() {
             </strong>
 
           </span>
-          <ChevronDown
-            size={19}
-            className="library-module-trigger-chevron"
-            aria-hidden="true"
-          />
+          <span className="library-module-trigger-indicator" aria-hidden="true">
+            <ChevronDown size={18} className="library-module-trigger-chevron" />
+          </span>
         </button>
         {showModulePicker && (
           <div
