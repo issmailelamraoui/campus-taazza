@@ -1,5 +1,6 @@
 import { defineConfig } from 'vite';
 import { labsWorkerPolicy, pythonFramePolicy } from './shared/labs-security.js';
+import { configureApiProxy } from './scripts/dev-api-proxy.js';
 const runtimeHeaders=()=>({
  name:'campus-labs-worker-policy',
  configureServer(server){server.middlewares.use(workerPolicy);},
@@ -19,6 +20,6 @@ function workerPolicy(req,res,next){
 export default defineConfig({
  plugins:[runtimeHeaders()],
  esbuild:{jsx:'automatic'},
- server:{port:Number(process.env.CAMPUS_WEB_PORT||5180),strictPort:true,proxy:{'/api':{target:process.env.CAMPUS_API_TARGET||'http://127.0.0.1:3001',changeOrigin:false}}},
+ server:{port:Number(process.env.CAMPUS_WEB_PORT||5180),strictPort:true,proxy:{'/api':{target:process.env.CAMPUS_API_TARGET||'http://127.0.0.1:3001',changeOrigin:false,configure:configureApiProxy}}},
  build:{sourcemap:true},
 });

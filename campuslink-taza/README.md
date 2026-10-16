@@ -13,6 +13,8 @@ npm run dev
 
 Ouvrir **http://localhost:5180**. Cette commande lance l’API sur le port 3001 et Vite sur le port 5180, avec un proxy `/api`. Le frontend et ses appels API partagent la même origine et les cookies de session sont HttpOnly.
 
+Gardez ce terminal ouvert pendant le développement : arrêter `npm run dev` arrête les deux services. `npm run dev:frontend` lance uniquement l’interface ; pour une API séparée, utilisez aussi `npm run dev:server`. Si l’API est arrêtée ou inaccessible, le proxy renvoie désormais une réponse JSON `503 API_UNAVAILABLE` avec un message explicite, au lieu d’une erreur 500 vide. Il reprend les requêtes suivantes dès que l’API redémarre, sans renvoyer automatiquement une tentative de connexion.
+
 Si ces ports sont déjà occupés, lancer `PORT=3002 CAMPUS_WEB_PORT=5181 CAMPUS_API_TARGET=http://127.0.0.1:3002 npm run dev`, puis ouvrir **http://localhost:5181**.
 
 Pour un étudiant qui a oublié son mot de passe : Administration → Comptes → Réinitialiser le mot de passe. Le propriétaire vérifie son identité, crée un mot de passe temporaire et le transmet directement après confirmation. L’étudiant doit choisir son propre mot de passe à sa prochaine connexion, dans les 24 heures. L’action est aussi accessible depuis les demandes d’Assistance.
