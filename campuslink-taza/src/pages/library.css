@@ -178,10 +178,6 @@
     background 0.16s,
     color 0.16s;
 }
-.module-choice:hover {
-  color: var(--ink);
-  background: var(--surface2);
-}
 .module-choice.selected {
   color: var(--accent-ink);
   background: var(--accent-soft);
@@ -468,14 +464,12 @@ color-mix(in srgb, var(--accent) 24%, var(--line)); */
   cursor: pointer;
   min-width: 0;
 }
-.library-module-folder:hover {
-  background: var(--surface2);
-}
 .library-module-tile {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   min-width: 0;
+  transition: background-color .16s, border-color .16s;
 }
 .library-module-tile > .library-module-folder {
   width: 100%;
@@ -495,8 +489,28 @@ color-mix(in srgb, var(--accent) 24%, var(--line)); */
   color: var(--accent-ink);
   cursor: pointer;
 }
-.library-module-share:hover { background: var(--accent-soft); border-color: var(--accent); }
-.library-module-tile.is-choice { width: 100%; flex: 0 0 auto; }
+.library-module-tile.is-choice { width: 100%; flex: 0 0 auto; border-radius: 7px; }
+.library-module-tile.is-choice:has(.module-choice.selected) {
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 25%, var(--line));
+}
+.library-module-tile.is-choice > .module-choice.selected {
+  background: transparent;
+  border-color: transparent;
+}
+@media (hover: hover) and (pointer: fine) {
+  .library-module-tile:hover,
+  .library-modules > .module-choice:not(.selected):hover {
+    background: color-mix(in srgb, var(--accent) 4%, var(--surface));
+  }
+  .library-module-tile.card:hover {
+    border-color: color-mix(in srgb, var(--accent) 25%, var(--line));
+  }
+  .library-module-share:hover {
+    background: var(--accent-soft);
+    border-color: color-mix(in srgb, var(--accent) 35%, var(--line));
+  }
+}
 .library-module-tile.is-choice > .module-choice { padding-inline-end: 7px; }
 .library-module-tile.is-choice > .library-module-share { margin-inline-end: 3px; }
 .library-share-current-module { justify-self: end; }
@@ -1314,6 +1328,7 @@ html[data-input-modality="keyboard"]
 @media (prefers-reduced-motion: reduce) {
   .semester-choice,
   .module-choice,
+  .library-module-tile,
   .upload-dropzone,
   .upload-icon-button,
   .upload-progress-track > span {
