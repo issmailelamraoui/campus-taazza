@@ -8,6 +8,7 @@ import {uploadFilePath} from './upload-path.js';
 import {digest} from './db.js';
 import {storageObjectKey} from './storage.js';
 import {validatedAchievements} from './xp-achievements.js';
+import {FILE_CONTRIBUTION_POLICY,fileContributionSummary} from './file-contribution-xp.js';
 
 export function installCoreRoutes(app,{db,requireFaculty,problem,permissions,asId,string,resource,scoped,broadcast,author,authorizeNotificationTarget,notifyDirect,upload,storage,notifyAdminInbox,broadcastAdminInbox}) {
   const now=()=>new Date().toISOString();
@@ -191,11 +192,18 @@ export function installCoreRoutes(app,{db,requireFaculty,problem,permissions,asI
     await broadcast(faculty||req.user.faculty_id);res.json({ok:true});
   });
   app.get('/api/xp',requireFaculty,async(req,res)=>{
-    const rows=await permissions.facultyStanding(req.user.faculty_id);
-    const ledger=await db.prepare('SELECT id,category,event_key,points,status,created_at FROM xp_events WHERE user_id=? ORDER BY id DESC LIMIT 200').all(req.user.id);
-    const breakdown=await db.prepare("SELECT category,SUM(points) AS points FROM xp_events WHERE user_id=? AND status='valid' GROUP BY category").all(req.user.id);
-    const achievements=await validatedAchievements(db,req.user.id);
-    res.json({xp:req.user.validated_xp||0,events:ledger,breakdown:Object.fromEntries(breakdown.map(r=>[r.category,Number(r.points)])),ranking:rows,ranking_rule:'Study, Help et Contribution comptent intégralement. La pratique compte jusqu’à 25 % de ces activités. Les étudiants ex æquo partagent le même rang.',...achievements});
+    const payload=await db.transaction(async()=>{
+      // The total, progress bar, badges and ranking describe one ledger
+      // snapshot, even while another tab publishes or an admin revokes XP.
+      await db.prepare('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY').run();
+      const rows=await permissions.facultyStanding(req.user.faculty_id);
+      const ledger=await db.prepare('SELECT id,category,event_key,points,status,created_at FROM xp_events WHERE user_id=? ORDER BY id DESC LIMIT 200').all(req.user.id);
+      const breakdown=await db.prepare("SELECT category,SUM(points) AS points FROM xp_events WHERE user_id=? AND status='valid' GROUP BY category").all(req.user.id);
+      const achievements=await validatedAchievements(db,req.user.id);
+      const fileContributions=await fileContributionSummary(db,req.user.id);
+      return {xp:achievements.level.xp,events:ledger,breakdown:Object.fromEntries(breakdown.map(r=>[r.category,Number(r.points)])),ranking:rows,ranking_rule:'Study, Help et Contribution comptent intégralement. La pratique compte jusqu’à 25 % de ces activités. Les étudiants ex æquo partagent le même rang.',upload_policy:FILE_CONTRIBUTION_POLICY,file_contributions:fileContributions,...achievements};
+    });
+    res.json(payload);
   });
   app.get('/api/members/:id/achievements',requireFaculty,async(req,res)=>{
     const member=await db.prepare("SELECT id FROM users WHERE id=? AND faculty_id=? AND disabled=0 AND account_status='approved'").get(asId(req.params.id),req.user.faculty_id);

@@ -982,7 +982,7 @@ export default function LibraryPage() {
         {tr(
           "Les documents partagés sont conservés dans votre bibliothèque de campus.",
           "Shared documents are saved in your campus library.",
-          "تُحفظ الوثائق المشتركة في مكتبة حرمك الجامعي.",
+          "تُحفظ الوثائق المشتركة في مكتبة فضائك الجامعي.",
         )}
       </p>
       {showUpload && <UploadModal onClose={() => setShowUpload(false)} />}

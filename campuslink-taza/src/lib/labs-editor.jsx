@@ -8,6 +8,7 @@ import { json } from '@codemirror/lang-json';
 import { python } from '@codemirror/lang-python';
 import { cpp } from '@codemirror/lang-cpp';
 import { tags } from '@lezer/highlight';
+import { programmingQuotes } from './labs-keyboard.js';
 
 const syntax = language => ({ javascript, json, python, c: cpp, cpp }[language] || javascript)();
 const colors = HighlightStyle.define([
@@ -48,10 +49,10 @@ export function LabsEditor({ value, onChange, language, disabled, label, onRun }
   useEffect(() => {
     const config = configuration.current;
     const editor = new EditorView({ parent: host.current, state: EditorState.create({ doc: value, extensions: [
-      lineNumbers(), highlightActiveLine(), highlightActiveLineGutter(), drawSelection(), history(), bracketMatching(), indentOnInput(), EditorView.lineWrapping, declarations,
+      lineNumbers(), highlightActiveLine(), highlightActiveLineGutter(), drawSelection(), history(), bracketMatching(), indentOnInput(), EditorView.lineWrapping, declarations, programmingQuotes,
       keymap.of([{ key: 'Mod-Enter', run: () => { run.current?.(); return true; } }, ...defaultKeymap, ...historyKeymap, indentWithTab]),
       config.language.of(syntax(language)), config.enabled.of(EditorState.readOnly.of(!!disabled)),
-      config.label.of(EditorView.contentAttributes.of({ 'aria-label': label, 'aria-multiline': 'true', spellcheck: 'false', autocapitalize: 'off', dir: 'ltr' })),
+      config.label.of(EditorView.contentAttributes.of({ 'aria-label': label, 'aria-multiline': 'true', spellcheck: 'false', autocapitalize: 'off', autocorrect: 'off', dir: 'ltr' })),
       syntaxHighlighting(colors), EditorState.tabSize.of(2), EditorView.updateListener.of(update => { if (update.docChanged) callback.current(update.state.doc.toString()); }),
     ] }) });
     view.current = editor;
@@ -63,6 +64,6 @@ export function LabsEditor({ value, onChange, language, disabled, label, onRun }
   }, [value]);
   useEffect(() => { view.current?.dispatch({ effects: configuration.current.language.reconfigure(syntax(language)) }); }, [language]);
   useEffect(() => { view.current?.dispatch({ effects: configuration.current.enabled.reconfigure(EditorState.readOnly.of(!!disabled)) }); }, [disabled]);
-  useEffect(() => { view.current?.dispatch({ effects: configuration.current.label.reconfigure(EditorView.contentAttributes.of({ 'aria-label': label, 'aria-multiline': 'true', spellcheck: 'false', autocapitalize: 'off', dir: 'ltr' })) }); }, [label]);
+  useEffect(() => { view.current?.dispatch({ effects: configuration.current.label.reconfigure(EditorView.contentAttributes.of({ 'aria-label': label, 'aria-multiline': 'true', spellcheck: 'false', autocapitalize: 'off', autocorrect: 'off', dir: 'ltr' })) }); }, [label]);
   return <div ref={host} className="labs-code-editor" dir="ltr" data-readonly={disabled ? 'true' : undefined} />;
 }

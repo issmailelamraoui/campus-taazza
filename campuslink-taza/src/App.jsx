@@ -28,7 +28,7 @@ import './styles/interaction-overrides.css';
 
 function SessionStatus(){
  const {loading,connectionError,refreshAccount,tr}=useApp();
- return <main className="public-page" style={{minHeight:'100dvh',display:'grid',placeItems:'center',padding:24}}><div className="panel" style={{padding:28,maxWidth:420,textAlign:'center'}} role="status" aria-live="polite"><strong>CampusLink Taza</strong><p className="muted" style={{margin:'12px 0'}}>{loading?tr('Connexion à votre campus…','Connecting to your campus…','جارٍ الاتصال بحرمك الجامعي…'):connectionError}</p>{!loading&&<button className="btn btn-primary" onClick={()=>refreshAccount().catch(()=>{})}>{tr('Réessayer','Retry','إعادة المحاولة')}</button>}</div></main>;
+ return <main className="public-page" style={{minHeight:'100dvh',display:'grid',placeItems:'center',padding:24}}><div className="panel" style={{padding:28,maxWidth:420,textAlign:'center'}} role="status" aria-live="polite"><strong>CampusLink Taza</strong><p className="muted" style={{margin:'12px 0'}}>{loading?tr('Connexion à votre campus…','Connecting to your campus…','جارٍ الاتصال بفضائك الجامعي…'):connectionError}</p>{!loading&&<button className="btn btn-primary" onClick={()=>refreshAccount().catch(()=>{})}>{tr('Réessayer','Retry','إعادة المحاولة')}</button>}</div></main>;
 }
 function Protected(){
  const {user,selection,loading,connectionError}=useApp();

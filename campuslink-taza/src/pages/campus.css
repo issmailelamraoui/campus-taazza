@@ -73,3 +73,8 @@ button.campus-entry:hover{border-color:var(--accent-solid);background:var(--surf
  .xp-breakdown strong{font-size:22px}
  .xp-achievement{padding:16px}
 }
+
+.xp-page .xp-level{display:grid;gap:10px;padding:18px;border:1px solid var(--line);border-radius:10px;background:var(--surface)}
+.xp-level-heading{display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap}.xp-level-heading strong{font-size:15px}.xp-page .xp-level progress{display:block;appearance:none;-webkit-appearance:none;width:100%;height:12px;min-width:0;max-width:none;border:0;border-radius:999px;overflow:hidden;background:var(--surface2);color:var(--accent);accent-color:var(--accent)}
+.xp-level progress::-webkit-progress-bar{background:var(--surface2);border-radius:999px}.xp-level progress::-webkit-progress-value{background:var(--accent);border-radius:999px;transition:width .25s ease}.xp-level progress::-moz-progress-bar{background:var(--accent);border-radius:999px}.xp-level p{font-size:12px;color:var(--muted);margin:0}.xp-file-policy{padding:18px;margin-block:20px}.xp-file-policy h2{font-size:15px;margin:0 0 8px}.xp-file-policy p{font-size:12px;line-height:1.7;color:var(--muted);margin:7px 0}.xp-file-contributions{display:flex;gap:14px 24px;flex-wrap:wrap;padding-top:8px;font-size:12px}.xp-file-contributions strong{color:var(--accent-ink);margin-inline-start:5px}.xp-event.is-revoked{border-inline-start:3px solid var(--danger)}.xp-events .is-revoked p strong{color:var(--danger)}
+@media(prefers-reduced-motion:reduce){.xp-level progress::-webkit-progress-value{transition:none}}

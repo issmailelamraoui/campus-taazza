@@ -27,12 +27,19 @@ const mentorEligible=row=>numeric(row?.rooms)>=5&&numeric(row?.requesters)>=3&&n
 export async function publicMentorBadgesForUsers(db,userIds){
   const ids=[...new Set(userIds.filter(Number.isSafeInteger))];
   if(!ids.length)return new Map();
-  const rows=await db.prepare(HELP_METRICS_SQL).all(ids);
-  return new Map(rows.filter(mentorEligible).map(row=>[row.user_id,[{id:'campus_mentor',title:'Campus Mentor',tier:'bronze'}]]));
+  const [rows,files]=await Promise.all([
+    db.prepare(HELP_METRICS_SQL).all(ids),
+    db.prepare(`SELECT user_id,COUNT(*)::integer AS files FROM xp_events
+      WHERE user_id=ANY(?) AND category='contribution' AND status='valid'
+        AND details->>'evidence'='published_library_file' GROUP BY user_id HAVING COUNT(*)>=5`).all(ids),
+  ]);
+  const result=new Map(rows.filter(mentorEligible).map(row=>[row.user_id,[{id:'campus_mentor',title:'Campus Mentor',tier:'bronze'}]]));
+  for(const row of files)result.set(row.user_id,[...(result.get(row.user_id)||[]),{id:'library_contributor',title:'Library Contributor',tier:row.files>=50?'gold':row.files>=20?'silver':'bronze'}]);
+  return result;
 }
 export async function validatedAchievements(db,userId){
   const retainedBefore=new Date(Date.now()-86400000).toISOString();
-  const [ledger,reading,helpRows,contribution,knowledge,collections,syntax]=await Promise.all([
+  const [ledger,reading,helpRows,contribution,knowledge,collections,syntax,files]=await Promise.all([
     db.prepare("SELECT COUNT(*) AS events,COALESCE(SUM(points),0) AS points FROM xp_events WHERE user_id=? AND status='valid'").get(userId),
     db.prepare(`SELECT COUNT(*) AS pages,COUNT(DISTINCT i.resource_id) AS documents
       FROM xp_events e JOIN document_text_indexes i
@@ -85,6 +92,8 @@ export async function validatedAchievements(db,userId){
         AND s.completed_at::timestamptz-s.created_at::timestamptz>=INTERVAL '90 seconds'
         AND s.last_result->>'status'='valid_syntax' AND s.last_result->>'eligiblePractice'='true'
         AND s.last_result->>'fingerprint'=s.successful_fingerprint`).get(userId),
+    db.prepare(`SELECT COUNT(*)::integer AS files FROM xp_events WHERE user_id=?
+      AND category='contribution' AND status='valid' AND details->>'evidence'='published_library_file'`).get(userId),
   ]);
   const help=helpRows[0]||{};
   const valid={events:numeric(ledger.events)},pages={pages:numeric(reading.pages),documents:numeric(reading.documents)},helped={rooms:numeric(help.rooms),requesters:numeric(help.requesters),days:numeric(help.days)},contributed={answers:numeric(contribution.answers),requesters:numeric(contribution.requesters)};
@@ -95,6 +104,7 @@ export async function validatedAchievements(db,userId){
     achievement('helping_hand','Helping Hand','Aides CloseRoom validées et évaluées positivement : bronze 1 session ; argent 5 ; or 15. Chaque session dure au moins 2 minutes et comporte un échange entre les deux participants.',helped,[stage('bronze',{rooms:1}),stage('silver',{rooms:5}),stage('gold',{rooms:15})]),
     achievement('campus_mentor','Campus Mentor','5 aides CloseRoom validées, pour au moins 3 personnes différentes et sur au moins 3 jours. Ce badge ne donne aucun droit administratif.',helped,[stage('bronze',{rooms:5,requesters:3,days:3})]),
     achievement('community_hero','Community Hero','Contributions Forum acceptées avec retours indépendants et XP validé : bronze 1 réponse ; argent 5 réponses pour 3 personnes ; or 15 réponses pour 5 personnes. Publier ou voter seul ne suffit pas.',contributed,[stage('bronze',{answers:1,requesters:1}),stage('silver',{answers:5,requesters:3}),stage('gold',{answers:15,requesters:5})]),
+    achievement('library_contributor','Library Contributor','Fichiers distincts publiés dans votre filière et crédités par le serveur : bronze 5 fichiers ; argent 20 ; or 50. Un signalement confirmé par l’administration retire le crédit du fichier. Cette contribution ne prouve pas la qualité du contenu et le badge n’ajoute aucun XP.',{files:numeric(files.files)},[stage('bronze',{files:5}),stage('silver',{files:20}),stage('gold',{files:50})]),
     achievement('note_keeper','Note Keeper','Notes distinctes conservées sans modification depuis au moins 24 heures, avec au moins 120 caractères, 16 mots et 10 mots différents : bronze 3 notes sur 2 jours ; argent 10 sur 3 jours ; or 25 sur 5 jours. Le titre seul, les doublons, les répétitions et les seuls changements de nombres ne comptent pas ; cette structure ne prouve pas la justesse du contenu et ne donne pas d’XP.',kept,[stage('bronze',{notes:3,days:2}),stage('silver',{notes:10,days:3}),stage('gold',{notes:25,days:5})]),
     achievement('knowledge_collector','Knowledge Collector','Notes, extraits ou références substantiels et distincts, et collections, conservés sans modification depuis au moins 24 heures. Les éléments doivent être liés à des sources existantes et les collections avoir des ensembles de sources distincts contenant au moins 3 documents : bronze 5 éléments, 3 sources et 1 collection ; argent 15, 5 et 3 ; or 30, 10 et 5. Aucun XP n’est attribué pour remplir une collection.',collected,[stage('bronze',{items:5,sources:3,collections:1}),stage('silver',{items:15,sources:5,collections:3}),stage('gold',{items:30,sources:10,collections:5})]),
     achievement('syntax_master','Syntax Master','Programmes JavaScript distincts de Labs avec récompense validée, empreinte persistée, syntaxe finale correcte, au moins 2 révisions et 90 secondes : bronze 3 programmes sur 3 jours ; argent 10 sur 5 jours ; or 20 sur 10 jours. Cela valide la syntaxe, sans exécution ni garantie de justesse logique.',practiced,[stage('bronze',{programs:3,days:3}),stage('silver',{programs:10,days:5}),stage('gold',{programs:20,days:10})]),

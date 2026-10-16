@@ -36,16 +36,20 @@ export async function createPermissions(db) {
       // Node for every authenticated request. Ties and local revocations still
       // use the current ledger rather than a cached privilege decision.
       db.prepare(`WITH totals AS (
-        SELECT u.id,COALESCE(SUM(e.points),0) AS xp FROM users u
+        SELECT u.id,COALESCE(SUM(e.points),0) AS xp,
+          COALESCE(SUM(e.points) FILTER(WHERE e.details->>'evidence' IS DISTINCT FROM 'published_library_file'),0) AS upload_xp FROM users u
         LEFT JOIN xp_events e ON e.user_id=u.id AND e.status='valid'
         WHERE u.faculty_id=? AND u.filiere_id=? AND u.role IN('student','faculty_leader')
           AND u.disabled=0 AND u.account_status='approved' GROUP BY u.id
-      ) SELECT COALESCE(MAX(xp),0) AS highest,
+      ) SELECT COALESCE(MAX(upload_xp),0) AS highest,
         COALESCE(MAX(xp) FILTER(WHERE id=?),(SELECT SUM(points) FROM xp_events WHERE user_id=? AND status='valid'),0) AS xp,
-        COALESCE(BOOL_OR(id=?),FALSE) AS eligible FROM totals`).get(user.faculty_id,user.filiere_id,user.id,user.id,user.id),
+        COALESCE(MAX(upload_xp) FILTER(WHERE id=?),0) AS upload_xp,
+        COALESCE(BOOL_OR(id=?),FALSE) AS eligible FROM totals`).get(user.faculty_id,user.filiere_id,user.id,user.id,user.id,user.id),
     ]);
     const own=Number(standing.xp),highest=Number(standing.highest);
-    return {...user,password_reset_state:passwordResetState,appointments,validated_xp:own,xp_upload_leader:standing.eligible&&highest>0&&own===highest,owner:isOwner(user)};
+    // Publishing files counts towards XP and the ranking, while upload rights
+    // remain based on the pre-existing independently validated activities.
+    return {...user,password_reset_state:passwordResetState,appointments,validated_xp:own,xp_upload_leader:standing.eligible&&highest>0&&Number(standing.upload_xp)===highest,owner:isOwner(user)};
   }
   function can(user,capability,facultyId,filiereId=null){
     if(isOwner(user))return true;

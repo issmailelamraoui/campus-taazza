@@ -106,7 +106,7 @@ export default function CampusLabs() {
   const valid = session?.result?.status === 'valid_syntax';
   const quoteHint = useMemo(() => quotationHint(language, source), [language, source]);
   return <div className="labs-page page-enter">
-    <PageHeader eyebrow="CampusLink" title="Campus Labs" description={tr('Pratique du code et graphiques pour vos études.', 'Code practice and graphs for your studies.', 'تدريب على البرمجة ورسوم بيانية لدراستك.')} />
+    <PageHeader eyebrow="CampusLink" title={tr('Campus Labs', 'Campus Labs', 'مختبر البرمجة')} description={tr('Pratique du code et graphiques pour vos études.', 'Code practice and graphs for your studies.', 'تدريب على البرمجة ورسوم بيانية لدراستك.')} />
     <Tabs value={tab} onChange={setTab} items={[{ id: 'code', label: tr('Code', 'Code', 'البرمجة') }, { id: 'graphs', label: tr('Graphiques', 'Graphs', 'الرسوم البيانية') }]} />
     {tab === 'code' ? <div className="labs-layout">
       <section className="card labs-workspace">

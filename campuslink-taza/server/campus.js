@@ -76,7 +76,7 @@ export function installCampusRoutes(app,{db,requireFaculty,problem,assertResourc
   const eventKey=`forum:question:${q.id}:accepted`;
   if(await db.prepare('SELECT 1 FROM xp_events WHERE event_key=? LIMIT 1').get(eventKey))return 0;
   const recent=await db.prepare("SELECT 1 FROM xp_events WHERE user_id=? AND category='contribution' AND details::jsonb->>'requester_id'=? AND created_at>? LIMIT 1").get(a.author_id,String(q.author_id),new Date(Date.now()-30*86400000).toISOString());if(recent)return 0;
-  const daily=await db.prepare("SELECT COALESCE(SUM(points),0) AS points FROM xp_events WHERE user_id=? AND category='contribution' AND status='valid' AND (created_at::timestamptz AT TIME ZONE 'Africa/Casablanca')::date=(now() AT TIME ZONE 'Africa/Casablanca')::date").get(a.author_id);if(Number(daily.points)>=10)return 0;
+  const daily=await db.prepare("SELECT COALESCE(SUM(points),0) AS points FROM xp_events WHERE user_id=? AND category='contribution' AND status='valid' AND details->>'evidence' IS DISTINCT FROM 'published_library_file' AND (created_at::timestamptz AT TIME ZONE 'Africa/Casablanca')::date=(now() AT TIME ZONE 'Africa/Casablanca')::date").get(a.author_id);if(Number(daily.points)>=10)return 0;
   const points=Math.min(5,10-Number(daily.points));
   await db.prepare("INSERT INTO xp_events(user_id,category,event_key,points,details,created_at) VALUES(?,'contribution',?,?,?,?) ON CONFLICT(user_id,event_key) DO NOTHING").run(a.author_id,eventKey,points,JSON.stringify({question_id:q.id,answer_id:a.id,requester_id:q.author_id,evidence:'accepted_answer_and_independent_feedback',independent_voters:votes.filter(established).map(v=>v.id),not_comprehension_proof:true}),date());return points;
  }

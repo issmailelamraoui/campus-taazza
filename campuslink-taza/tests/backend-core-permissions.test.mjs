@@ -59,13 +59,16 @@ test('ordinary S3 uploader can publish only S3/S4 within their actual filiere',a
  assert.equal((await request('/profile',{cookie:cookies.yassine,method:'PATCH',body:{role:'global_admin',xp:99999}})).status,403);
 });
 test('trusted positive filiere XP leaders and ties gain all six semesters; changes revoke privilege',async()=>{
+ const uploaded=async()=>Number((await env.db.prepare("SELECT COALESCE(SUM(points),0) AS points FROM xp_events WHERE user_id=3 AND status='valid' AND details->>'evidence'='published_library_file'").get()).points);
+ const priorUploads=await uploaded();
  const event=await xp(3,10);
- const session=await request('/session',{cookie:cookies.yassine});assert.equal(session.data.user.uploadCapabilities.source,'xp_leader');assert.equal(session.data.user.validated_xp,10);
+ const session=await request('/session',{cookie:cookies.yassine});assert.equal(session.data.user.uploadCapabilities.source,'xp_leader');assert.equal(session.data.user.validated_xp,10+priorUploads);
  assert.equal((await upload(cookies.yassine,{semester:1})).status,201);assert.equal((await upload(cookies.yassine,{semester:6})).status,201);assert.equal((await upload(cookies.yassine,{semester:6,filiere:'arabic_studies'})).status,403);
  await xp(4,10);assert.equal((await upload(cookies.sara,{semester:6})).status,201,'Tied eligible leaders share this limited privilege');
  await xp(4,1);assert.equal((await upload(cookies.yassine,{semester:6})).status,403,'Ranking is recomputed without trusting the old session');
  assert.equal((await request('/admin/xp-events/'+event.id+'/revoke',{cookie:cookies.admin,method:'POST'})).status,200);
- assert.equal((await request('/session',{cookie:cookies.yassine})).data.user.validated_xp,0);
+ const afterRevocation=(await request('/session',{cookie:cookies.yassine})).data.user;
+ assert.equal(afterRevocation.validated_xp,await uploaded(),'Revoking study XP preserves separately credited file contributions');assert.equal(afterRevocation.uploadCapabilities.source,'study_year','File XP cannot retain cross-semester upload rights');
  await request('/profile',{cookie:cookies.sara,method:'PATCH',body:{preferences:{ranking:false}}});const ranking=await request('/xp',{cookie:cookies.yassine});assert.ok(!ranking.data.ranking.some(u=>u.id===4));assert.equal((await upload(cookies.sara,{semester:5})).status,201,'Display opt-out preserves validated filiere upload eligibility');
  await request('/profile',{cookie:cookies.sara,method:'PATCH',body:{preferences:{ranking:true}}});
 });
@@ -114,6 +117,9 @@ test('deleted notification targets preserve unread history and fail destination 
  assert.equal((await request('/notifications/'+notice.id+'/viewed',{cookie:cookies.yassine,method:'POST',body:{path}})).status,403);
 });
 test('balanced faculty ranking gives ties the same rank and caps practice influence',async()=>{
+ // This scenario isolates the academic/practice weighting from the file
+ // rewards earned by earlier publication-permission fixtures.
+ await env.db.prepare("DELETE FROM xp_events WHERE details->>'evidence'='published_library_file'").run();
  await xp(4,9);await xp(5,10);await xp(5,80,randomUUID(),'practice');
  const result=await request('/xp',{cookie:cookies.yassine});assert.equal(result.status,200);
  const first=result.data.ranking.find(r=>r.id===3),tied=result.data.ranking.find(r=>r.id===4),practice=result.data.ranking.find(r=>r.id===5);

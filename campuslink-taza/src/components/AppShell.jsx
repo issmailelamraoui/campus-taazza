@@ -215,7 +215,7 @@ export default function AppShell() {
           />
         </div>
         <p className="sidebar-label">
-          {tr("VOTRE CAMPUS", "YOUR CAMPUS", "حرمك الجامعي")}
+          {tr("VOTRE CAMPUS", "YOUR CAMPUS", "فضاؤك الجامعي")}
         </p>
         <nav>
           {nav.map(([key, path, Icon], i) => (
@@ -467,7 +467,7 @@ export default function AppShell() {
         <footer className="app-footer">
           <span className="footer-demo">
             <span className="footer-dot" />
-            {tr("Votre campus, connecté.", "Your campus, connected.", "حرمك الجامعي متصل.")}
+            {tr("Votre campus, connecté.", "Your campus, connected.", "فضاؤك الجامعي متصل.")}
           </span>
           <span>
             CampusLink Taza <span style={{ marginInline: 8 }}>·</span>{" "}

@@ -57,6 +57,8 @@
     "predev": "node scripts/prepare-labs-assets.mjs",
     "predev:frontend": "node scripts/prepare-labs-assets.mjs",
     "prebuild": "node scripts/prepare-labs-assets.mjs",
+    "test:labs-keyboard": "node tests/labs-keyboard.browser.mjs",
+    "test:xp-contribution": "node tests/xp-contribution.browser.mjs",
     "test:labs-runtime": "node tests/labs-runtime.browser.mjs",
     "test:module-sharing": "node tests/module-sharing.browser.mjs"
   },

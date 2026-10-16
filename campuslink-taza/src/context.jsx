@@ -100,8 +100,8 @@ export function AppProvider({children}){
    try{const change=JSON.parse(event.data);if(change.registrations||change.adminInbox)setRegistrationRevision(value=>value+1);}catch{}sync();
   });
   const timer=setInterval(sync,lowData?90000:30000);
-  document.addEventListener('visibilitychange',sync);window.addEventListener('online',sync);window.addEventListener('focus',sync);window.addEventListener('pageshow',sync);
-  return()=>{stream?.close();clearInterval(timer);document.removeEventListener('visibilitychange',sync);window.removeEventListener('online',sync);window.removeEventListener('focus',sync);window.removeEventListener('pageshow',sync);};
+  document.addEventListener('visibilitychange',sync);window.addEventListener('online',sync);window.addEventListener('focus',sync);window.addEventListener('pageshow',sync);window.addEventListener('campus-xp-updated',sync);
+  return()=>{stream?.close();clearInterval(timer);document.removeEventListener('visibilitychange',sync);window.removeEventListener('online',sync);window.removeEventListener('focus',sync);window.removeEventListener('pageshow',sync);window.removeEventListener('campus-xp-updated',sync);};
  },[user?.id,user?.facultyId,user?.filiereId,user?.accountStatus,user?.chatBlocked,user?.mustChangePassword,scheduleRefresh,lowData]);
  function locked(action,operation){
   if(actionRequests.current.has(action))return actionRequests.current.get(action);
@@ -216,7 +216,7 @@ export function AppProvider({children}){
    ...(scope.semester?{chat_semester:scope.semester}:{}),library_visible:String(libraryVisible),publish_message:'false'};
   Object.entries(fields).forEach(([name,value])=>{if(value!==undefined&&value!==null)form.append(name,String(value));});form.append('file',file);
   const result=await api('/uploads',{method:'POST',body:form,timeout:600000}),resource=normalizeResource(result.resource);
-  requireCurrent(owner);if(libraryVisible)commit(owner,previous=>({...previous,resources:[resource,...previous.resources.filter(item=>item.id!==resource.id)]}));return resource;
+  requireCurrent(owner);if(libraryVisible)commit(owner,previous=>({...previous,resources:[resource,...previous.resources.filter(item=>item.id!==resource.id)]}));if(Number(result.xp_awarded)>0)window.dispatchEvent(new CustomEvent('campus-xp-updated',{detail:{userId:current.current.user?.id}}));return resource;
  }
  async function updateResourceAcademicYears(target,years){const owner=epoch.current,result=await api('/resources/'+target+'/academic-years',{method:'PATCH',body:{academic_years:years,academic_year:years[0]||null}});requireCurrent(owner);const resource=normalizeResource(result.resource);commit(owner,previous=>({...previous,resources:previous.resources.map(item=>item.id===resource.id?resource:item)}));return resource;}
  function sendMessage(draft){

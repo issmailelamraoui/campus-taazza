@@ -24,6 +24,7 @@ import { installDocumentSearchRoutes } from './document-search.js';
 import { installDocumentRelationsRoutes } from './document-relations.js';
 import { installReadingActivityRoutes } from './reading-activity.js';
 import { publicMentorBadgesForUsers } from './xp-achievements.js';
+import { awardFileContribution, revokeFileContribution } from './file-contribution-xp.js';
 import { installCampusRoutes } from './campus.js';
 import { installDocumentRepairRoutes } from './document-repairs.js';
 import { installResourceSupplementRoutes, canReadSupplement, supplementScopeMatches } from './resource-supplements.js';
@@ -378,6 +379,11 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
     // Shared targets and duplicate reports must take locks in the same order.
     await db.prepare('SELECT pg_advisory_xact_lock(hashtext(?))').get(`campuslink:content-removal:${db.schema}:${faculty}`);
   }
+  async function activeContentActor(req) {
+    const account=await db.prepare('SELECT * FROM users WHERE id=? FOR SHARE').get(req.user.id);
+    if(!account||account.disabled||account.account_status!=='approved'||account.faculty_id!==req.user.faculty_id)throw problem(403,'Votre accès au compte a changé.');
+    return permissions.load(account);
+  }
   async function removeAnnouncementData(a,note) {
     await lockContentRemoval(a.faculty_id);
     await db.prepare("DELETE FROM saved WHERE type='announcement' AND target_id=?").run(a.id);
@@ -386,8 +392,9 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
     await db.prepare('DELETE FROM announcements WHERE id=?').run(a.id);
     await resolveTargetReports('announcement',a.id,note);
   }
-  async function removeResourceData(r,note) {
+  async function removeResourceData(r,note,decision={}) {
     await lockContentRemoval(r.faculty_id);
+    const xpRevoked=await revokeFileContribution(db,r,decision);
     const parents=await db.prepare('SELECT DISTINCT m.* FROM messages m LEFT JOIN message_attachments a ON a.message_id=m.id WHERE m.removed=0 AND (m.resource_id=? OR a.resource_id=?)').all(r.id,r.id);
     await db.prepare('UPDATE resources SET removed=1 WHERE id=?').run(r.id);
     await db.prepare('DELETE FROM message_attachments WHERE resource_id=?').run(r.id);
@@ -402,6 +409,7 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
       const legacy=parent.resource_id&&parent.resource_id!==r.id?await db.prepare('SELECT 1 FROM resources WHERE id=? AND removed=0').get(parent.resource_id):null;
       if(!attachment&&!legacy)await removeChatMessageData(parent,note);
     }
+    return xpRevoked;
   }
   async function removeChatMessageData(m,note) {
     await lockContentRemoval(m.faculty_id);
@@ -750,7 +758,7 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
     const reply = req.body.reply_to ? (await scoped('messages',req.body.reply_to,req)) : null;
     if (reply && reply.channel!==channel) throw problem(400,'La réponse doit rester dans la discussion d’origine.');
     if(reply&&channel==='filiere'&&getChatSemester(reply.semester)!==scope.semester)throw problem(400,'La réponse doit rester dans le même groupe de semestres.');
-    let id,objectKey,uploaded=false;
+    let id,objectKey,uploaded=false,xpAwarded=0;
     try {
       (await transaction(async ()=>{
         await permissions.assertUpload(req.user,req.user.faculty_id,filiere,semester);
@@ -777,6 +785,7 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
         const created = now();
         const messageId = publishMessage?Number((await db.prepare('INSERT INTO messages (faculty_id,channel,content,author_id,created_at,reply_to,filiere_id,semester) VALUES (?,?,?,?,?,?,?,?)').run(req.user.faculty_id,channel,content,req.user.id,created,reply?.id||null,scope.filiere_id,scope.semester)).lastInsertRowid):null;
         id = Number((await db.prepare('INSERT INTO resources (faculty_id,title,filename,object_key,sha256,category,semester,module,module_id,author_id,created_at,size,mime,message_id,channel,filiere_id,resource_type,relative_path,part_number,teacher_name,library_visible,academic_year,academic_years) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)').run(req.user.faculty_id,title,filename,objectKey,hash,category,semester,module,selectedModule,req.user.id,created,req.file.size,mime,messageId,channel,filiere,resourceType,relativePath,partNumber,teacherName,libraryVisible?1:0,year,JSON.stringify(years))).lastInsertRowid);
+        xpAwarded=await awardFileContribution(db,id);
         await permissions.audit(req.user,'resource.upload','resource',id,{faculty_id:req.user.faculty_id,filiere_id:filiere,semester,academic_years:years});
         if(messageId)await db.prepare('UPDATE messages SET resource_id=? WHERE id=?').run(id,messageId);
         if (libraryVisible && category!=='general') (await notify(req.user.faculty_id,'resources','Nouvelle ressource',`${title}${semester ? ` · S${semester}` : ''}`,resourcePath({id,category,semester,module}),req.user.id,filiere));
@@ -794,7 +803,7 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
     }
     (await broadcast(req.user.faculty_id));
     const r = (await db.prepare('SELECT * FROM resources WHERE id=?').get(id));
-    res.status(201).json({resource:(await resource(r,req.user)),message:r.message_id?(await message((await db.prepare('SELECT * FROM messages WHERE id=?').get(r.message_id)),req.user.id)):null});
+    res.status(201).json({resource:(await resource(r,req.user)),message:r.message_id?(await message((await db.prepare('SELECT * FROM messages WHERE id=?').get(r.message_id)),req.user.id)):null,xp_awarded:xpAwarded});
   });
   app.get('/api/files/:id', requireFaculty, async (req,res,next) => {
     const r = (await scoped('resources',req.params.id,req));
@@ -1107,15 +1116,28 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
     res.json({user:publicUser((await db.prepare('SELECT * FROM users WHERE id=?').get(target.id)))});
   });
   app.patch('/api/admin/reports/:id', requireFaculty, role('moderator','faculty_admin','global_admin'), async (req,res) => {
-    const report=(await db.prepare('SELECT * FROM reports WHERE id=?').get(asId(req.params.id)));
-    if(!report)throw problem(404,'Signalement introuvable.');
-    if(!isOwner(req.user)&&report.faculty_id!==req.user.faculty_id)throw problem(403,'Signalement d’une autre faculté.');
-    const targetTable={message:'messages',resource:'resources',announcement:'announcements'}[report.target_type];
-    const target=targetTable?await db.prepare(`SELECT * FROM ${targetTable} WHERE id=?`).get(report.target_id):null;
-    if(!permissions.can(req.user,'content.moderate',report.faculty_id,target?.filiere_id||null))throw problem(403,'Ce signalement dépasse vos permissions.');
     if(!['open','reviewed','resolved','dismissed'].includes(req.body.status))throw problem(400,'Statut invalide.');
-    const note=req.body.note===undefined?report.note:string(req.body.note,'Note',2000,false);
-    (await db.prepare('UPDATE reports SET status=?,note=? WHERE id=?').run(req.body.status,note,report.id));res.json({ok:true});
+    const prior=await db.prepare('SELECT faculty_id FROM reports WHERE id=?').get(asId(req.params.id));
+    if(!prior)throw problem(404,'Signalement introuvable.');
+    if(!isOwner(req.user)&&prior.faculty_id!==req.user.faculty_id)throw problem(403,'Signalement d’une autre faculté.');
+    const result=await transaction(async()=>{
+      await lockContentRemoval(prior.faculty_id);
+      const report=await db.prepare('SELECT * FROM reports WHERE id=? FOR UPDATE').get(asId(req.params.id));
+      if(!report)throw problem(404,'Signalement introuvable.');
+      const actor=await activeContentActor(req);
+      const targetTable={message:'messages',resource:'resources',announcement:'announcements'}[report.target_type];
+      const target=targetTable?await db.prepare(`SELECT * FROM ${targetTable} WHERE id=?`).get(report.target_id):null;
+      if(target&&target.faculty_id!==report.faculty_id)throw problem(403,'Contenu d’une autre faculté.');
+      if(!permissions.can(actor,'content.moderate',report.faculty_id,target?.filiere_id||null))throw problem(403,'Ce signalement dépasse vos permissions.');
+      const confirmedFile=report.target_type==='resource'&&req.body.status==='resolved';
+      if(confirmedFile&&!permissions.can(actor,'resource.manage',report.faculty_id,target?.filiere_id||null))throw problem(403,'Seule l’administration peut confirmer le signalement d’un fichier et retirer son XP.');
+      const note=req.body.note===undefined?report.note:string(req.body.note,'Note',2000,false);
+      const xpRevoked=confirmedFile&&target?await revokeFileContribution(db,target,{actorId:actor.id,reason:'confirmed_report',reportId:report.id}):0;
+      await db.prepare('UPDATE reports SET status=?,note=? WHERE id=?').run(req.body.status,note,report.id);
+      await permissions.audit(actor,'report.status','report',report.id,{status:req.body.status,xp_revoked:xpRevoked});
+      return {faculty:report.faculty_id,xpRevoked};
+    });
+    await broadcast(result.faculty);res.json({ok:true,xp_revoked:result.xpRevoked});
   });
   app.post('/api/admin/reports/:id/remove-target', requireFaculty, role('moderator','faculty_admin','global_admin'), async(req,res)=>{
     const prior=await db.prepare('SELECT faculty_id FROM reports WHERE id=?').get(asId(req.params.id));
@@ -1125,19 +1147,20 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
       await lockContentRemoval(prior.faculty_id);
       const report=await db.prepare('SELECT * FROM reports WHERE id=? FOR UPDATE').get(asId(req.params.id));
       if(!report)throw problem(404,'Signalement introuvable.');
-      if(!isOwner(req.user)&&report.faculty_id!==req.user.faculty_id)throw problem(403,'Signalement d’une autre faculté.');
+      const actor=await activeContentActor(req);
+      if(!isOwner(actor)&&report.faculty_id!==actor.faculty_id)throw problem(403,'Signalement d’une autre faculté.');
       const table={message:'messages',resource:'resources',announcement:'announcements'}[report.target_type];
       if(!table)throw problem(400,'Contenu signalé invalide.');
-      if(['moderator','faculty_leader'].includes(req.user.role)&&report.target_type!=='message')throw problem(403,'Seule l’administration peut retirer ce contenu.');
+      if(['moderator','faculty_leader'].includes(actor.role)&&report.target_type!=='message')throw problem(403,'Seule l’administration peut retirer ce contenu.');
       const target=await db.prepare(`SELECT * FROM ${table} WHERE id=? FOR UPDATE`).get(report.target_id);
-      if(target&&!permissions.can(req.user,report.target_type==='message'?'content.moderate':report.target_type==='resource'?'resource.manage':'announcement.publish',target.faculty_id,target.filiere_id))throw problem(403,'Ce contenu dépasse vos permissions.');
+      if(target&&!permissions.can(actor,report.target_type==='message'?'content.moderate':report.target_type==='resource'?'resource.manage':'announcement.publish',target.faculty_id,target.filiere_id))throw problem(403,'Ce contenu dépasse vos permissions.');
       if(target&&target.faculty_id!==report.faculty_id)throw problem(403,'Contenu d’une autre faculté.');
       if(target&&report.target_type==='message'&&!CHANNELS.includes(target.channel))throw problem(404,'Discussion introuvable.');
       if(target&&report.target_type==='announcement'&&!await visibleAnnouncement(target))throw problem(404,'Annonce introuvable.');
       const note=req.body.note===undefined?'Contenu supprimé.':string(req.body.note,'Note',2000,false);
       if(target&&!target.removed){
         if(report.target_type==='message')await removeChatMessageData(target,note);
-        else if(report.target_type==='resource')await removeResourceData(target,note);
+        else if(report.target_type==='resource')await removeResourceData(target,note,{actorId:actor.id,reason:'confirmed_report',reportId:report.id});
         else await removeAnnouncementData(target,note);
       }
       await resolveTargetReports(report.target_type,report.target_id,note);
@@ -1288,8 +1311,15 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
     const r=(await db.prepare('SELECT * FROM resources WHERE id=? AND removed=0').get(asId(req.params.id)));
     if(!r)throw problem(404,'Ressource introuvable.');
     if(!permissions.can(req.user,'resource.manage',r.faculty_id,r.filiere_id))throw problem(403,'Cette ressource dépasse vos permissions.');
-    await transaction(()=>removeResourceData(r));
-    (await broadcast(r.faculty_id));res.json({ok:true});
+    const xpRevoked=await transaction(async()=>{
+      await lockContentRemoval(r.faculty_id);
+      const actor=await activeContentActor(req);
+      const current=await db.prepare('SELECT * FROM resources WHERE id=? AND removed=0').get(r.id);
+      if(!current)throw problem(404,'Ressource introuvable.');
+      if(!permissions.can(actor,'resource.manage',current.faculty_id,current.filiere_id))throw problem(403,'Votre permission de suppression a changé.');
+      return removeResourceData(current,undefined,{actorId:actor.id,reason:'resource_removed'});
+    });
+    (await broadcast(r.faculty_id));res.json({ok:true,xp_revoked:xpRevoked});
   });
   app.post('/api/admin/messages/:id/remove', requireFaculty, requireChat, role('moderator','faculty_admin','global_admin'), async (req,res) => {
     const m=isOwner(req.user)?(await db.prepare('SELECT * FROM messages WHERE id=? AND removed=0').get(asId(req.params.id))):(await scoped('messages',req.params.id,req,true));
