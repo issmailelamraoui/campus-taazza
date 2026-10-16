@@ -1,0 +1,31 @@
+.community-shared-module {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  width: 100%;
+  padding: 13px;
+  border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--line));
+  border-radius: 10px;
+  color: var(--ink);
+  background: var(--accent-soft);
+  text-decoration: none;
+  text-align: start;
+}
+a.community-shared-module:hover { border-color: var(--accent); background: color-mix(in srgb, var(--accent-soft) 75%, var(--surface2)); }
+.community-module-symbol { display: grid; place-items: center; flex: 0 0 37px; height: 37px; border-radius: 8px; color: var(--accent-ink); background: var(--surface); }
+.community-module-copy { display: flex; flex-direction: column; gap: 3px; flex: 1; min-width: 0; }
+.community-module-copy small { color: var(--accent-ink); font-size: 10px; font-weight: 600; }
+.community-module-copy strong { font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
+.community-module-copy > span { color: var(--muted); font-size: 11px; }
+.community-shared-module > svg { flex: 0 0 auto; color: var(--accent-ink); }
+.community-shared-module.is-unavailable { border-color: var(--line); background: var(--surface2); }
+.module-share-dialog { display: grid; gap: 16px; }
+.module-share-dialog > p { margin: 0; font-size: 12px; line-height: 1.7; }
+.module-share-destinations { display: grid; gap: 7px; }
+.module-share-destinations > button { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 52px; padding: 11px 13px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface2); color: var(--ink); text-align: start; cursor: pointer; }
+.module-share-destinations > button:hover:not(:disabled) { background: var(--accent-soft); border-color: var(--accent); }
+.module-share-destinations > button:disabled { opacity: .55; cursor: not-allowed; }
+.module-share-destinations > button > span { display: grid; flex: 1; gap: 3px; font-size: 12px; }
+.module-share-destinations small { color: var(--muted); font-size: 10px; }
+.module-share-destinations > button > svg { color: var(--accent-ink); flex: 0 0 auto; }

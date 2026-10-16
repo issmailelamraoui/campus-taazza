@@ -101,7 +101,7 @@ export function InstallAppProvider({ children }) {
   return <InstallContext.Provider value={{ installed, show }}>
     {children}
     {open && !dialog && <Modal title={tr('Installer CampusLink', 'Install CampusLink', 'تثبيت CampusLink')} className="install-modal" onClose={close} footer={<>
-      <Button onClick={close}>{instructions ? tr('Fermer', 'Close', 'إغلاق') : tr('Plus tard', 'Later', 'لاحقاً')}</Button>
+      <Button className="close-control" onClick={close}>{instructions ? tr('Fermer', 'Close', 'إغلاق') : tr('Plus tard', 'Later', 'لاحقاً')}</Button>
       {(prompt || !instructions) && <Button variant="primary" icon={prompt ? Download : Smartphone} disabled={busy} aria-busy={busy} onClick={install}>{busy ? tr('Ouverture…', 'Opening…', 'جارٍ الفتح…') : prompt ? tr('Installer maintenant', 'Install now', 'التثبيت الآن') : tr('Comment installer', 'How to install', 'طريقة التثبيت')}</Button>}
     </>}>
       <div className="install-intro"><img src="/icons/app-192.png" alt="" width="60" height="60"/><div><h3>{tr('Votre campus, à portée de main.', 'Your campus, within reach.', 'جامعتك في متناول يدك.')}</h3><p>{tr('Ajoutez CampusLink à votre écran d’accueil pour retrouver vos cours et discussions en un geste.', 'Add CampusLink to your home screen to open your courses and discussions with a tap.', 'أضف CampusLink إلى شاشتك الرئيسية للوصول إلى دروسك ونقاشاتك بلمسة واحدة.')}</p></div></div>

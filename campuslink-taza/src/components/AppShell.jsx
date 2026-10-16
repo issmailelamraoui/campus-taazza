@@ -1,4 +1,5 @@
 import { Select } from './Select';
+import PageLoading from './PageLoading';
 import React, { useEffect, useRef, useState } from "react";
 import {
   Link,
@@ -461,7 +462,7 @@ export default function AppShell() {
           tabIndex={-1}
         >
           {connectionError && <div className="notice" role="alert" style={{marginBottom:16}}><span>{connectionError}</span> <button className="text-link" onClick={()=>refresh().catch(()=>{})}>{tr("Réessayer", "Retry", "إعادة المحاولة")}</button></div>}
-          {offlineSession&&<p className="notice" role="status">{tr("Hors ligne : documents enregistrés et outils personnels. Reconnectez-vous pour les échanges et la synchronisation.","Offline: saved documents and personal tools. Reconnect for conversations and synchronization.","دون اتصال: المستندات المحفوظة والأدوات الشخصية. أعد الاتصال للمحادثات والمزامنة.")}</p>}<Outlet />
+          {offlineSession&&<p className="notice" role="status">{tr("Hors ligne : documents enregistrés et outils personnels. Reconnectez-vous pour les échanges et la synchronisation.","Offline: saved documents and personal tools. Reconnect for conversations and synchronization.","دون اتصال: المستندات المحفوظة والأدوات الشخصية. أعد الاتصال للمحادثات والمزامنة.")}</p>}<React.Suspense fallback={<PageLoading/>}><Outlet /></React.Suspense>
         </main>
         <footer className="app-footer">
           <span className="footer-demo">

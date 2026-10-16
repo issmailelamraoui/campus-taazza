@@ -9,6 +9,8 @@ export const digest = value => createHash('sha256').update(value).digest('hex');
 const identityTables = new Set(['users', 'modules', 'messages', 'resources', 'resource_versions', 'announcements', 'notifications', 'events', 'reports', 'contacts', 'scoped_appointments', 'administrative_audit', 'xp_events', 'contact_replies', 'contact_attachments', 'campus_questions', 'campus_answers', 'campus_comments', 'close_requests', 'close_rooms', 'close_messages', 'close_board', 'study_matches', 'study_match_requests', 'revision_groups', 'revision_messages', 'market_listings', 'market_requests', 'market_request_replies', 'campus_reports', 'document_relations']);
 const applicationTables = new Set([...identityTables, 'faculties', 'filieres', 'semesters', 'reactions', 'channels', 'chat_bans', 'saved', 'history', 'schema_migrations', 'legacy_imports', 'message_attachments', 'resource_folders', 'folder_items', 'platform_owner', 'notification_visits', 'reading_positions', 'reading_position_conflicts', 'knowledge_items', 'study_tools', 'flashcard_reviews', 'document_text_indexes', 'document_text_pages', 'reading_activity_sessions', 'campus_votes', 'revision_members', 'labs_sessions', 'labs_syntax_errors', 'labs_rewarded_programs', 'document_repairs', 'document_repair_events', 'resource_supplements', 'campus_blocks', 'forum_attachments']);
 applicationTables.add('password_reset_operations');
+applicationTables.add('upload_sessions');
+applicationTables.add('message_module_shares');
 const migrationDirectory = new URL('./migrations/', import.meta.url);
 const connectionCodes = new Set(['ECONNRESET', 'ECONNREFUSED', 'ETIMEDOUT', 'EPIPE', 'ENETUNREACH', 'EHOSTUNREACH', 'ENOTFOUND', 'EAI_AGAIN', '57P01', '57P02', '57P03', '53300']);
 function connectionFailure(error) {

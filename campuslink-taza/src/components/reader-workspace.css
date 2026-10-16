@@ -155,3 +155,29 @@
   .study-reader-modal .reader-document-meta { padding-block: 3px; }
   .reader-controls { padding-block: 3px; }
 }
+
+/* The page strip stays quiet; every optional action lives in one tools drawer. */
+.reader-controls { flex-wrap: nowrap; }
+.reader-scroll-hint { font-size: 11px; color: var(--muted); margin-inline-start: 10px; }
+.reader-controls .reader-tools-toggle { width: 38px; min-height: 36px; padding: 7px; flex: none; margin-inline-start: auto; }
+.reader-controls .reader-tools-toggle > span { display: none; }
+.reader-continuous-pages { min-width: 100%; width: max-content; display: flex; flex-direction: column; gap: 18px; }
+.reader-page-slot { position: relative; flex: none; margin-inline: auto; overflow-anchor: none; }
+.reader-page-placeholder { display: grid; place-items: center; width: 100%; height: 100%; background: #f8f6f1; color: #82796c; box-shadow: 0 3px 16px #0003; font-size: 13px; }
+.reader-tool-zoom { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 14px; }
+.reader-tool-zoom .icon-btn { width: 38px; height: 38px; }
+.reader-tool-zoom .reader-zoom { font-size: 12px; }
+.reader-tools .reader-notes-toggle { margin: 0; width: auto; }
+.reader-tools .reader-notes-toggle > span { display: inline; font-size: 12px; }
+.reader-tools .reader-document-actions { align-items: stretch; gap: 8px; }
+.reader-tools .reader-document-actions .btn { width: auto; justify-content: flex-start; font-size: 12px; }
+.reader-tools .reader-document-actions .btn > span { display: inline; }
+.reader-tools .reader-file-details { max-height: none; padding: 12px 0 0; border: 0; background: transparent; display: block; }
+.reader-tools .reader-document-actions .btn:first-of-type { margin: 0; }
+@media (max-width: 700px) {
+ .reader-tools .reader-document-actions { flex-wrap: wrap; justify-content: flex-start; }
+ .reader-tools .reader-document-actions .btn { width: auto; padding: 8px; }
+ .reader-controls .reader-page-label { display: inline; }
+ .reader-scroll-hint { font-size: 10px; margin-inline-start: 5px; }
+ .reader-continuous-pages { gap: 12px; }
+}

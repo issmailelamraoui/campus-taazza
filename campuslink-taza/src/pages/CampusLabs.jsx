@@ -1,15 +1,17 @@
-import React, { useEffect, useId, useMemo, useState } from 'react';
-import { Braces, ChartLine, CheckCircle2, Play, Plus, Save } from 'lucide-react';
+import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { Braces, ChartLine, CheckCircle2, Code2, Play, Plus, Save, Square, TerminalSquare, Trash2 } from 'lucide-react';
 import { api } from '../api';
 import { useApp } from '../context';
 import { Button, EmptyState, Field, PageHeader, Tabs } from '../components/ui';
 import { Select } from '../components/Select';
 import { sampleGraph, MATH_FUNCTIONS } from '../../shared/math';
+import { LabsEditor } from '../lib/labs-editor';
+import { runLabCode } from '../lib/labs-runner';
 import './labs.css';
 
 const LANGUAGE_LABELS = { javascript: 'JavaScript', json: 'JSON', python: 'Python', c: 'C', cpp: 'C++' };
 const STARTERS = {
-  javascript: 'function moyenne(valeurs) {\n  let total = 0;\n  for (const valeur of valeurs) {\n    total += valeur;\n  }\n  return valeurs.length ? total / valeurs.length : 0;\n}\n',
+  javascript: 'function moyenne(valeurs) {\n  let total = 0;\n  for (const valeur of valeurs) {\n    total += valeur;\n  }\n  return valeurs.length ? total / valeurs.length : 0;\n}\n\nconsole.log(moyenne([12, 14, 16]));\n',
   json: '{\n  "module": "Mon cours",\n  "chapitres": [1, 2, 3]\n}',
   python: 'def moyenne(valeurs):\n    total = 0\n    for valeur in valeurs:\n        total += valeur\n    return total / len(valeurs) if valeurs else 0\n\nprint(moyenne([12, 14, 16]))\n',
   c: '#include <stdio.h>\n\ndouble moyenne(const double valeurs[], int nombre) {\n    double total = 0;\n    for (int i = 0; i < nombre; i++) {\n        total += valeurs[i];\n    }\n    return nombre > 0 ? total / nombre : 0;\n}\n\nint main(void) {\n    double valeurs[] = {12, 14, 16};\n    printf("%g\\n", moyenne(valeurs, 3));\n    return 0;\n}\n',
@@ -20,15 +22,19 @@ export default function CampusLabs() {
   const { tr, language: locale, refresh } = useApp();
   const [tab, setTab] = useState('code'), [language, setLanguage] = useState('javascript');
   const [source, setSource] = useState(starter('javascript')), [voluntaryXp, setVoluntaryXp] = useState(false);
-  const [session, setSession] = useState(null), [sessions, setSessions] = useState([]), [policy, setPolicy] = useState(null), [languages, setLanguages] = useState(null);
+  const [session, setSession] = useState(null), [sessions, setSessions] = useState([]), [languages, setLanguages] = useState(null);
   const [busy, setBusy] = useState(false), [error, setError] = useState(''), [message, setMessage] = useState('');
   const [expression, setExpression] = useState('sin(x)'), [min, setMin] = useState(-10), [max, setMax] = useState(10);
   const [yMin, setYMin] = useState(-2), [yMax, setYMax] = useState(2), [graph, setGraph] = useState(() => ({ points: sampleGraph('sin(x)'), min: -10, max: 10, yMin: -2, yMax: 2, expression: 'sin(x)' }));
   const [graphError, setGraphError] = useState('');
   const graphId = useId().replace(/:/g, '');
+  const [output, setOutput] = useState([]), [execution, setExecution] = useState(null), [runPhase, setRunPhase] = useState('idle'), [runtimeProgress, setRuntimeProgress] = useState(0), [input, setInput] = useState('');
+  const controller = useRef(null), consoleEnd = useRef(null);
+  useEffect(() => () => controller.current?.abort(), []);
+  useEffect(() => { const panel = consoleEnd.current?.parentElement; if (panel) panel.scrollTop = panel.scrollHeight; }, [output]);
   useEffect(() => {
     let active = true;
-    api('/labs').then(data => { if (active) { setSessions(data.sessions || []); setPolicy(data.policy); setLanguages((data.languages || []).filter(item => Object.hasOwn(LANGUAGE_LABELS, item))); } }).catch(err => { if (active) setError(err.message); });
+    api('/labs').then(data => { if (active) { setSessions(data.sessions || []); setLanguages((data.languages || []).filter(item => Object.hasOwn(LANGUAGE_LABELS, item))); } }).catch(err => { if (active) setError(err.message); });
     return () => { active = false; };
   }, []);
   const updateSession = next => {
@@ -37,15 +43,28 @@ export default function CampusLabs() {
   };
   const newSession = () => { setSession(null); setMessage(''); setError(''); };
   const check = async () => {
-    if (busy || !languages?.includes(language)) return;
-    setBusy(true); setError(''); setMessage('');
-    try {
+    if (busy || !source.trim()) return;
+    setBusy(true); setError(''); setMessage(''); setOutput([]); setExecution(null); setRunPhase('loading'); setRuntimeProgress(0);
+    const abort = new AbortController(); controller.current = abort;
+    const started = performance.now();
+    const save = async () => {
+      if (!languages?.includes(language) || session?.completedAt) return;
       let current = session;
       if (!current) { current = (await api('/labs', { method: 'POST', body: { language, voluntaryXp: language === 'javascript' && voluntaryXp } })).session; updateSession(current); }
       const response = await api(`/labs/${current.id}/check`, { method: 'POST', body: { source } });
       updateSession(response.session);
-    } catch (err) { setError(err.message); }
-    finally { setBusy(false); }
+    };
+    const [run, saved] = await Promise.allSettled([
+      runLabCode(language, source, { input, signal: abort.signal, onEvent: event => {
+        if (event.type === 'output') setOutput(previous => [...previous, { stream: event.stream, text: event.text }]);
+        if (event.type === 'phase') setRunPhase(event.phase);
+        if (event.type === 'progress') setRuntimeProgress(event.progress);
+      } }), save(),
+    ]);
+    if (run.status === 'fulfilled') setExecution({ ...run.value, durationMs: Math.round(performance.now() - started) });
+    else { setOutput(previous => [...previous, { stream: 'stderr', text: run.reason.message + '\n' }]); setExecution({ status: 'error', exitCode: null }); }
+    if (saved.status === 'rejected') setError(tr('Le code a été lancé, mais la session n’a pas été enregistrée : ', 'Code was launched, but the session could not be saved: ', 'تم تشغيل الشيفرة، لكن تعذّر حفظ الجلسة: ') + saved.reason.message);
+    setRunPhase('idle'); setBusy(false); controller.current = null;
   };
   const complete = async () => {
     if (!session || busy) return;
@@ -84,30 +103,37 @@ export default function CampusLabs() {
     return { path, xAxis: graph.yMin <= 0 && graph.yMax >= 0 ? sy(0) : null, yAxis: graph.min <= 0 && graph.max >= 0 ? sx(0) : null };
   }, [graph]);
   const valid = session?.result?.status === 'valid_syntax';
-  const canCheck = !!policy && !!languages?.includes(language);
-  const unavailable = languages && Object.keys(LANGUAGE_LABELS).filter(item => !languages.includes(item));
   return <div className="labs-page page-enter">
     <PageHeader eyebrow="CampusLink" title="Campus Labs" description={tr('Pratique du code et graphiques pour vos études.', 'Code practice and graphs for your studies.', 'تدريب على البرمجة ورسوم بيانية لدراستك.')} />
     <Tabs value={tab} onChange={setTab} items={[{ id: 'code', label: tr('Code', 'Code', 'البرمجة') }, { id: 'graphs', label: tr('Graphiques', 'Graphs', 'الرسوم البيانية') }]} />
     {tab === 'code' ? <div className="labs-layout">
       <section className="card labs-workspace">
-        <div className="labs-toolbar"><Field label={tr('Langage', 'Language', 'اللغة')}><Select className="input" value={language} disabled={busy || !languages} onChange={event => { setLanguage(event.target.value); setSource(starter(event.target.value)); setVoluntaryXp(false); newSession(); }}>{Object.entries(LANGUAGE_LABELS).map(([id, label]) => <option key={id} value={id} disabled={!languages?.includes(id)}>{label}</option>)}</Select></Field><Button icon={Plus} disabled={busy} onClick={newSession}>{tr('Nouvelle session', 'New session', 'جلسة جديدة')}</Button></div>
-        <p className="muted labs-notice">{tr('Vérification syntaxique uniquement. La validité du programme ne garantit pas la justesse d’une solution. Aucun code n’est exécuté.', 'Syntax checking only. A valid program does not guarantee a correct solution. No code is executed.', 'فحص الصياغة فقط. صلاحية البرنامج لا تضمن صحة الحل. لا تُنفَّذ أي شيفرة.')}</p>
-        <Field label={tr('Votre code', 'Your code', 'شيفرتك')}><textarea className="input labs-code-editor" spellCheck={false} autoCapitalize="off" dir="ltr" value={source} onChange={event => setSource(event.target.value)} maxLength={16000} disabled={busy || !!session?.completedAt} /></Field>
+        <div className="labs-ide-heading"><div className="labs-ide-mark"><Code2 size={22} /></div><div><h2>{tr('Votre espace de code', 'Your coding workspace', 'مساحتك البرمجية')}</h2><p className="muted">{tr('Écrivez, lancez et comprenez le résultat.', 'Write, run and understand the result.', 'اكتب وشغّل وافهم النتيجة.')}</p></div></div>
+        <div className="labs-toolbar"><Field label={tr('Langage', 'Language', 'اللغة')}><Select className="input" value={language} disabled={busy} onChange={event => { setLanguage(event.target.value); setSource(starter(event.target.value)); setVoluntaryXp(false); newSession(); setOutput([]); setExecution(null); }}>{Object.entries(LANGUAGE_LABELS).map(([id, label]) => <option key={id} value={id}>{label}</option>)}</Select></Field><Button icon={Plus} disabled={busy} onClick={newSession}>{tr('Nouvelle session', 'New session', 'جلسة جديدة')}</Button></div>
+        <div className="labs-editor-frame">
+          <div className="labs-editor-title"><span><Code2 size={15} />{({ javascript: 'campus.js', python: 'campus.py', c: 'campus.c', cpp: 'campus.cpp', json: 'campus.json' })[language]}</span><span>{source.split('\n').length} {tr('lignes', 'lines', 'سطر')}</span></div>
+          <LabsEditor value={source} onChange={setSource} language={language} disabled={busy || !!session?.completedAt} label={tr('Votre code', 'Your code', 'شيفرتك')} onRun={check} />
+          <div className="labs-editor-legend" aria-hidden="true"><span className="labs-token-function">{tr('fonctions', 'functions', 'دوال')}</span><span className="labs-token-variable">{tr('variables', 'variables', 'متغيرات')}</span><span className="labs-token-property">{tr('propriétés', 'properties', 'خصائص')}</span><span className="labs-token-class">{tr('classes', 'classes', 'أصناف')}</span><span className="labs-token-string">{tr('texte', 'strings', 'نصوص')}</span></div>
+        </div>
+        <details className="labs-input-panel"><summary>{tr('Entrées du programme (stdin)', 'Program input (stdin)', 'مدخلات البرنامج (stdin)')}</summary><label className="sr-only" htmlFor="labs-stdin">{tr('Entrées du programme', 'Program input', 'مدخلات البرنامج')}</label><textarea id="labs-stdin" className="input" dir="ltr" value={input} onChange={event => setInput(event.target.value)} maxLength={16000} disabled={busy} placeholder={tr('Une valeur par ligne pour input(), scanf(), cin ou prompt().', 'One value per line for input(), scanf(), cin or prompt().', 'قيمة في كل سطر لاستخدام input() أو scanf() أو cin أو prompt().')} /></details>
         {!session && <label className="labs-xp-choice"><input type="checkbox" checked={voluntaryXp} disabled={language !== 'javascript' || busy} onChange={event => setVoluntaryXp(event.target.checked)} /><span>{tr('Participer volontairement aux XP de pratique JavaScript', 'Voluntarily participate in JavaScript practice XP', 'المشاركة اختيارياً في نقاط تدريب JavaScript')}</span></label>}
-        <div className="labs-actions"><Button variant="primary" icon={Play} disabled={busy || !!session?.completedAt || !source.trim() || !canCheck} onClick={check}>{busy ? tr('Vérification…', 'Checking…', 'جارٍ الفحص…') : tr('Vérifier la syntaxe', 'Check syntax', 'فحص الصياغة')}</Button><Button icon={Save} disabled={busy || !session || !!session.completedAt || session.source !== source} onClick={complete}>{tr('Terminer la session', 'Finish session', 'إنهاء الجلسة')}</Button></div>
-        {languages && !canCheck && <p className="labs-notice muted" role="status">{tr('La vérification de ce langage est indisponible sur ce serveur.', 'Checking this language is unavailable on this server.', 'فحص هذه اللغة غير متاح على هذا الخادم.')}</p>}
+        <div className="labs-actions"><Button variant="primary" icon={Play} disabled={busy || !source.trim()} onClick={check}>{busy ? tr('Exécution…', 'Running…', 'جارٍ التشغيل…') : language === 'json' ? tr('Valider et formater', 'Validate and format', 'تحقق ونسّق') : tr('Exécuter', 'Run code', 'تشغيل')}</Button>{busy && <Button icon={Square} onClick={() => controller.current?.abort()}>{tr('Arrêter', 'Stop', 'إيقاف')}</Button>}<Button icon={Save} disabled={busy || !session || !!session.completedAt || session.source !== source} onClick={complete}>{tr('Terminer la session', 'Finish session', 'إنهاء الجلسة')}</Button><span className="labs-shortcut">Ctrl / ⌘ ↵</span></div>
+        <section className="labs-console" aria-label={tr('Console de sortie', 'Output console', 'وحدة النتائج')}>
+          <div className="labs-console-toolbar"><h3><TerminalSquare size={16} />{tr('Console', 'Console', 'النتائج')}</h3><div><span className={`labs-console-status ${execution?.status || ''}`} role="status">{busy ? ({ loading: tr('Préparation du moteur', 'Loading runtime', 'تحميل المحرك'), compiling: tr('Compilation', 'Compiling', 'ترجمة الشيفرة'), running: tr('En cours', 'Running', 'قيد التشغيل') })[runPhase] : execution ? ({ success: tr('Terminé', 'Completed', 'اكتمل'), error: tr('Erreur', 'Error', 'خطأ'), timeout: tr('Temps limite', 'Time limit', 'انتهت المهلة'), stopped: tr('Arrêté', 'Stopped', 'أُوقف') })[execution.status] : tr('Prête', 'Ready', 'جاهزة')}</span><button type="button" className="labs-console-clear" disabled={busy || !output.length} onClick={() => { setOutput([]); setExecution(null); }} aria-label={tr('Effacer la console', 'Clear console', 'مسح النتائج')} title={tr('Effacer la console', 'Clear console', 'مسح النتائج')}><Trash2 size={15} /></button></div></div>
+          <div className="labs-console-output" role="log" aria-live="off" dir="ltr">{output.length ? <pre>{output.map((item, index) => <span key={index} className={item.stream === 'stderr' ? 'is-stderr' : undefined}>{item.text}</span>)}</pre> : <p className="labs-console-placeholder">{busy ? tr('Le premier lancement de Python, C ou C++ prépare le moteur. Les lancements suivants utilisent les fichiers en cache.', 'The first Python, C or C++ run loads its runtime. Later runs reuse cached files.', 'يُحمّل المحرك عند التشغيل الأول لـ Python أو C أو C++، وتُستخدم الملفات المحفوظة لاحقاً.') : tr('Lancez votre code pour voir les résultats ici.', 'Run your code to see the results here.', 'شغّل الشيفرة لعرض النتائج هنا.')}</p>}<span ref={consoleEnd} /></div>
+          <div className="labs-console-footer"><span>{busy && runPhase === 'loading' && runtimeProgress > 0 ? `${Math.round(runtimeProgress * 100)} %` : execution?.exitCode !== null && execution?.exitCode !== undefined ? `${tr('Code de sortie', 'Exit code', 'رمز الخروج')} ${execution.exitCode}` : tr('Sortie standard et erreurs', 'Standard output and errors', 'النتائج والأخطاء')}</span><span>{execution?.durationMs ? `${(execution.durationMs / 1000).toFixed(2)} s · ` : ''}{tr('Limite : 5 s', 'Limit: 5 s', 'المهلة: 5 ثوانٍ')}</span></div>
+        </section>
         {error && <div className="labs-alert is-error" role="alert">{error}</div>}
         {message && <div className="labs-alert" role="status">{message}</div>}
         {session?.result?.status && session.source === source && <div className={`labs-result ${valid ? 'is-valid' : ''}`} role="status">
-          {valid ? <><CheckCircle2 size={18} /><span>{tr('Syntaxe valide. Le code n’a pas été exécuté.', 'Valid syntax. The code was not executed.', 'الصياغة صحيحة. لم تُنفَّذ الشيفرة.')}</span></> : <><Braces size={18} /><div>{session.result.status === 'validation_unavailable' && <p>{tr('Vérification indisponible. Réessayez dans quelques instants.', 'Checking is unavailable. Try again shortly.', 'الفحص غير متاح. أعد المحاولة بعد قليل.')}</p>}{(session.result.diagnostics || []).map((item, index) => <p key={index}>{item.line ? `${tr('Ligne', 'Line', 'السطر')} ${item.line}${item.column ? `:${item.column}` : ''} · ` : ''}{item.message}</p>)}</div></>}
+          {valid ? <><CheckCircle2 size={18} /><span>{tr('Syntaxe vérifiée · session enregistrée.', 'Syntax checked · session saved.', 'تم التحقق من الصياغة وحفظ الجلسة.')}</span></> : <><Braces size={18} /><div>{session.result.status === 'validation_unavailable' && <p>{tr('Vérification indisponible. Réessayez dans quelques instants.', 'Checking is unavailable. Try again shortly.', 'الفحص غير متاح. أعد المحاولة بعد قليل.')}</p>}{(session.result.diagnostics || []).map((item, index) => <p key={index}>{item.line ? `${tr('Ligne', 'Line', 'السطر')} ${item.line}${item.column ? `:${item.column}` : ''} · ` : ''}{item.message}</p>)}</div></>}
         </div>}
         {session?.voluntaryXp && <p className="labs-xp-status">{tr('Potentiel de cette session', 'This session’s potential', 'رصيد هذه الجلسة المحتمل')} <strong>{session.potential} / 10 XP</strong></p>}
       </section>
       <aside className="labs-sidebar">
         <section className="card"><h2>{tr('Pratique équitable', 'Fair practice', 'تدريب عادل')}</h2><p className="muted">{tr('10 XP de potentiel. Chaque erreur de syntaxe distincte retire 2 XP de ce potentiel, sans réduire les XP déjà acquis. Maximum 10 XP de code par jour.', '10 potential XP. Each distinct syntax error removes 2 potential XP, preserving previously earned XP. Up to 10 code XP per day.', '10 نقاط محتملة. تخصم كل مشكلة صياغة مختلفة نقطتين من الرصيد المحتمل دون المساس بالنقاط السابقة. حتى 10 نقاط برمجة يومياً.')}</p><p className="muted">{tr('Au moins 90 secondes, deux révisions différentes et un programme développé. Les programmes de structure similaire sont dédupliqués. La programmation reste facultative pour toutes les facultés.', 'At least 90 seconds, two distinct revisions and a developed program. Similar program structures are deduplicated. Programming remains optional for every faculty.', '90 ثانية على الأقل وتعديلان مختلفان وبرنامج مطور. لا تتكرر مكافأة البنية البرمجية المتشابهة. البرمجة اختيارية لجميع الكليات.')}</p></section>
-        <section className="card"><h2>{tr('Langages disponibles', 'Available languages', 'اللغات المتاحة')}</h2><p className="muted">{languages ? languages.map(item => LANGUAGE_LABELS[item]).join(' · ') || tr('Aucune vérification disponible.', 'No checks are available.', 'لا توجد لغات متاحة للفحص.') : tr('Chargement des langages…', 'Loading languages…', 'جارٍ تحميل اللغات…')}</p>{!!unavailable?.length && <p className="muted">{tr('Indisponibles sur ce serveur', 'Unavailable on this server', 'غير متاحة على هذا الخادم')} : {unavailable.map(item => LANGUAGE_LABELS[item]).join(' · ')}</p>}<p className="muted">{tr('Les vérifications n’exécutent pas le programme. Les XP de pratique sont réservés aux sessions JavaScript volontaires.', 'Checks do not run the program. Practice XP is limited to voluntary JavaScript sessions.', 'لا ينفذ الفحص البرنامج. نقاط التدريب متاحة لجلسات JavaScript الاختيارية فقط.')}</p></section>
-        <section className="card"><h2>{tr('Vos sessions privées', 'Your private sessions', 'جلساتك الخاصة')}</h2>{sessions.length ? <div className="labs-session-list">{sessions.map(item => <button key={item.id} disabled={busy} onClick={() => restore(item)}><strong>{LANGUAGE_LABELS[item.language] || item.language}</strong><span>{new Date(item.updatedAt).toLocaleDateString(locale === 'ar' ? 'ar-MA' : locale === 'en' ? 'en-GB' : 'fr-FR')} · {item.completedAt ? tr('Terminée', 'Completed', 'منتهية') : tr('En cours', 'In progress', 'قيد العمل')}</span></button>)}</div> : <p className="muted">{tr('Votre première vérification démarrera une session.', 'Your first check starts a session.', 'يبدأ الفحص الأول جلسة جديدة.')}</p>}</section>
+        <section className="card"><h2>{tr('Exécuter en toute simplicité', 'Run with confidence', 'شغّل بسهولة')}</h2><p className="muted">{Object.values(LANGUAGE_LABELS).join(' · ')}</p><p className="muted">{tr('Votre code s’exécute dans votre navigateur. Préparez les valeurs à lire dans « Entrées du programme », puis lancez votre code. Python inclut sa bibliothèque standard. JSON est validé et formaté.', 'Your code runs in your browser. Add any values to read under “Program input”, then run your code. Python includes its standard library. JSON is validated and formatted.', 'تعمل الشيفرة داخل متصفحك. أضف القيم المطلوبة في «مدخلات البرنامج»، ثم شغّل الشيفرة. تتوفر مكتبة Python القياسية. تُفحص بيانات JSON وتُنسّق.')}</p></section>
+        <section className="card"><h2>{tr('Vos sessions privées', 'Your private sessions', 'جلساتك الخاصة')}</h2>{sessions.length ? <div className="labs-session-list">{sessions.map(item => <button key={item.id} disabled={busy} onClick={() => restore(item)}><strong>{LANGUAGE_LABELS[item.language] || item.language}</strong><span>{new Date(item.updatedAt).toLocaleDateString(locale === 'ar' ? 'ar-MA' : locale === 'en' ? 'en-GB' : 'fr-FR')} · {item.completedAt ? tr('Terminée', 'Completed', 'منتهية') : tr('En cours', 'In progress', 'قيد العمل')}</span></button>)}</div> : <p className="muted">{tr('Votre première exécution démarrera une session.', 'Your first run starts a session.', 'يبدأ التشغيل الأول جلسة جديدة.')}</p>}</section>
       </aside>
     </div> : <section className="card labs-workspace labs-graph-workspace">
       <h2><ChartLine size={19} />{tr('Tracer une fonction', 'Plot a function', 'رسم دالة')}</h2>

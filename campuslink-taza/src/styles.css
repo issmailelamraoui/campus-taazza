@@ -85,15 +85,15 @@
 /* LIGHT MODE */
 :root[data-theme="light"] {
   color-scheme: light;
-  --canvas: #f7f5f1;
-  --sidebar: #ffffff;
-  --surface: #ffffff;
-  --surface2: #f1eee8;
-  --line: #e5e0d8;
-  --lineSoft: #eeeae4;
+  --canvas: #eeeae3;
+  --sidebar: #f8f5ef;
+  --surface: #faf8f3;
+  --surface2: #eae4da;
+  --line: #d5cdc0;
+  --lineSoft: #e2dbcf;
   --ink: #25221e;
-  --muted: #746f67;
-  --faint: #9b958c;
+  --muted: #666057;
+  --faint: #7d756a;
   --cream: #f5e8d7;
   --cream2: #ead6bb;
   --accent: #9e6749;

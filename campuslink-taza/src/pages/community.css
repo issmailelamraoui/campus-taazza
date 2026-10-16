@@ -1567,3 +1567,9 @@ html[data-input-modality="keyboard"] .community-composer-input textarea:focus-vi
   .community-device-details { padding: 11px; gap: 9px 12px; }
   .community-device-details > div:nth-child(-n + 3) { grid-column: 1 / -1; }
 }
+.community-composer-module { display: flex; align-items: center; gap: 8px; margin-bottom: 9px; min-width: 0; }
+.community-composer-module .community-shared-module { flex: 1; padding: 9px 11px; }
+.community-composer-module > button { flex: 0 0 35px; }
+.community-message-bubble > .community-shared-module { margin-top: 8px; }
+.community-message-bubble > .community-shared-module:first-child { margin-top: 0; }
+.community-message.is-own .community-shared-module { background: var(--surface2); }

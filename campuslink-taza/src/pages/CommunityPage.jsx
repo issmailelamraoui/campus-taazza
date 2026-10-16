@@ -48,6 +48,7 @@ import { normalizeSearch } from "../utils";
 import { copyText } from "../lib/clipboard";
 import UploadModal from "../components/UploadModal";
 import { Select } from "../components/Select";
+import { SharedModuleReference, moduleReference } from "../components/ModuleShare";
 import {
   Avatar,
   Badge,
@@ -94,7 +95,7 @@ const createMessageId = () => {
   const value = Array.from(bytes, byte => byte.toString(16).padStart(2, "0")).join("");
   return `${value.slice(0, 8)}-${value.slice(8, 12)}-${value.slice(12, 16)}-${value.slice(16, 20)}-${value.slice(20)}`;
 };
-const messagePreview = (message) => message?.content || message?.attachments?.map(file => file.name || file.title).join(", ") || message?.attachment?.title || "";
+const messagePreview = (message) => message?.content || message?.sharedModule?.module || message?.attachments?.map(file => file.name || file.title).join(", ") || message?.attachment?.title || "";
 const dayKey = (value) =>
   new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Casablanca" }).format(
     new Date(value),
@@ -577,6 +578,8 @@ export default function CommunityPage() {
         typeof value === "function" ? value(previous[channel] || "") : value,
     }));
   const [replyTo, setReplyTo] = useState(null);
+  const [moduleDrafts, setModuleDrafts] = useState({});
+  const sharedModule = moduleDrafts[channel] || null;
   const [attachmentDrafts, setAttachmentDrafts] = useState({});
   const attachmentDraftsRef = useRef(attachmentDrafts);
   attachmentDraftsRef.current = attachmentDrafts;
@@ -616,6 +619,7 @@ export default function CommunityPage() {
     previousScope.current = academicScope;
     for (const attachment of Object.values(attachmentDraftsRef.current).flat()) releaseSessionAttachment(attachment.id);
     setDrafts({});
+    setModuleDrafts({});
     setAttachmentDrafts({});
     setReplyTo(null);
     setAttachmentClassification(null);
@@ -643,6 +647,20 @@ export default function CommunityPage() {
   const missingProgram = Boolean(yearInfo && !selection?.filiereId);
   const readOnly = Boolean(!isAdmin && configuredChannel?.read_only);
   const composerDisabled = sending || blocked || missingProgram || readOnly;
+  useEffect(() => {
+    const resourceId = params.get('share_module');
+    if (!resourceId) return;
+    const resource = resources.find(item => String(item.id) === resourceId && item.libraryVisible !== false &&
+      item.facultyId === selection?.facultyId && item.filiereId === selection?.filiereId);
+    if (resource) {
+      setModuleDrafts(previous => ({ ...previous, [channel]: moduleReference(resource) }));
+      setMobileConversation(true);
+      requestAnimationFrame(() => composerRef.current?.focus());
+    } else notify(tr('Ce module n’est plus disponible dans votre bibliothèque.', 'This module is no longer available in your library.', 'هذه الوحدة لم تعد متاحة في مكتبتك.'));
+    const next = new URLSearchParams(params);
+    next.delete('share_module');
+    setParams(next, { replace: true });
+  }, [params, resources, selection?.facultyId, selection?.filiereId, channel, notify, setParams, tr]);
   const unavailableReason = blocked
     ? tr("Votre accès aux discussions a été suspendu par l’administration.", "Your chat access has been suspended by administration.", "علّقت الإدارة وصولك إلى المناقشات.")
     : missingProgram
@@ -676,7 +694,7 @@ export default function CommunityPage() {
       needle
         ? currentMessages.filter((message) =>
             normalizeSearch(
-              `${message.content} ${message.author} ${message.username || ""} ${messagePreview(message)} ${message.attachments?.map(file => `${file.name || ""} ${file.title || ""} ${file.path || ""} ${file.module || ""} ${file.filiereName || ""} ${file.author || ""} ${file.category ? t(file.category) : ""} ${file.part ? partLabel(file.part, language) : ""} ${file.semester ? `S${file.semester}` : ""}`).join(" ") || ""} ${message.attachment?.title || ""} ${message.attachment?.module || ""}`,
+              `${message.content} ${message.author} ${message.username || ""} ${messagePreview(message)} ${message.sharedModule?.module || ''} ${message.attachments?.map(file => `${file.name || ""} ${file.title || ""} ${file.path || ""} ${file.module || ""} ${file.filiereName || ""} ${file.author || ""} ${file.category ? t(file.category) : ""} ${file.part ? partLabel(file.part, language) : ""} ${file.semester ? `S${file.semester}` : ""}`).join(" ") || ""} ${message.attachment?.title || ""} ${message.attachment?.module || ""}`,
             ).includes(needle),
           )
         : currentMessages,
@@ -870,7 +888,7 @@ export default function CommunityPage() {
   }
   async function sendMessage(event) {
     event?.preventDefault();
-    if (composerDisabled || (!draft.trim() && !attachments.length)) return;
+    if (composerDisabled || (!draft.trim() && !attachments.length && !sharedModule)) return;
     const targetChannel = channel;
     const targetScope = currentScope.current;
     let queued = false;
@@ -889,10 +907,12 @@ export default function CommunityPage() {
         channel: targetChannel,
         replyTo: replyTo?.id || null,
         attachments: files,
+        sharedModule,
       });
       queued = true;
       setDrafts(previous => ({ ...previous, [targetChannel]: "" }));
       setReplyTo(null);
+      setModuleDrafts(previous => ({ ...previous, [targetChannel]: null }));
       setAttachmentDrafts(previous => ({ ...previous, [targetChannel]: [] }));
       for (const attachment of attachments) releaseSessionAttachment(attachment.id);
       setSending(false);
@@ -1405,6 +1425,7 @@ export default function CommunityPage() {
                             {message.content && <MessageContent query={query}>
                               {message.content}
                             </MessageContent>}
+                            {message.sharedModule && <SharedModuleReference reference={message.sharedModule} />}
                             {message.attachment && (
                               <div className="community-message-attachment">
                                 <button className="community-attachment-file" type="button" onClick={() => openAttachment(message)}>
@@ -1474,6 +1495,11 @@ export default function CommunityPage() {
             )}
           </div>
           <form className="community-composer" onSubmit={sendMessage} onDragOver={event => event.preventDefault()} onDrop={dropDeviceFiles}>
+            {sharedModule && <div className="community-composer-module" aria-label={tr('Module joint au message', 'Module attached to message', 'الوحدة المرفقة بالرسالة')}>
+              <SharedModuleReference reference={sharedModule} draft />
+              <button className="icon-btn" type="button" disabled={sending} onClick={() => setModuleDrafts(previous => ({ ...previous, [channel]: null }))}
+                aria-label={tr('Retirer le module', 'Remove module', 'إزالة الوحدة')}><X size={17} /></button>
+            </div>}
             {replyTo && (
               <div className="community-composer-reply">
                 <Reply size={16} />
@@ -1537,7 +1563,7 @@ export default function CommunityPage() {
               <Button
                 variant="primary"
                 type="submit"
-                disabled={composerDisabled || (!draft.trim() && !attachments.length)}
+                disabled={composerDisabled || (!draft.trim() && !attachments.length && !sharedModule)}
                 aria-busy={sending}
                 icon={Send}
                 aria-label={tr(

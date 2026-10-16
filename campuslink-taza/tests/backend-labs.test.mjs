@@ -26,7 +26,7 @@ integration('parser sessions are private and real syntax diagnostics persist wit
   assert.equal((await request('/labs/' + session.id + '/check', { source: 'const x = ;' }, cookies.sara)).status, 404);
   const checked = await request('/labs/' + session.id + '/check', { source: 'globalThis.labsExecuted=true; while(true){}' });
   assert.equal(checked.status, 200); assert.equal(checked.data.session.result.status, 'valid_syntax'); assert.equal(globalThis.labsExecuted, undefined);
-  assert.equal((await request('/labs')).data.executionAvailable, false);
+  assert.equal((await request('/labs')).data.executionAvailable, true);
   const complete = await request('/labs/' + session.id + '/complete', {}); assert.equal(complete.data.session.rewardedPoints, 0);
 });
 integration('distinct syntax errors reduce only remaining potential; retry deduplicates penalties and final reward', async () => {
@@ -65,11 +65,12 @@ integration('language tampering, browser XP totals and unsustained trivial sessi
   const result = await request('/labs/' + session.id + '/complete', { points: 999999 }); assert.equal(result.data.session.rewardedPoints, 0);
 });
 
-integration('Python, C and C++ sessions validate with real parsers, persist privately and never enable execution or code XP', async () => {
+integration('Python, C and C++ sessions persist privately, advertise browser execution and do not award JavaScript XP', async () => {
   const available = await request('/labs');
   assert.equal(available.status, 200);
   assert.deepEqual(available.data.languages, ['javascript', 'json', 'python', 'c', 'cpp']);
-  assert.equal(available.data.executionAvailable, false);
+  assert.equal(available.data.executionAvailable, true);
+  assert.equal(available.data.execution.location, 'browser');
   const programs = {
     python: 'def moyenne(valeurs):\n    total = 0\n    for valeur in valeurs:\n        total += valeur\n    return total / len(valeurs) if valeurs else 0\n',
     c: '#include <stdio.h>\nint main(void) { int valeur = 42; printf("%d", valeur); return 0; }\n',

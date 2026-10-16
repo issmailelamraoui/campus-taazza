@@ -214,8 +214,8 @@ export function AppProvider({children}){
   const fields={title:meta.title,semester:meta.semester,module:meta.module,category:meta.category,part_number:normalizePart(meta.part),teacher_name:meta.author||'',filiere_id:meta.filiereId||current.current.user?.filiereId,
    academic_year:meta.academicYear||'',faculty_id:meta.facultyId||current.current.user?.facultyId,resource_type:meta.category==='corrections'?'correction':['courses','exercises','exams','rattrapage','td','tp'].includes(meta.category)?meta.category:'document',relative_path:path||file.name,channel:scope.channel,
    ...(scope.semester?{chat_semester:scope.semester}:{}),library_visible:String(libraryVisible),publish_message:'false'};
-  Object.entries(fields).forEach(([name,value])=>{if(value!==undefined&&value!==null)form.append(name,String(value));});form.append('file',file,file.name);
-  const result=await api('/uploads',{method:'POST',body:form,timeout:120000}),resource=normalizeResource(result.resource);
+  Object.entries(fields).forEach(([name,value])=>{if(value!==undefined&&value!==null)form.append(name,String(value));});form.append('file',file);
+  const result=await api('/uploads',{method:'POST',body:form,timeout:600000}),resource=normalizeResource(result.resource);
   requireCurrent(owner);if(libraryVisible)commit(owner,previous=>({...previous,resources:[resource,...previous.resources.filter(item=>item.id!==resource.id)]}));return resource;
  }
  async function updateResourceAcademicYears(target,years){const owner=epoch.current,result=await api('/resources/'+target+'/academic-years',{method:'PATCH',body:{academic_years:years,academic_year:years[0]||null}});requireCurrent(owner);const resource=normalizeResource(result.resource);commit(owner,previous=>({...previous,resources:previous.resources.map(item=>item.id===resource.id?resource:item)}));return resource;}
@@ -225,7 +225,7 @@ export function AppProvider({children}){
   return locked(action,async owner=>{
   draft={...draft,client_id:clientId};messageDrafts.current.set(pendingId,draft);
   const author=current.current.user;
-  const pending={id:pendingId,client_id:clientId,channel:draft.channel,content:draft.content||'',date:new Date().toISOString(),facultyId:author.facultyId,filiereId:author.filiereId,author:author.name,authorId:author.id,username:author.username,avatar:author.avatar,replyTo:draft.replyTo||null,pinned:false,reactions:{like:0,heart:0},myReactions:[],attachments:(draft.attachments||[]).map(item=>({...item,originalName:item.name||item.file?.name||item.title,libraryVisible:false})),deliveryStatus:'sending'};
+  const pending={id:pendingId,client_id:clientId,channel:draft.channel,content:draft.content||'',date:new Date().toISOString(),facultyId:author.facultyId,filiereId:author.filiereId,author:author.name,authorId:author.id,username:author.username,avatar:author.avatar,replyTo:draft.replyTo||null,sharedModule:draft.sharedModule||null,pinned:false,reactions:{like:0,heart:0},myReactions:[],attachments:(draft.attachments||[]).map(item=>({...item,originalName:item.name||item.file?.name||item.title,libraryVisible:false})),deliveryStatus:'sending'};
   const show=message=>previous=>({...previous,messages:[...previous.messages.filter(item=>item.id!==pendingId&&!(item.client_id===clientId&&item.authorId===author.id)),message]});
   beginOptimistic(owner,action,show(pending));
   try{
@@ -237,7 +237,7 @@ export function AppProvider({children}){
    if(!staged){staged=uploadResource({file:attachment.file,path:attachment.path,meta:attachment,libraryVisible:false,channel:draft.channel});stagedUploads.current.set(cacheKey,staged);staged.catch(()=>stagedUploads.current.delete(cacheKey));}
    attachmentIds.push((await staged).id);requireCurrent(owner);
   }
-  const result=await api('/messages',{method:'POST',body:{...chatRequest(draft.channel),client_id:draft.client_id,content:draft.content||'',reply_to:draft.replyTo||null,attachment_ids:attachmentIds}});
+  const result=await api('/messages',{method:'POST',body:{...chatRequest(draft.channel),client_id:draft.client_id,content:draft.content||'',reply_to:draft.replyTo||null,attachment_ids:attachmentIds,module_resource_id:draft.sharedModule?.resourceId||null}});
   const message=normalizeMessage(result.message,current.current.resources);requireCurrent(owner);finishOptimistic(owner,action,previous=>({...previous,messages:[...previous.messages.filter(item=>item.id!==pendingId&&item.id!==message.id&&!(item.client_id===clientId&&item.authorId===author.id)),message]}));
   messageDrafts.current.delete(pendingId);
   for(const cacheKey of stagedUploads.current.keys())if(JSON.parse(cacheKey)[0]===draft.client_id)stagedUploads.current.delete(cacheKey);
@@ -297,7 +297,7 @@ export function AppProvider({children}){
    let resources=previous.resources.filter(item=>item.id!==removedResource),announcements=previous.announcements.filter(item=>item.id!==removedAnnouncement&&(!removedMessage||item.messageId!==removedMessage)).map(item=>removedResource&&item.resourceId===removedResource?{...item,resourceId:null}:item);
    if(change.resource){const item=normalizeResource(change.resource);if(inFaculty(item)&&item.filiereId===previous.user?.filiereId&&item.libraryVisible)resources=upsert(resources,item);}
    for(const raw of change.announcements||(change.announcement?[change.announcement]:[])){const item=normalizeAnnouncement(raw);if(inFaculty(item)&&(!item.filiereId||item.filiereId===previous.user?.filiereId))announcements=upsert(announcements,item);}
-   let messages=previous.messages.filter(item=>item.id!==removedMessage).map(item=>removedResource?{...item,attachments:(item.attachments||[]).filter(file=>file.id!==removedResource)}:item).filter(item=>!removedResource||item.content||item.attachments?.length);
+   let messages=previous.messages.filter(item=>item.id!==removedMessage).map(item=>removedResource?{...item,attachments:(item.attachments||[]).filter(file=>file.id!==removedResource)}:item).filter(item=>!removedResource||item.content||item.attachments?.length||item.sharedModule);
    const unpinned=previous.announcements.find(item=>item.id===removedAnnouncement)?.messageId;
    if(unpinned)messages=messages.map(item=>item.id===unpinned?{...item,pinned:false}:item);
    if(change.announcement){const announcement=normalizeAnnouncement(change.announcement);if(announcement.messageId)messages=messages.map(item=>item.id===announcement.messageId?{...item,pinned:announcement.pinned}:item);}

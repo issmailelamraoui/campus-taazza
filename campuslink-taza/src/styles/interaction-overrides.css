@@ -118,3 +118,48 @@ textarea,
 }
 
 html[data-low-data="true"] *,html[data-low-data="true"] *::before,html[data-low-data="true"] *::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}
+
+/* Dismissal controls share one quiet, recognizable treatment. Match close icons
+   and their actual containers, rather than words in translated action labels. */
+:root {
+  --close-bg: color-mix(in srgb, var(--danger) 12%, var(--surface));
+  --close-border: color-mix(in srgb, var(--danger) 30%, var(--line));
+}
+:is(.close-control, button.icon-btn:has(> svg.lucide-x),
+    .community-composer-reply > button:has(> svg.lucide-x),
+    .community-composer-attachment > button:has(> svg.lucide-x),
+    .library-search > button:has(> svg.lucide-x),
+    .community-delivery-status button:has(> svg.lucide-x)) {
+  background: var(--close-bg);
+  color: var(--danger);
+  border: 1px solid var(--close-border);
+  border-radius: var(--radius-sm);
+  flex-shrink: 0;
+}
+:is(.close-control, button.icon-btn:has(> svg.lucide-x),
+    .community-composer-reply > button:has(> svg.lucide-x),
+    .community-composer-attachment > button:has(> svg.lucide-x),
+    .library-search > button:has(> svg.lucide-x),
+    .community-delivery-status button:has(> svg.lucide-x)):hover:not(:disabled) {
+  background: color-mix(in srgb, var(--danger) 20%, var(--surface));
+  border-color: color-mix(in srgb, var(--danger) 50%, var(--line));
+  color: var(--danger);
+}
+:root[data-theme="light"] .document-card {
+  background: var(--surface);
+  border-color: var(--line);
+  box-shadow: 0 3px 10px #4c392110;
+}
+:root[data-theme="light"] .document-card .document-footer {
+  background: color-mix(in srgb, var(--surface2) 58%, var(--surface));
+  border-top-color: var(--line);
+}
+:root[data-theme="light"] .document-card .file-symbol {
+  background: var(--surface2);
+  border-color: var(--line);
+  color: var(--accentDeep);
+}
+:root[data-theme="light"] .document-card:hover {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
+  box-shadow: 0 5px 16px #4c392118;
+}

@@ -1,4 +1,4 @@
-import { chromium, expect as playwrightExpect } from '@playwright/test';
+import { chromium, firefox, expect as playwrightExpect } from '@playwright/test';
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { chooseOption } from './ui.helpers.mjs';
@@ -6,24 +6,27 @@ import { chooseOption } from './ui.helpers.mjs';
 // All API calls stay inside the browser fixture, including position and note
 // writes. This suite never needs a database, a private file, or server seeding.
 const origin = process.env.CAMPUSLINK_TEST_URL || 'http://127.0.0.1:5180';
+const browserName = process.env.CAMPUSLINK_READER_BROWSER === 'firefox' ? 'firefox' : 'chromium';
 const executablePath = '/home/issmail/.cache/ms-playwright/chromium-1243/chrome-linux64/chrome';
-const browser = await chromium.launch({ ...(existsSync(executablePath) ? { executablePath } : {}), headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage'] });
+const browser = await (browserName === 'firefox' ? firefox : chromium).launch({ ...(browserName === 'chromium' && existsSync(executablePath) ? { executablePath } : {}), headless: true, ...(browserName === 'chromium' ? { args: ['--no-sandbox', '--disable-dev-shm-usage'] } : {}) });
+const artifact = name => `test-results/${browserName === 'firefox' ? 'firefox-' : ''}${name}`;
 const passed = [], measurements = [];
 const expect = playwrightExpect.configure({ timeout: 10000 });
 let activePage;
 mkdirSync('test-results', { recursive: true });
 
-function multipagePDF() {
+function multipagePDF(pageCount = 3) {
   const escape = value => value.replace(/[\\()]/g, '\\$&');
   const pages = [
     ['Workspace fixture - page 1', 'Database administration: read the actual document.', 'Page one verifies initial reading space.'],
-    ['Workspace fixture - page 2', 'Transactions keep database changes consistent.', 'Page two verifies next and previous navigation.'],
+    ['Workspace fixture - page 2', 'Transactions keep database changes consistent.', 'Page two verifies continuous scroll navigation.'],
     ['Workspace fixture - page 3', 'Search beacon: indexing helps locate a passage.', 'Page three verifies search and private note source.'],
   ];
+  while (pages.length < pageCount) pages.push([`Workspace fixture - page ${pages.length + 1}`, 'Continuous scrolling fixture.', 'Only nearby pages need canvas memory.']);
   const streams = pages.map(lines => `BT /F1 19 Tf 48 790 Td (${escape(lines[0])}) Tj /F1 12 Tf ${lines.slice(1).map(line => `0 -32 Td (${escape(line)}) Tj`).join(' ')} ET`);
   const objects = [
     '<< /Type /Catalog /Pages 2 0 R >>',
-    '<< /Type /Pages /Kids [4 0 R 6 0 R 8 0 R] /Count 3 >>',
+    `<< /Type /Pages /Kids [${pages.map((_,index) => `${4+index*2} 0 R`).join(' ')}] /Count ${pages.length} >>`,
     '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
     ...streams.flatMap((stream, index) => [
       `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R >> >> /Contents ${5 + index * 2} 0 R >>`,
@@ -41,10 +44,10 @@ function multipagePDF() {
   return Buffer.from(value);
 }
 
-async function fixture({ width = 1300, height = 874, language = 'fr', theme = 'dark', fail = '' } = {}) {
-  const context = await browser.newContext({ viewport: { width, height }, isMobile: width < 800, hasTouch: width < 800, serviceWorkers: 'block', reducedMotion: 'reduce' });
+async function fixture({ width = 1300, height = 874, language = 'fr', theme = 'dark', fail = '', pageCount = 3, startPage = 1, savedPosition = null } = {}) {
+  const context = await browser.newContext({ viewport: { width, height }, ...(browserName === 'chromium' ? { isMobile: width < 800 } : {}), hasTouch: width < 800, serviceWorkers: 'block', reducedMotion: 'reduce' });
   const user = { id: 3, name: 'Student fixture', username: 'reader-fixture', role: 'student', account_status: 'approved', faculty_id: 'fsa', filiere_id: 'data_science', current_semester: 5, current_academic_year: '2026/2027', language };
-  const pdf = multipagePDF();
+  const pdf = multipagePDF(pageCount);
   const base = { faculty_id: 'fsa', filiere_id: 'data_science', semester: 5, module: 'Administration des bases de donnees', version: 1, filename: 'administration.pdf', mime: 'application/pdf', size: pdf.length, library_visible: true, author: user, academic_year: '2026/2027', academic_years: ['2026/2027'], created_at: '2026-10-13T00:00:00Z' };
   const main = { ...base, id: 41, title: 'Administration Des Bases De Donnees', category: 'courses', resource_type: 'courses', part_number: 'complete' };
   const compare = { ...base, id: 42, title: 'Travaux diriges des bases de donnees', category: 'td', resource_type: 'td', part_number: '1' };
@@ -76,7 +79,7 @@ async function fixture({ width = 1300, height = 874, language = 'fr', theme = 'd
         attempts.metadata++;
         if (fail === 'metadata' && attempts.metadata === 1) return route.fulfill({ status: 503, json: { error: 'Temporary metadata fixture failure' } });
       }
-      return route.fulfill({ json: { document: { ...resource, currentVersion: 1, url: `/api/reading/${resource.id}/file?version=1` }, position: null, previousPositions: [], recovery: [] } });
+      return route.fulfill({ json: { document: { ...resource, currentVersion: 1, url: `/api/reading/${resource.id}/file?version=1` }, position: savedPosition, previousPositions: [], recovery: [] } });
     }
     if (path.endsWith('/position')) {
       const body = request.postDataJSON();
@@ -110,7 +113,7 @@ async function fixture({ width = 1300, height = 874, language = 'fr', theme = 'd
   activePage = page;
   page.on('pageerror', error => errors.push(error.message));
   const openedAt = Date.now();
-  await page.goto(origin + '/app/library?document=41&page=1&version=1');
+  await page.goto(origin + `/app/library?document=41${startPage ? `&page=${startPage}` : ''}&version=1`);
   const dialog = page.locator('.study-reader-modal');
   await expect(dialog).toBeVisible();
   const pane = dialog.locator('.reader-pane').first();
@@ -120,7 +123,7 @@ async function fixture({ width = 1300, height = 874, language = 'fr', theme = 'd
 async function rendered(f, number = 1, pane = f.pane) {
   const canvas = pane.locator(`canvas[aria-label="Page ${number}"]`);
   await expect(canvas).toBeVisible();
-  await expect(pane.locator('.reader-text-layer')).toContainText(`Workspace fixture - page ${number}`);
+  await expect(pane.locator(`.reader-page-slot[data-pdf-page="${number}"] .reader-text-layer`)).toContainText(`Workspace fixture - page ${number}`);
   if (pane === f.pane) {
     await expect(f.dialog.locator('.modal-header h2')).toHaveText(f.main.title);
     await expect(f.dialog.locator('.reader-document-context')).toContainText('S5');
@@ -195,67 +198,70 @@ async function run(name, callback) {
   console.log('PASS ' + name);
 }
 
+async function scrollPage(f, number, pane = f.pane, offset = 0) {
+  await pane.locator('.reader-scroll').evaluate((node, { number, offset }) => {
+    node.scrollTop = node.querySelector(`[data-pdf-page="${number}"]`).offsetTop + offset;
+  }, { number, offset });
+  await expect(pane.locator('.reader-page-number input')).toHaveValue(String(number));
+  await rendered(f, number, pane);
+}
+
 try {
-  await run('Desktop 1300x874 opens a painted PDF above the fold and keeps navigation accessible', async () => {
+  await run('Continuous PDF scrolling, committed page jumps and grouped tools on desktop', async () => {
     const f = await fixture();
     try {
       await rendered(f);
       assert.ok(Date.now() - f.openedAt < 10000, 'The small PDF opens promptly.');
       await fits(f);
+      await expect(f.pane.locator('.reader-page-prev,.reader-page-next')).toHaveCount(0);
+      await expect(f.pane.locator('.reader-controls button')).toHaveCount(1);
       await expect(f.pane.locator('.reader-tools')).toHaveCount(0);
       await expect(f.pane.locator('.reader-notes')).toHaveCount(0);
-      await expect(f.pane.locator('.reader-page-prev')).toBeDisabled();
-      await expect(f.pane.locator('.reader-page-next')).toBeEnabled();
-      await f.pane.locator('.reader-page-next').click();
-      await rendered(f, 2);
-      await f.pane.locator('.reader-page-prev').click();
-      await rendered(f);
+      await expect(f.dialog.locator('.reader-document-actions')).toHaveCount(0);
+      await scrollPage(f, 2);
+      await scrollPage(f, 1);
       const pageInput = f.pane.locator('.reader-page-number input');
       await pageInput.fill('3');
-      await expect(f.pane.locator('canvas')).toHaveAttribute('aria-label', 'Page 1');
+      await expect(f.pane.locator('canvas[aria-label="Page 1"]')).toBeInViewport();
       await pageInput.press('Enter');
       await rendered(f, 3);
       const readingScroll = f.pane.locator('.reader-scroll');
-      await readingScroll.evaluate(node => { node.scrollTop = 140; });
+      await scrollPage(f, 3, f.pane, 140);
+      const scrollTop = await readingScroll.evaluate(node => node.scrollTop);
       for (const draft of ['3', '']) {
         await pageInput.fill(draft);
         await pageInput.press('Enter');
         await expect(pageInput).toHaveValue('3');
-        await expect(f.pane.getByRole('button', { name: 'Agrandir', exact: true })).toBeEnabled();
-        assert.equal(await readingScroll.evaluate(node => node.scrollTop), 140, 'Unchanged and empty page drafts preserve reading position.');
+        assert.equal(await readingScroll.evaluate(node => node.scrollTop), scrollTop, 'Unchanged and empty page drafts preserve reading position.');
         await pageInput.fill(draft);
         await pageInput.press('Tab');
         await expect(pageInput).toHaveValue('3');
-        assert.equal(await readingScroll.evaluate(node => node.scrollTop), 140, 'Blurring an unchanged or empty draft preserves reading position.');
+        assert.equal(await readingScroll.evaluate(node => node.scrollTop), scrollTop, 'Blurring an unchanged or empty draft preserves reading position.');
       }
       await pageInput.fill('99');
       await pageInput.press('Enter');
       await expect(pageInput).toHaveValue('3');
-      await rendered(f, 3);
       await pageInput.fill('1');
       await pageInput.press('Enter');
       await rendered(f);
-      await f.pane.getByRole('button', { name: 'Agrandir', exact: true }).click();
-      await expect(f.pane.locator('.reader-zoom')).toHaveText('110%');
+      const panel = await tools(f);
+      await panel.getByRole('button', { name: 'Agrandir', exact: true }).click();
+      await expect(panel.locator('.reader-zoom')).toHaveText('110%');
       await rendered(f);
-      await f.pane.getByRole('button', { name: 'Réduire le zoom', exact: true }).click();
-      await rendered(f);
-      const toggle = f.pane.locator('.reader-tools-toggle');
-      await toggle.focus();
-      await f.page.keyboard.press('Enter');
-      await expect(f.pane.locator('.reader-tools')).toBeVisible();
-      await f.page.screenshot({ path: 'test-results/reader-workspace-desktop-1300-tools.png' });
+      await panel.getByRole('button', { name: 'Réduire le zoom', exact: true }).click();
+      await panel.getByRole('button', { name: 'Adapter à la largeur', exact: true }).click();
+      await f.page.screenshot({ path: artifact('reader-workspace-desktop-1300-tools.png') });
       await closeTools(f);
-      await f.page.screenshot({ path: 'test-results/reader-workspace-desktop-1300-dark-fr.png' });
+      await fits(f);
+      await f.page.screenshot({ path: artifact('reader-workspace-desktop-1300-dark-fr.png') });
       assert.deepEqual(f.errors, []);
-    } finally { await f.context.close(); }
+    } catch (error) { await f.page.screenshot({ path: artifact('reader-workspace-browser-failure.png'), fullPage: true }).catch(() => {}); throw error; } finally { await f.context.close(); }
   });
 
-  await run('Desktop 1440x900 tools, PDF search, notes, compare and focus remain functional', async () => {
+  await run('PDF search, notes, compare, focus and document tools remain functional', async () => {
     const f = await fixture({ width: 1440, height: 900 });
     try {
       await rendered(f);
-      await fits(f);
       const panel = await tools(f);
       const search = panel.getByRole('textbox', { name: 'Rechercher dans ce PDF', exact: true });
       await search.fill('Search beacon');
@@ -265,9 +271,7 @@ try {
       await expect(result).toContainText('p. 3');
       await result.click();
       await rendered(f, 3);
-      await result.click();
-      await expect(f.pane.getByRole('button', { name: 'Agrandir', exact: true })).toBeEnabled();
-      await expect(f.pane.locator('.reader-page-next')).toBeDisabled();
+      await expect(f.pane.locator('.reader-page-number input')).toHaveValue('3');
       await chooseOption(panel.getByLabel('Couleurs', { exact: true }), 'sepia');
       await expect(f.pane.locator('.reader-scroll')).toHaveClass(/tone-sepia/);
       await panel.getByLabel('Luminosité du document', { exact: true }).focus();
@@ -278,17 +282,18 @@ try {
       await expect(f.pane.locator('.reader-scroll')).toHaveClass(/tone-normal/);
       await expect(panel.getByRole('button', { name: 'Enregistrer hors ligne', exact: true })).toBeEnabled();
       await expect(panel.getByRole('button', { name: 'Proposer ou réviser une version corrigée', exact: true })).toBeEnabled();
+      await panel.locator('.reader-info-toggle').click();
+      await expect(panel.locator('.reader-file-details')).toContainText('administration.pdf');
       await panel.locator('.supplemental-files summary').click();
       await expect(panel.locator('.supplemental-files')).toContainText('Aucun complément');
       await panel.locator('.reader-quality-report summary').click();
       await panel.getByLabel('Précisions pour la vérification', { exact: true }).fill('The mock page three has a missing example.');
       await panel.getByRole('button', { name: 'Transmettre le signalement', exact: true }).click();
       assert.equal(f.writes.find(write => write.path === '/api/reports').body.details, 'p. 3 · v1\nThe mock page three has a missing example.');
-      await closeTools(f);
-      await f.pane.getByRole('button', { name: /^Notes \(/ }).click();
-      await expect(f.pane.locator('.reader-notes')).toBeVisible();
-      await expect(f.pane.locator('.reader-tools')).toHaveCount(0);
+      await panel.locator('.reader-notes-toggle').click();
       const notePanel = f.pane.locator('.reader-notes');
+      await expect(notePanel).toBeVisible();
+      await expect(f.pane.locator('.reader-tools')).toHaveCount(0);
       await notePanel.getByRole('button', { name: 'Nouvelle note', exact: true }).click();
       await notePanel.getByLabel('Titre', { exact: true }).fill('Transaction recap');
       await notePanel.getByLabel('Votre note', { exact: true }).fill('Keep a transaction consistent with the source on page three.');
@@ -298,111 +303,164 @@ try {
       assert.equal(f.notes[0].page, 3);
       assert.equal(f.notes[0].version, 1);
       await notePanel.getByRole('button', { name: 'Voir dans le document', exact: true }).click();
-      await expect(f.pane.getByRole('button', { name: 'Agrandir', exact: true })).toBeEnabled();
-      await f.pane.getByRole('button', { name: /^Notes \(/ }).click();
-      await expect(f.pane.locator('.reader-notes')).toHaveCount(0);
-      await f.dialog.locator('.reader-compare-toggle').click();
+      await notePanel.locator('.reader-notes-close').click();
+      await expect(f.pane.locator('.reader-tools-toggle')).toBeFocused();
+      await tools(f);
+      await panel.locator('.reader-compare-toggle').click();
+      await closeTools(f);
       await chooseOption(f.dialog.getByLabel('Comparer avec', { exact: true }), '42');
       await expect(f.dialog.locator('.reader-pane')).toHaveCount(2);
       await rendered(f, 1, f.dialog.locator('.reader-pane').nth(1));
-      await expect(f.dialog.locator('.reader-pane').first().locator('canvas')).toBeVisible();
       await chooseOption(f.dialog.getByLabel('Comparer avec', { exact: true }), '');
       await expect(f.dialog.locator('.reader-pane')).toHaveCount(1);
-      await f.dialog.getByRole('button', { name: 'Mode focus', exact: true }).click();
+      await tools(f);
+      await panel.getByRole('button', { name: 'Mode focus', exact: true }).click();
       await expect(f.dialog).toHaveClass(/reader-focus/);
       await rendered(f, 3);
-      await f.dialog.getByRole('button', { name: 'Quitter le focus', exact: true }).click();
+      await panel.getByRole('button', { name: 'Quitter le focus', exact: true }).click();
       await expect(f.dialog).not.toHaveClass(/reader-focus/);
       assert.deepEqual(f.errors, []);
-    } finally { await f.context.close(); }
+    } catch (error) { await f.page.screenshot({ path: artifact('reader-workspace-browser-failure.png'), fullPage: true }).catch(() => {}); throw error; } finally { await f.context.close(); }
   });
 
-  await run('Phone, small phone, landscape and Arabic themes preserve reading space and reachable controls', async () => {
-    for (const options of [
-      { width: 390, height: 844 },
-      { width: 320, height: 640 },
-      { width: 844, height: 390 },
-      { width: 1300, height: 874, language: 'ar' },
-      { width: 390, height: 844, language: 'ar' },
-      { width: 1440, height: 900, language: 'ar', theme: 'light' },
-      { width: 320, height: 640, language: 'ar', theme: 'light' },
+  await run('Desktop, 320px, 390px, landscape and RTL work in both themes', async () => {
+    for (const theme of ['dark', 'light']) for (const options of [
+      { width: 390, height: 844 }, { width: 320, height: 640 },
+      { width: 844, height: 390 }, { width: 1440, height: 900 },
+      { width: 390, height: 844, language: 'ar' }, { width: 320, height: 640, language: 'ar' },
     ]) {
-      const f = await fixture(options);
+      const f = await fixture({ ...options, theme });
       try {
         await rendered(f);
         await fits(f);
         if (f.language === 'ar') assert.equal(await f.dialog.evaluate(node => getComputedStyle(node).direction), 'rtl');
+        await expect(f.pane.locator('.reader-page-prev,.reader-page-next')).toHaveCount(0);
+        const toggle = f.pane.locator('.reader-tools-toggle');
+        const dimensions = await toggle.boundingBox();
+        assert.ok(dimensions.width >= 36 && dimensions.height >= 36, 'Tools touch target remains comfortable.');
+        await scrollPage(f, 2);
+        await scrollPage(f, 1);
+        const panel = await tools(f);
         const names = f.language === 'ar'
           ? { info: 'معلومات الملف', focus: 'وضع التركيز', save: 'حفظ', download: 'تنزيل' }
           : { info: 'Informations du fichier', focus: 'Mode focus', save: 'Enregistrer', download: 'Télécharger' };
-        await expect(f.dialog.locator('.reader-info-toggle')).toHaveAccessibleName(names.info);
-        await expect(f.dialog.locator('.reader-focus-toggle')).toHaveAccessibleName(names.focus);
-        await expect(f.dialog.locator('.reader-save-toggle')).toHaveAccessibleName(names.save);
-        await expect(f.dialog.locator('.reader-download')).toHaveAccessibleName(names.download);
-        await expect(f.pane.locator('.reader-notes-toggle')).toHaveAccessibleName(f.language === 'ar' ? /^الملاحظات/ : /^Notes/);
-        for (const locator of [f.pane.locator('.reader-page-prev'), f.pane.locator('.reader-page-next'), f.pane.locator('.reader-tools-toggle')]) {
-          const dimensions = await locator.boundingBox();
-          if (f.width < 800) assert.ok(dimensions.width >= 36 && dimensions.height >= 36, 'Touch controls are at least 36 by 36 pixels: ' + JSON.stringify(dimensions));
-          assert.ok((await locator.getAttribute('aria-label')) || (await locator.innerText()).trim(), 'Reader controls have accessible names.');
-        }
-        await f.pane.locator('.reader-page-next').click();
-        await rendered(f, 2);
-        await f.pane.locator('.reader-page-prev').click();
-        await rendered(f);
-        const panel = await tools(f);
+        for (const [selector, name] of Object.entries({ '.reader-info-toggle': names.info, '.reader-focus-toggle': names.focus, '.reader-save-toggle': names.save, '.reader-download': names.download })) await expect(panel.locator(selector)).toHaveAccessibleName(name);
         const searchName = f.language === 'ar' ? 'البحث في هذا الملف' : 'Rechercher dans ce PDF';
         await panel.getByRole('textbox', { name: searchName, exact: true }).fill('Search beacon');
         await panel.getByRole('textbox', { name: searchName, exact: true }).press('Enter');
         await expect(panel.locator('.reader-search-result')).toHaveCount(1);
-        if (f.width === 390) await f.page.screenshot({ path: `test-results/reader-workspace-${f.width}x${f.height}-${f.theme}-${f.language}-tools.png` });
-        await closeTools(f);
-        await f.pane.locator('.reader-notes-toggle').click();
+        await expect(panel.locator('.reader-tools-close')).toBeInViewport();
+        const colors = await panel.locator('.reader-tools-close').evaluate(node => ({ background: getComputedStyle(node).backgroundColor, color: getComputedStyle(node).color, danger: getComputedStyle(node).getPropertyValue('--danger') }));
+        assert.notEqual(colors.background, 'rgba(0, 0, 0, 0)', 'Close controls have a visible tinted background.');
+        if (f.width === 390) await f.page.screenshot({ path: artifact(`reader-workspace-${f.width}x${f.height}-${f.theme}-${f.language}-tools.png`) });
+        await panel.locator('.reader-notes-toggle').click();
         await expect(f.pane.locator('.reader-notes')).toBeVisible();
-        const noteClose = f.pane.locator('.reader-notes-close');
-        await expect(noteClose).toBeInViewport();
-        await noteClose.click();
-        await expect(f.pane.locator('.reader-notes')).toHaveCount(0);
-        await expect(f.pane.locator('.reader-notes-toggle')).toBeFocused();
+        await expect(f.pane.locator('.reader-notes-close')).toBeInViewport();
+        await f.pane.locator('.reader-notes-close').click();
+        await expect(toggle).toBeFocused();
         if (f.width < 800) {
-          await f.dialog.locator('.reader-compare-toggle').click();
+          await scrollPage(f, 2);
+          await tools(f);
+          await panel.locator('.reader-compare-toggle').click();
+          await closeTools(f);
           const compareName = f.language === 'ar' ? 'مقارنة مع' : 'Comparer avec';
           await chooseOption(f.dialog.getByLabel(compareName, { exact: true }), '42');
           const secondary = f.dialog.locator('.reader-pane').nth(1);
           await rendered(f, 1, secondary);
-          await expect(f.pane.locator('canvas')).toBeHidden();
+          await expect(f.pane).toBeHidden();
           await f.dialog.locator('.reader-mobile-switch button').first().click();
-          await rendered(f);
-          await expect(secondary.locator('canvas')).toBeHidden();
+          await rendered(f, 2);
+          await expect(f.pane.locator('.reader-page-number input')).toHaveValue('2');
+          await expect(secondary).toBeHidden();
           await chooseOption(f.dialog.getByLabel(compareName, { exact: true }), '');
-          await f.dialog.locator('.reader-compare-toggle').click();
+          await tools(f);
+          await panel.locator('.reader-compare-toggle').click();
+          await closeTools(f);
           await expect(f.dialog.locator('.reader-compare')).toBeHidden();
+          await scrollPage(f, 1);
         }
         await fits(f);
-        await f.page.screenshot({ path: `test-results/reader-workspace-${f.width}x${f.height}-${f.theme}-${f.language}.png` });
+        await f.page.screenshot({ path: artifact(`reader-workspace-${f.width}x${f.height}-${f.theme}-${f.language}.png`) });
         assert.deepEqual(f.errors, []);
-      } finally { await f.context.close(); }
+      } catch (error) { await f.page.screenshot({ path: artifact('reader-workspace-browser-failure.png'), fullPage: true }).catch(() => {}); throw error; } finally { await f.context.close(); }
     }
   });
 
-  await run('Temporary PDF and metadata failures offer a retry that renders the document in the same reader', async () => {
+  await run('Scrolling preserves exact-page text highlights and region notes', async () => {
+    const f = await fixture({ startPage: 2 });
+    try {
+      await rendered(f, 2);
+      await f.pane.locator('[data-pdf-page="2"] .reader-text-layer span').first().evaluate(node => {
+        const range = document.createRange(); range.selectNodeContents(node);
+        const selection = window.getSelection(); selection.removeAllRanges(); selection.addRange(range);
+        node.closest('.reader-scroll').dispatchEvent(new PointerEvent('pointerup', { bubbles: true }));
+      });
+      await expect(f.pane.locator('.reader-selection-summary')).toContainText('Workspace fixture - page 2');
+      await f.pane.getByRole('button', { name: 'Surligner', exact: true }).click();
+      await f.pane.getByLabel('Titre', { exact: true }).fill('Exact page two highlight');
+      await f.pane.getByRole('button', { name: 'Enregistrer la note privée', exact: true }).click();
+      assert.equal(f.notes[0].page, 2);
+      assert.ok(f.notes[0].anchor.length > 0);
+      assert.ok(f.notes[0].anchor.every(rect => rect.x >= 0 && rect.y >= 0 && rect.width > 0 && rect.height > 0));
+      await expect(f.pane.locator('[data-pdf-page="2"] .reader-highlight')).not.toHaveCount(0);
+      await f.pane.locator('.reader-notes-close').click();
+      await scrollPage(f, 3);
+      await expect(f.pane.locator('.reader-selection-summary')).toHaveCount(0);
+      assert.equal(await f.page.evaluate(() => window.getSelection().toString()), '');
+      const panel = await tools(f);
+      await panel.getByRole('button', { name: 'Sélectionner une zone', exact: true }).click();
+      const region = f.pane.locator('[data-pdf-page="3"] .reader-region-select');
+      await expect(region).toBeVisible();
+      const bounds = await region.boundingBox();
+      await f.page.mouse.move(bounds.x + 20, bounds.y + 20);
+      await f.page.mouse.down();
+      await f.page.mouse.move(bounds.x + 170, bounds.y + 95);
+      await f.page.mouse.up();
+      await f.pane.getByRole('button', { name: 'Garder dans le coffre', exact: true }).click();
+      await f.pane.getByLabel('Titre', { exact: true }).fill('Exact page three crop');
+      await f.pane.getByRole('button', { name: 'Enregistrer la note privée', exact: true }).click();
+      const crop = f.notes.find(note => note.title === 'Exact page three crop');
+      assert.equal(crop.page, 3);
+      assert.equal(crop.version, 1);
+      assert.match(crop.imageData, /^data:image\/jpeg;base64,/);
+      assert.deepEqual(f.errors, []);
+    } catch (error) { await f.page.screenshot({ path: artifact('reader-workspace-browser-failure.png'), fullPage: true }).catch(() => {}); throw error; } finally { await f.context.close(); }
+  });
+
+  await run('Long PDFs render nearby pages and restore the saved page and position', async () => {
+    const f = await fixture({ pageCount: 60, startPage: null, savedPosition: { page: 35, zoom: 1, scrollRatio: .35, revision: 1, preferences: {} } });
+    try {
+      await rendered(f, 35);
+      await expect(f.pane.locator('.reader-page-number input')).toHaveValue('35');
+      const restored = await f.pane.locator('.reader-scroll').evaluate(node => {
+        const slot = node.querySelector('[data-pdf-page="35"]');
+        return (node.scrollTop - slot.offsetTop) / (slot.offsetHeight-node.clientHeight);
+      });
+      assert.ok(Math.abs(restored - .35) < .03, `Restores local page offset: ${restored}`);
+      assert.ok(await f.pane.locator('canvas').count() < 8, 'Distant pages do not retain canvases.');
+      await scrollPage(f, 58);
+      await expect.poll(() => f.pane.locator('canvas').count()).toBeLessThan(8);
+      assert.deepEqual(f.errors, []);
+    } catch (error) { await f.page.screenshot({ path: artifact('reader-workspace-browser-failure.png'), fullPage: true }).catch(() => {}); throw error; } finally { await f.context.close(); }
+  });
+
+  await run('Temporary PDF and metadata failures retry in the same reader', async () => {
     for (const fail of ['file', 'metadata']) {
       const f = await fixture({ fail });
       try {
         await expect(f.pane.getByRole('heading', { name: 'Document indisponible', exact: true })).toBeVisible();
-        const retry = f.pane.getByRole('button', { name: 'Réessayer', exact: true });
-        await expect(retry).toBeEnabled();
-        await retry.click();
+        await f.pane.getByRole('button', { name: 'Réessayer', exact: true }).click();
         await rendered(f);
         await fits(f);
         assert.ok(f.attempts[fail] >= 2, 'Retry fetches the failed source again.');
         await expect(f.pane.getByRole('heading', { name: 'Document indisponible', exact: true })).toHaveCount(0);
         assert.deepEqual(f.errors, []);
-      } finally { await f.context.close(); }
+      } catch (error) { await f.page.screenshot({ path: artifact('reader-workspace-browser-failure.png'), fullPage: true }).catch(() => {}); throw error; } finally { await f.context.close(); }
     }
   });
-  writeFileSync('test-results/reader-workspace-browser-report.json', JSON.stringify({ passed, measurements }, null, 2));
+  writeFileSync(artifact('reader-workspace-browser-report.json'), JSON.stringify({ passed, measurements }, null, 2));
 } catch (error) {
-  if (activePage && !activePage.isClosed()) await activePage.screenshot({ path: 'test-results/reader-workspace-browser-failure.png', fullPage: true }).catch(() => {});
-  writeFileSync('test-results/reader-workspace-browser-report.json', JSON.stringify({ passed, measurements, error: error.message }, null, 2));
+  if (activePage && !activePage.isClosed()) await activePage.screenshot({ path: artifact('reader-workspace-browser-failure.png'), fullPage: true }).catch(() => {});
+  writeFileSync(artifact('reader-workspace-browser-report.json'), JSON.stringify({ passed, measurements, error: error.message }, null, 2));
   throw error;
 } finally { await browser.close(); }

@@ -1,0 +1,5 @@
+.page-loading { display: flex; justify-content: center; align-items: center; gap: 12px; min-height: 180px; padding: 28px; color: var(--muted); font-size: 13px; }
+.page-loading-full { min-height: 100dvh; }
+.page-loading-indicator { width: 20px; height: 20px; flex: 0 0 20px; border: 2px solid var(--line); border-top-color: var(--accent); border-radius: 50%; animation: page-loading-spin .8s linear infinite; }
+@keyframes page-loading-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .page-loading-indicator { animation: none; } }

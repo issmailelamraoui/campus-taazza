@@ -16,6 +16,7 @@ import {
   X,
   Pencil,
   Plus,
+  Share2,
 } from "lucide-react";
 import { useApp } from "../context";
 import {
@@ -43,6 +44,7 @@ import {
 } from "../components/ui";
 import UploadModal from "../components/UploadModal";
 import DocumentTextSearch from "../components/DocumentTextSearch";
+import { ModuleShareDialog, useModuleLongPress } from "../components/ModuleShare";
 import "./library.css";
 const semesterNumber = (value) =>
   Number(String(value ?? "").replace(/^s/i, ""));
@@ -60,6 +62,16 @@ const categoryMatches = (resource, category) =>
   (category === "tdtp"
     ? ["td", "tp", "tdtp"].includes(resource.category)
     : resource.category === category);
+function ModuleActions({ children, resource, label, onShare, choice = false }) {
+  const { tr } = useApp();
+  const share = () => onShare(resource);
+  const longPress = useModuleLongPress(share);
+  return <div className={`library-module-tile${choice ? ' is-choice' : ''}`} {...longPress}>
+    {children}
+    <button className="library-module-share" type="button" onClick={share}
+      aria-label={tr(`Partager le module ${label}`, `Share module ${label}`, `مشاركة وحدة ${label}`)} title={tr('Partager dans un chat', 'Share to chat', 'مشاركة في دردشة')}><Share2 size={17} aria-hidden="true" /></button>
+  </div>;
+}
 export function orderLibraryResources(items, sort = "recent", currentYear = "", filterYear = "") {
   return orderResourcesByAcademicYear(items, sort, currentYear, filterYear);
 }
@@ -102,6 +114,7 @@ export default function LibraryPage() {
   const [editedYears, setEditedYears] = useState([]);
   const [savingYears, setSavingYears] = useState(false);
   const [yearError, setYearError] = useState("");
+  const [sharedResource, setSharedResource] = useState(null);
   const semesterResources = useMemo(
     () =>
       resources.filter(
@@ -398,14 +411,19 @@ export default function LibraryPage() {
                 · S{semester}
               </span>
             </div>
+            {module !== null && semesterResources.some(item => normalizeModule(item.module) === normalizeModule(module)) && <Button
+              className="library-share-current-module" variant="ghost" icon={Share2}
+              onClick={() => setSharedResource(semesterResources.find(item => normalizeModule(item.module) === normalizeModule(module)))}>
+              {tr('Partager le module', 'Share module', 'مشاركة الوحدة')}
+            </Button>}
           </div>
           {module === null && visible.length > 0 && (
             <div className="library-results-cards">
               <div className="library-document-grid library-module-grid">
                 {folders.map((folder) => (
+                  <ModuleActions key={folder.key} resource={folder.documents[0]} label={folderLabel(folder.name)} onShare={setSharedResource}>
                   <button
                     type="button"
-                    key={folder.key}
                     className="card library-module-folder"
                     aria-label={
                       tr("Ouvrir le module", "Open module", "فتح الوحدة") +
@@ -437,6 +455,7 @@ export default function LibraryPage() {
                     </span>
                     <ArrowRight size={16} className="library-folder-arrow" />
                   </button>
+                  </ModuleActions>
                 ))}
               </div>
             </div>
@@ -632,10 +651,10 @@ export default function LibraryPage() {
                 {module === null && <Check size={16} aria-hidden="true" />}
               </button>
               {matchingModuleFolders.map((folder) => (
+                <ModuleActions key={folder.key} resource={folder.documents[0]} label={folderLabel(folder.name)} onShare={setSharedResource} choice>
                 <button
                   type="button"
                   className={`module-choice ${module !== null && normalizeModule(module) === folder.key ? "selected" : ""}`}
-                  key={folder.key}
                   aria-pressed={
                     module !== null && normalizeModule(module) === folder.key
                   }
@@ -654,6 +673,7 @@ export default function LibraryPage() {
                       <Check size={16} aria-hidden="true" />
                     )}
                 </button>
+                </ModuleActions>
               ))}
               {moduleQuery && !matchingModuleFolders.length && (
                 <p className="library-module-empty muted">
@@ -966,6 +986,7 @@ export default function LibraryPage() {
         )}
       </p>
       {showUpload && <UploadModal onClose={() => setShowUpload(false)} />}
+      {sharedResource && <ModuleShareDialog resource={sharedResource} onClose={() => setSharedResource(null)} />}
       {yearEditor && <Modal title={tr("Années d’utilisation du document", "Years the material was used", "سنوات استخدام الوثيقة")} onClose={() => { if (!savingYears) setYearEditor(null); }} footer={<div className="library-year-editor-footer"><Button variant="ghost" disabled={savingYears} onClick={() => setYearEditor(null)}>{t("cancel")}</Button><Button variant="primary" disabled={savingYears} onClick={saveYears}>{savingYears ? tr("Enregistrement…", "Saving…", "جارٍ الحفظ…") : tr("Enregistrer", "Save", "حفظ")}</Button></div>}>
         <p className="muted library-year-editor-note">{yearEditor.originalName || yearEditor.title}</p>
         <p className="muted library-year-editor-note">{tr("Corrigez le classement ou ajoutez une année de réutilisation. Le fichier reste conservé une seule fois.", "Correct the classification or add a year when the material was reused. The stored file is kept once.", "صحّح التصنيف أو أضف سنة أُعيد فيها استخدام الوثيقة. يبقى الملف مخزناً مرة واحدة.")}</p>

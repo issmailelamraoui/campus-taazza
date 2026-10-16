@@ -8,6 +8,7 @@ let manifestPromise;
 // from an older import. Check actual objects as well as the migration ledger:
 // a copied or manually edited ledger alone does not make a database usable.
 const requiredSchema = {
+  upload_sessions: 'id user_id faculty_id target_path fields filename mime size object_prefix parts state response_status response_body cleanup_pending created_at expires_at',
   schema_migrations: 'name sha256 applied_at',
   faculties: 'id', filieres: 'id faculty_id', semesters: 'id',
   users: 'id auth_user_id session_version account_status registered_at reviewed_at reviewed_by bio current_academic_year password_change_required password_reset_operation_id password_reset_expires_at',
@@ -23,6 +24,7 @@ const requiredSchema = {
   reports: 'id note', contacts: 'id category updated_at filiere_id',
   legacy_imports: 'source_sha256', chat_bans: 'user_id',
   message_attachments: 'message_id resource_id position',
+  message_module_shares: 'message_id resource_id faculty_id filiere_id semester module',
   platform_owner: 'singleton user_id', scoped_appointments: 'id capabilities revoked_at',
   administrative_audit: 'id actor_id action details', xp_events: 'id user_id event_key status category points',
   notification_visits: 'token notification_id user_id viewed_at departed_at expires_at',

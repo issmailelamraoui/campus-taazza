@@ -417,9 +417,9 @@ export default function UploadModal({
         if (uploaded.current.has(item.key)) continue;
         setCurrentUpload(item);
         if (isSupplement) {
-          const form = new FormData(); form.set('file',item.file,item.file.name); form.set('relative_path',item.path); form.set('title',item.meta.title.trim()); form.set('main_version',String(supplementFor.version || 1));
+          const form = new FormData(); form.set('file',item.file); form.set('relative_path',item.path); form.set('title',item.meta.title.trim()); form.set('main_version',String(supplementFor.version || 1));
           const controller=new AbortController();supplementRequest.current=controller;
-          await api('/resource-supplements/'+supplementFor.id+'/upload',{method:'POST',body:form,timeout:120000,signal:controller.signal});
+          await api('/resource-supplements/'+supplementFor.id+'/upload',{method:'POST',body:form,timeout:600000,signal:controller.signal});
         } else await uploadResource({
           file: item.file,
           path: item.path,

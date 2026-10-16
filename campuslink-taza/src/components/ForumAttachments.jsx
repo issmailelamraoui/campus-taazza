@@ -56,7 +56,7 @@ export default function ForumAttachments({questionId}){
     if(owner!==epoch.current||halted.current)return;
     const item=selected[index];currentFile=item;setProgress({completed:index,total:selected.length,filename:item.file.name});
     const body=new FormData();body.set('file',item.file);body.set('client_id',item.clientId);
-    await api(path,{method:'POST',body,signal:controller.signal,timeout:60000});
+    await api(path,{method:'POST',body,signal:controller.signal,timeout:600000});
     if(owner!==epoch.current||halted.current)return;
     setQueue(current=>current.filter(value=>value.clientId!==item.clientId));
     setProgress({completed:index+1,total:selected.length,filename:item.file.name});
@@ -81,7 +81,7 @@ export default function ForumAttachments({questionId}){
   {!!items.length&&<ul className="forum-attachment-list">{items.map(item=><li key={item.id}>
    <div className="forum-attachment-row"><span className="forum-attachment-name"><strong dir="auto">{item.filename}</strong><small>{sizeLabel(Number(item.size||0))}</small></span><a className="btn btn-secondary" href={item.url+(item.url.includes('?')?'&':'?')+'download=1'} download aria-label={tr(`Télécharger ${item.filename}`,`Download ${item.filename}`,`تنزيل ${item.filename}`)}><Download size={15}/>{tr('Télécharger','Download','تنزيل')}</a>
     {RASTER_MIMES.has(item.mime)&&<Button icon={ImageIcon} variant="ghost" disabled={busy} aria-expanded={opened.has(item.id)} onClick={()=>{setImageErrors(current=>new Set([...current].filter(id=>id!==item.id)));setOpened(current=>{const next=new Set(current);next.has(item.id)?next.delete(item.id):next.add(item.id);return next;});}}>{opened.has(item.id)?tr('Masquer l’image','Hide image','إخفاء الصورة'):tr('Afficher l’image','Show image','عرض الصورة')}</Button>}
-    {item.can_delete&&<Button icon={X} variant="ghost" disabled={busy} aria-label={tr(`Retirer ${item.filename}`,`Remove ${item.filename}`,`إزالة ${item.filename}`)} onClick={()=>remove(item)}>{tr('Retirer','Remove','إزالة')}</Button>}
+    {item.can_delete&&<Button className="close-control" icon={X} variant="ghost" disabled={busy} aria-label={tr(`Retirer ${item.filename}`,`Remove ${item.filename}`,`إزالة ${item.filename}`)} onClick={()=>remove(item)}>{tr('Retirer','Remove','إزالة')}</Button>}
    </div>
    {opened.has(item.id)&&RASTER_MIMES.has(item.mime)&&(imageErrors.has(item.id)?<p className="field-error" role="alert">{tr('Image indisponible. Actualisez les fichiers pour vérifier votre accès.','Image unavailable. Refresh files to check access.','الصورة غير متاحة. حدّث الملفات للتحقق من الوصول.')}</p>:<img className="forum-attachment-image" src={item.url} alt={item.filename} onError={()=>setImageErrors(current=>new Set([...current,item.id]))}/>)}
   </li>)}</ul>}

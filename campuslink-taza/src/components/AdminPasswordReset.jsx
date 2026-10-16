@@ -141,7 +141,7 @@ export default function AdminPasswordReset({ account, contact, onClose, onSucces
 
   if (!eligible) return null;
   return <Modal className="admin-password-reset" title={tr('Réinitialiser le mot de passe', 'Reset password', 'إعادة تعيين كلمة المرور')} onClose={close} footer={<>
-    <Button onClick={close}>{receipt ? tr('Fermer et effacer', 'Close and clear', 'إغلاق ومسح') : tr('Annuler', 'Cancel', 'إلغاء')}</Button>
+    <Button className="close-control" onClick={close}>{receipt ? tr('Fermer et effacer', 'Close and clear', 'إغلاق ومسح') : tr('Annuler', 'Cancel', 'إلغاء')}</Button>
     {!receipt && (phase === 'failed' || phase === 'unknown') && <Button variant={phase === 'failed' ? 'primary' : 'secondary'} disabled={busy} onClick={newAttempt}>{tr('Commencer une nouvelle tentative', 'Start a new attempt', 'بدء محاولة جديدة')}</Button>}
     {!receipt && phase !== 'failed' && <Button variant="primary" icon={KeyRound} type="submit" form={formId} disabled={busy || !verified || password.length < 16 || reason.trim().length < 10}>{busy ? tr('Réinitialisation…', 'Resetting…', 'جارٍ إعادة التعيين…') : unresolved ? tr('Vérifier cette tentative', 'Check this attempt', 'التحقق من هذه المحاولة') : tr('Créer le mot de passe temporaire', 'Set temporary password', 'إنشاء كلمة مرور مؤقتة')}</Button>}
   </>}>

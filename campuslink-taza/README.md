@@ -60,6 +60,14 @@ L’entrée Vercel utilise exclusivement le schéma existant **`campuslink_prj`*
 
 Les connexions PostgreSQL sont renouvelées et les requêtes disposent d’une limite de 10 secondes pour empêcher une connexion bloquée de saturer le serveur. Une interruption temporaire renvoie une indisponibilité explicite et ne consomme pas les tentatives de connexion. Les clients de transaction défaillants sont retirés du pool ; les écritures ne sont pas relancées automatiquement.
 
+## Dépôts de fichiers et partage de modules
+
+La limite de fichier reste 20 Mio. Les fichiers de plus de 3 Mio passent automatiquement par des morceaux privés de 2 Mio, pour respecter la limite de requête de 4,5 Mo des fonctions Vercel. Les petits dépôts utilisent les routes multipart habituelles. La reprise garde le même identifiant de dépôt ; la publication et son reçu sont atomiques pour éviter les doublons après une réponse perdue. Les vérifications de signature, de permissions, de quotas et de destination restent celles des routes existantes.
+
+Appliquer les migrations `029_message_module_shares.sql` et `030_resumable_uploads.sql` avec `npm run db:migrate` avant de déployer ce code sur une autre base. Les morceaux abandonnés expirent après une heure et sont nettoyés lors des prochains dépôts ; les reçus restent disponibles 24 heures. Le transport et ses tests sont décrits dans [docs/ux-reliability-2026-10-16.md](docs/ux-reliability-2026-10-16.md).
+
+Dans la bibliothèque, chaque module dispose d’une action de partage et d’un appui long sur écran tactile. Le choix de discussion ajoute une référence au compositeur, avec un message personnel facultatif. La référence enregistrée conserve le semestre exact du module et les droits d’accès à sa bibliothèque.
+
 ## Comptes et administration
 
 L’inscription réelle demande les informations académiques et reste en attente de validation. L’administrateur global accepte ou refuse les demandes. Un compte en attente ou refusé ne peut pas accéder au campus. Les comptes créés par l’administration passent également par Neon Auth.
@@ -86,7 +94,7 @@ Le thème, la langue et le fait d’avoir déjà vu la proposition d’installat
 
 CampusLink peut être installé comme application web. La proposition apparaît une seule fois par navigateur, puis l’installation reste accessible dans le profil. Chrome et Edge utilisent leur dialogue natif lorsqu’il est disponible ; les autres navigateurs affichent les étapes adaptées, notamment « Sur l’écran d’accueil » sur iPhone/iPad. La publication doit utiliser HTTPS pour permettre l’installation native sur téléphone ; HTTP sur localhost reste utilisable pour les vérifications locales. Le service worker conserve le shell et les assets publics. Les copies privées explicites de documents sont séparées dans IndexedDB, liées au compte et limitées à 24 heures ; les réponses API ne sont pas mises en cache par le worker.
 
-Campus Labs prend en charge JavaScript, JSON, Python, C et C++ pour la vérification syntaxique. Python/C/C++ utilisent les grammaires officielles Tree-sitter dans des workers bornés ; aucun `import`, `include` ou programme étudiant n'est exécuté. Les erreurs indiquent ligne et colonne. La compilation, les vérifications sémantiques et l'exécution restent des capacités distinctes indisponibles. Les XP de pratique restent réservés aux sessions JavaScript volontaires.
+Campus Labs exécute réellement JavaScript (QuickJS), Python (Pyodide), C17 et C++20 (Clang/WASI) dans le navigateur, avec un éditeur CodeMirror et une console stdout/stderr. JSON est validé et formaté. Les moteurs sont chargés à la demande et préparés automatiquement avant `npm run dev`, `npm run dev:frontend` et `npm run build`. Les exécutions sont bornées et peuvent être arrêtées ; Python utilise une origine opaque pour isoler les données privées du site. Les XP de pratique restent réservés aux sessions JavaScript volontaires. Les limites, licences, en-têtes de déploiement et tests sont décrits dans [docs/labs-runtime.md](docs/labs-runtime.md).
 
 ## Vérification
 
@@ -104,16 +112,19 @@ npm run test:reader-workspace
 npm run test:feedback
 npm run test:admin-mobile
 npm run test:profile-photo
+npm run test:labs-runtime
+npm run test:module-sharing
+node tests/navigation-loading.browser.mjs
 node tests/install-worker.browser.mjs
 ```
 
 Les tests d’intégration utilisent les véritables routes API et un schéma PostgreSQL temporaire, avec des doubles explicites pour l’identité et les octets des fichiers. Ils ne modifient pas les comptes Neon ou les fichiers du projet original. Les schémas temporaires sont supprimés à la fin. `CAMPUS_TEST_DATABASE_URL` peut fournir une base PostgreSQL de test ; à défaut la connexion configurée est utilisée avec un schéma isolé.
 
-Le compte rendu de la revue et des corrections du 15 octobre 2026 est dans [docs/code-audit-2026-10-15.md](docs/code-audit-2026-10-15.md).
+Le compte rendu de la revue du 15 octobre 2026 est dans [docs/code-audit-2026-10-15.md](docs/code-audit-2026-10-15.md). Les nouvelles corrections des dépôts, de la navigation, du lecteur, de Labs et du partage de modules sont décrites dans [docs/ux-reliability-2026-10-16.md](docs/ux-reliability-2026-10-16.md).
 
 `test:frontend-design` vérifie les pages et onglets sur ordinateur, tablette et téléphone, avec les deux thèmes et le français, l’anglais et l’arabe. Il utilise Vite sur 5180 et des réponses API contrôlées, sans modifier les données du campus. Le rapport est enregistré dans `test-results/frontend-consistency/report.json` ; `CAMPUS_DESIGN_SCREENSHOTS=1 npm run test:frontend-design` conserve aussi les captures.
 
-`test:reader-workspace` vérifie le rendu réel d’un PDF de plusieurs pages, l’espace de lecture, les outils et notes, la recherche, la comparaison, le mode focus et la reprise après une erreur. Le lecteur garde la navigation et le zoom au-dessus du document ; « Outils » ouvre les réglages, fichiers complémentaires et actions secondaires dans une seule zone latérale. Les tests utilisent des réponses API contrôlées sur Vite 5180.
+`test:reader-workspace` vérifie le rendu réel d’un PDF de plusieurs pages, l’espace de lecture, les outils et notes, la recherche, la comparaison, le mode focus et la reprise après une erreur. Le lecteur affiche les pages en défilement continu et ne monte les canevas qu’à proximité de la zone visible. Une seule icône ouvre les réglages, le zoom, les notes, la recherche et les actions secondaires ; les anciennes flèches précédent/suivant ont été retirées. Les tests utilisent des réponses API contrôlées sur Vite 5180.
 
 Le test de pile mobile utilise des réponses API contrôlées pour mesurer l’interaction et la performance indépendamment du réseau. Il nécessite Vite démarré sur 5180 et Chromium installé (`npx playwright install chromium`). Les anciennes suites du prototype restent disponibles dans `tests/` comme références de l’interface ; les suites ci-dessus vérifient l’application reliée au serveur.
 

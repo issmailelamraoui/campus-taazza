@@ -1,3 +1,4 @@
+import {chunkUploadFile,uploadInChunks} from './lib/upload-transport.js';
 let sessionGeneration = 0;
 export const invalidateAPISession = () => { sessionGeneration++; };
 const activityListeners = new Set();
@@ -12,7 +13,9 @@ function updateActivity(kind, delta) {
 }
 export async function api(path, options = {}) {
   const generation = sessionGeneration;
-  const { body, timeout = 20000, signal, ...rest } = options;
+  const { body, timeout:requestedTimeout, signal, ...rest } = options;
+  const chunked=chunkUploadFile(path,body,rest.method||'GET');
+  const timeout=requestedTimeout??(chunked?600000:20000);
   const controller = new AbortController();
   let timedOut = false;
   const abort = () => controller.abort();
@@ -25,7 +28,7 @@ export async function api(path, options = {}) {
   const activityKind = ['POST', 'PATCH', 'DELETE', 'PUT'].includes(String(rest.method || 'GET').toUpperCase()) ? 'writes' : 'reads';
   updateActivity(activityKind, 1);
   try {
-    const response = await fetch(`/api${path}`, {
+    const response = chunked?await uploadInChunks(path,body,{signal:controller.signal,headers,generation}):await fetch(`/api${path}`, {
       ...rest, credentials: 'same-origin', signal: controller.signal,
       headers,
       body: multipart ? body : body !== undefined ? JSON.stringify(body) : undefined,

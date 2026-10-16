@@ -10,8 +10,11 @@ import { createAuthService } from './auth.js';
 import { createStorage, resourceObjectKey, storageObjectKey } from './storage.js';
 import { uploadFilePath } from './upload-path.js';
 import { moduleName, RESOURCE_MODULE_SQL, resolveModule } from './modules.js';
+import { moduleShareResourceId, attachModuleShare, assertSameModuleShare, moduleSharesFor } from './module-sharing.js';
 import { createPermissions } from './permissions.js';
 import { createRateLimiter } from './rate-limit.js';
+import { installUploadSessions, afterUploadCommit } from './upload-sessions.js';
+import { labsWorkerPolicy, pythonFramePolicy } from '../shared/labs-security.js';
 import { detectFile, mayInlineFile } from './files.js';
 import { academicYear, academicYears, yearsOf, compareAcademicYears, yearsOverlap } from './academic-years.js';
 import { installCoreRoutes } from './core-routes.js';
@@ -212,12 +215,13 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
   async function messagesFor(rows,viewerId) {
     if(!rows.length)return [];
     const ids=rows.map(m=>m.id),authorIds=[...new Set(rows.map(m=>m.author_id).filter(Boolean))];
-    const [authors,reactions,mine,links,attachedRows]=await Promise.all([
+    const [authors,reactions,mine,links,attachedRows,moduleShares]=await Promise.all([
       db.prepare('SELECT id,name,username,avatar,role,account_status FROM users WHERE id=ANY(?)').all(authorIds),
       db.prepare('SELECT message_id,reaction,COUNT(*) AS n FROM reactions WHERE message_id=ANY(?) GROUP BY message_id,reaction').all(ids),
       db.prepare('SELECT message_id,reaction FROM reactions WHERE message_id=ANY(?) AND user_id=?').all(ids,viewerId),
       db.prepare('SELECT message_id,resource_id,position FROM message_attachments WHERE message_id=ANY(?) ORDER BY position').all(ids),
       db.prepare('SELECT DISTINCT r.* FROM resources r LEFT JOIN message_attachments ma ON ma.resource_id=r.id WHERE r.removed=0 AND (ma.message_id=ANY(?) OR r.id=ANY(?))').all(ids,rows.map(m=>m.resource_id).filter(Boolean)),
+      moduleSharesFor(db,ids,viewerId),
     ]);
     const authorsById=new Map((await publicProfiles(authors)).map(u=>[u.id,u]));
     const attachedById=new Map((await resourcesFor(attachedRows)).map(r=>[r.id,r]));
@@ -228,7 +232,7 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
     return rows.map(m=>{
       const resourceIds=linksByMessage.get(m.id)||[];
       if(m.resource_id&&!resourceIds.includes(m.resource_id))resourceIds.unshift(m.resource_id);
-      return {...m,attachments:resourceIds.map(id=>attachedById.get(id)).filter(Boolean),semester:m.channel==='filiere'?getChatSemester(m.semester):m.semester,author:authorsById.get(m.author_id)||{id:m.author_id,name:'Utilisateur',username:'',avatar:'',role:'student'},pinned:!!m.pinned,reactions:{like:0,heart:0,...reactionsByMessage.get(m.id)},my_reactions:mineByMessage.get(m.id)||[],author_id:undefined,removed:undefined};
+      return {...m,shared_module:moduleShares.get(m.id)||null,attachments:resourceIds.map(id=>attachedById.get(id)).filter(Boolean),semester:m.channel==='filiere'?getChatSemester(m.semester):m.semester,author:authorsById.get(m.author_id)||{id:m.author_id,name:'Utilisateur',username:'',avatar:'',role:'student'},pinned:!!m.pinned,reactions:{like:0,heart:0,...reactionsByMessage.get(m.id)},my_reactions:mineByMessage.get(m.id)||[],author_id:undefined,removed:undefined};
     });
   }
   async function resource(r,viewer) {
@@ -301,7 +305,8 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
       saved:item=>{const table={resource:'resources',message:'messages',announcement:'announcements'}[item.type];return !!table&&readable(table,rows[table].get(item.id));},
     };
   }
-  async function broadcast(faculty,filiereId=null) {
+  function broadcast(faculty,filiereId=null){return afterUploadCommit(()=>broadcastNow(faculty,filiereId));}
+  async function broadcastNow(faculty,filiereId=null) {
     if(!clients.size)return;
     const recipientIds=[...clients.keys()];
     const users=await db.prepare('SELECT u.id,u.role,u.faculty_id,u.filiere_id,u.disabled,u.account_status,u.session_version,b.user_id AS chat_banned FROM users u LEFT JOIN chat_bans b ON b.user_id=u.id AND b.faculty_id=u.faculty_id WHERE u.id=ANY(?)').all(recipientIds);
@@ -341,7 +346,8 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
     for(const recipient of recipients)if(recipient.faculty_id&&JSON.parse(recipient.preferences).admin!==false&&permissions.can(await permissions.load(recipient),reports?'content.moderate':'feedback.manage',faculty,filiereId))await insert.run(recipient.id,recipient.faculty_id,'admin',title,body.slice(0,240),path,now());
     return recipients.map(recipient=>recipient.id);
   }
-  async function broadcastAdminInbox(ids) {
+  function broadcastAdminInbox(ids){return afterUploadCommit(()=>broadcastAdminInboxNow(ids));}
+  async function broadcastAdminInboxNow(ids) {
     const connected=ids.filter(id=>clients.has(id));
     if(!connected.length)return;
     const recipients=await db.prepare("SELECT id,session_version FROM users WHERE id=ANY(?) AND role IN ('global_admin','faculty_admin','moderator') AND disabled=0 AND account_status='approved'").all(connected);
@@ -621,7 +627,8 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
     if(req.body.attachment_ids!==undefined&&!Array.isArray(req.body.attachment_ids))throw problem(400,'Pièces jointes invalides.');
     const attachmentIds=(req.body.attachment_ids||[]).map(asId);
     if(attachmentIds.length>100||new Set(attachmentIds).size!==attachmentIds.length)throw problem(400,'Pièces jointes invalides.');
-    if(!content&&!attachmentIds.length)throw problem(400,'Écrivez un message ou ajoutez un document.');
+    const moduleResourceId=moduleShareResourceId(req.body.module_resource_id);
+    if(!content&&!attachmentIds.length&&!moduleResourceId)throw problem(400,'Écrivez un message ou ajoutez un document.');
     const channel = req.body.channel || 'general';
     if (!CHANNELS.includes(channel)) throw problem(400,'Discussion invalide.');
     let clientId=null;
@@ -641,9 +648,11 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
         if(existing.content!==content||existing.channel!==channel||existing.reply_to!==replyId||existing.filiere_id!==scope.filiere_id||(channel==='filiere'?getChatSemester(existing.semester):existing.semester)!==scope.semester)throw problem(409,'Cet identifiant correspond déjà à un autre message.');
         const prior=await db.prepare('SELECT resource_id FROM message_attachments WHERE message_id=? ORDER BY position').all(existing.id);
         if(JSON.stringify(prior.map(row=>row.resource_id))!==JSON.stringify(attachmentIds))throw problem(409,'Cet identifiant correspond déjà à un autre message.');
+        await assertSameModuleShare(db,existing.id,moduleResourceId);
         return {row:existing,created:false};
       }
       await checkChannelWrite(req,channel);
+      await attachModuleShare(db,row.id,moduleResourceId,req.user);
       const reply=replyId?await scoped('messages',replyId,req):null;
       if(reply&&reply.channel!==channel)throw problem(400,'La réponse doit rester dans la discussion d’origine.');
       if(reply&&channel==='filiere'&&getChatSemester(reply.semester)!==scope.semester)throw problem(400,'La réponse doit rester dans le même groupe de semestres.');
@@ -698,6 +707,14 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
     await broadcast(m.faculty_id,m.channel==='filiere'?m.filiere_id:null);
     res.json({pinned,announcement:pinnedAnnouncement?await announcement(pinnedAnnouncement):null});
   });
+
+  installUploadSessions(app,{db,storage,requireFaculty,refreshActor:async req=>{
+    const prior=req.user;
+    const current=await db.prepare('SELECT * FROM users WHERE id=? FOR SHARE').get(prior.id);
+    if(!current||current.disabled||current.account_status!=='approved'||current.password_change_required||current.session_version!==prior.session_version||current.auth_user_id!==prior.auth_user_id||current.auth_revoked_at!==prior.auth_revoked_at)throw problem(403,'Votre accès au compte a changé. Reconnectez-vous.');
+    req.user=await permissions.load(current);
+    req.user.chat_blocked=await isChatBlocked(req.user);
+  }});
 
   app.post('/api/uploads', requireFaculty, upload.single('file'), async (req,res) => {
     if(req.body.faculty_id!==undefined&&req.body.faculty_id!==req.user.faculty_id)throw problem(403,'Le dépôt appartient à une autre faculté.');
@@ -1323,9 +1340,9 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
   installPasswordRecovery(app,{db,auth,permissions,requireUser,selfUser,endUserStreams:id=>{for(const stream of clients.get(id)||[])stream.end();}});
   app.use('/api', (_req,_res,next)=>next(problem(404,'Route API introuvable.')));
   const dist=resolve('dist');
-  if(existsSync(join(dist,'index.html'))){app.use(express.static(dist));app.get('/{*path}',(_req,res)=>res.sendFile(join(dist,'index.html')));}
+  if(existsSync(join(dist,'index.html'))){app.use('/labs-runtime',(req,res,next)=>{const origin=`${req.protocol}://${req.get('host')}`;res.set('Access-Control-Allow-Origin','*');res.set('X-Content-Type-Options','nosniff');if(req.path==='/runner.js')res.set('Content-Security-Policy',labsWorkerPolicy(origin));if(req.path==='/python-frame.html')res.set('Content-Security-Policy',pythonFramePolicy(origin));next();});app.use(express.static(dist));app.get('/{*path}',(_req,res)=>res.sendFile(join(dist,'index.html')));}
   app.use((err,_req,res,_next)=>{
-    if(res.headersSent||_req.aborted||(res.destroyed&&err.code==='ERR_STREAM_PREMATURE_CLOSE'))return;
+    if(res.headersSent||(!_req.uploadSessionCapture&&(_req.aborted||(res.destroyed&&err.code==='ERR_STREAM_PREMATURE_CLOSE'))))return;
     const status=err instanceof multer.MulterError?400:(err.code==='23505'?409:err.status||500);
     const message=err instanceof multer.MulterError?(err.code==='LIMIT_FILE_SIZE'?'Le fichier dépasse la limite de 20 Mo.':'Téléversement invalide.'):(err.type==='entity.parse.failed'?'Requête JSON invalide.':err.code==='23505'?'Cet élément existe déjà.':status===500?'Une erreur serveur est survenue. Réessayez.':err.message);
     if(status===500)console.error('[CampusLink API]',err.code||'UNEXPECTED_ERROR');

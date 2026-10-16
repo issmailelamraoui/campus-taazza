@@ -57,7 +57,7 @@ export function createStorage(env = process.env) {
     responseChecksumValidation: 'WHEN_REQUIRED',
   });
   const send = async command => {
-    try { return await client.send(command); } catch (error) { throw storageError(error); }
+    try { return await client.send(command,{abortSignal:AbortSignal.timeout(30000)}); } catch (error) { throw storageError(error); }
   };
   return {
     async put(key, buffer, mime) {

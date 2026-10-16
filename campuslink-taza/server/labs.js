@@ -71,7 +71,7 @@ export function installLabsRoutes(app, { db, requireFaculty, broadcast = async (
   }
   app.get('/api/labs', requireFaculty, async (req, res) => {
     const sessions = await db.prepare('SELECT * FROM labs_sessions WHERE user_id=? ORDER BY updated_at DESC LIMIT 20').all(req.user.id);
-    res.json({ languages: LABS_LANGUAGES, executionAvailable: false, policy: LABS_POLICY, sessions: sessions.map(dto) });
+    res.json({ languages: LABS_LANGUAGES, executionAvailable: true, execution: { location: 'browser', programmingLanguages: ['javascript', 'python', 'c', 'cpp'], dataLanguages: ['json'], executionSeconds: 5, maximumOutputBytes: 64000 }, policy: LABS_POLICY, sessions: sessions.map(dto) });
   });
   app.get('/api/labs/:id', requireFaculty, async (req, res) => res.json({ session: dto(await owned(req)) }));
   app.post('/api/labs', requireFaculty, async (req, res) => {

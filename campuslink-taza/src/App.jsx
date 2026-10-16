@@ -2,6 +2,7 @@ import React,{useEffect} from 'react';
 import {Navigate,Route,Routes,useLocation} from 'react-router-dom';
 import {AlertCircle,Check,X} from 'lucide-react';
 import {useApp} from './context';
+import PageLoading from './components/PageLoading';
 import {accountDestination,requiresPasswordChange} from './lib/backend';
 const AppShell=React.lazy(()=>import('./components/AppShell'));
 const Dialogs=React.lazy(()=>import('./components/Modals'));
@@ -65,7 +66,7 @@ function NotificationLifecycle(){
 }
 export default function App(){
  const {user,selection,isAdmin,loading,dialog,toast,setToast,t}=useApp(),destination=accountDestination(user,selection,isAdmin);
- return <><ScrollReset/><NotificationLifecycle/><React.Suspense fallback={<SessionStatus/>}><Routes>
+ return <><ScrollReset/><NotificationLifecycle/><React.Suspense fallback={<PageLoading fullPage/>}><Routes>
   <Route path="/" element={<LandingPage/>}/>
   <Route path="/login" element={loading?<SessionStatus/>:user?<Navigate to={destination} replace/>:<LoginPage/>}/>
   <Route path="/register" element={loading?<SessionStatus/>:user?<Navigate to={destination} replace/>:<RegisterPage/>}/>

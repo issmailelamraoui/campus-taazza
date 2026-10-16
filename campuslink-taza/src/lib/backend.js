@@ -44,6 +44,7 @@ export function normalizeMessage(raw, resources = []) {
   if (!attachments.length && resource) attachments = [resource];
   const semester = getChatSemester(raw.semester);
   return { ...raw, id: id(raw.id), facultyId: raw.faculty_id, filiereId: raw.filiere_id,
+    sharedModule: raw.shared_module ? {resourceId:id(raw.shared_module.resource_id),facultyId:raw.shared_module.faculty_id,filiereId:raw.shared_module.filiere_id,semester:Number(raw.shared_module.semester),module:raw.shared_module.module,accessible:raw.shared_module.accessible===true} : null,
     channel: raw.channel === 'filiere' ? `year-${semester || 1}` : raw.channel,
     date: raw.created_at || raw.date || '', author: author?.name || 'Utilisateur', authorId: id(author?.id),
     username: author?.username || '', avatar: author?.avatar || '', replyTo: id(raw.reply_to),
