@@ -181,3 +181,47 @@
  .reader-scroll-hint { font-size: 10px; margin-inline-start: 5px; }
  .reader-continuous-pages { gap: 12px; }
 }
+
+/* Keep page navigation immediately below the paper, visible while it scrolls. */
+.reader-pane > .reader-controls {
+  position: relative;
+  z-index: 9;
+  flex: none;
+  border-top: 1px solid var(--line);
+  border-bottom: 0;
+}
+.reader-status-bar {
+  padding-bottom: max(5px, env(safe-area-inset-bottom, 0px));
+}
+.reader-page-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: min(280px, 100%);
+  max-height: 100%;
+  overflow: auto;
+  padding: 28px 18px;
+  text-align: center;
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 13px;
+}
+.reader-page-error p { max-width: 440px; margin: 0; color: var(--muted); line-height: 1.6; }
+.reader-page-error .reader-error-actions { gap: 8px; }
+.reader-page-error .btn { min-height: 36px; font-size: 12px; white-space: normal; }
+.reader-text-notice,.reader-search-notice {
+  display: block;
+  flex-basis: 100%;
+  margin: 0 0 10px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.6;
+}
+@media (max-width: 700px) {
+  .reader-status-bar { padding-bottom: max(4px, env(safe-area-inset-bottom, 0px)); }
+  .reader-page-error { padding: 18px 12px; font-size: 12px; }
+}

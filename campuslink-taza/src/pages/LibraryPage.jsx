@@ -66,7 +66,7 @@ function ModuleActions({ children, resource, label, onShare, choice = false }) {
   const { tr } = useApp();
   const share = () => onShare(resource);
   const longPress = useModuleLongPress(share);
-  return <div className={`library-module-tile${choice ? ' is-choice' : ''}`} {...longPress}>
+  return <div className={`library-module-tile${choice ? ' is-choice' : ' card'}`} {...longPress}>
     {children}
     <button className="library-module-share" type="button" onClick={share}
       aria-label={tr(`Partager le module ${label}`, `Share module ${label}`, `مشاركة وحدة ${label}`)} title={tr('Partager dans un chat', 'Share to chat', 'مشاركة في دردشة')}><Share2 size={17} aria-hidden="true" /></button>
@@ -370,10 +370,7 @@ export default function LibraryPage() {
           className="library-results-body"
           style={{ width: "100%", minWidth: 0 }}
         >
-          <div
-            className="library-results-header"
-            style={{ display: "flex", alignItems: "center", gap: "12px" }}
-          >
+          <div className="library-results-header">
             {module === null && (
               <span className="library-folder-symbol">
                 <FolderOpen size={25} strokeWidth={1.6} />
@@ -424,7 +421,7 @@ export default function LibraryPage() {
                   <ModuleActions key={folder.key} resource={folder.documents[0]} label={folderLabel(folder.name)} onShare={setSharedResource}>
                   <button
                     type="button"
-                    className="card library-module-folder"
+                    className="library-module-folder"
                     aria-label={
                       tr("Ouvrir le module", "Open module", "فتح الوحدة") +
                       " " +
