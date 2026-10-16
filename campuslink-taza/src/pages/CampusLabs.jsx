@@ -7,6 +7,7 @@ import { Select } from '../components/Select';
 import { sampleGraph, MATH_FUNCTIONS } from '../../shared/math';
 import { LabsEditor } from '../lib/labs-editor';
 import { runLabCode } from '../lib/labs-runner';
+import { quotationHint } from '../lib/labs-source-hints';
 import './labs.css';
 
 const LANGUAGE_LABELS = { javascript: 'JavaScript', json: 'JSON', python: 'Python', c: 'C', cpp: 'C++' };
@@ -103,6 +104,7 @@ export default function CampusLabs() {
     return { path, xAxis: graph.yMin <= 0 && graph.yMax >= 0 ? sy(0) : null, yAxis: graph.min <= 0 && graph.max >= 0 ? sx(0) : null };
   }, [graph]);
   const valid = session?.result?.status === 'valid_syntax';
+  const quoteHint = useMemo(() => quotationHint(language, source), [language, source]);
   return <div className="labs-page page-enter">
     <PageHeader eyebrow="CampusLink" title="Campus Labs" description={tr('Pratique du code et graphiques pour vos études.', 'Code practice and graphs for your studies.', 'تدريب على البرمجة ورسوم بيانية لدراستك.')} />
     <Tabs value={tab} onChange={setTab} items={[{ id: 'code', label: tr('Code', 'Code', 'البرمجة') }, { id: 'graphs', label: tr('Graphiques', 'Graphs', 'الرسوم البيانية') }]} />
@@ -115,6 +117,11 @@ export default function CampusLabs() {
           <LabsEditor value={source} onChange={setSource} language={language} disabled={busy || !!session?.completedAt} label={tr('Votre code', 'Your code', 'شيفرتك')} onRun={check} />
           <div className="labs-editor-legend" aria-hidden="true"><span className="labs-token-function">{tr('fonctions', 'functions', 'دوال')}</span><span className="labs-token-variable">{tr('variables', 'variables', 'متغيرات')}</span><span className="labs-token-property">{tr('propriétés', 'properties', 'خصائص')}</span><span className="labs-token-class">{tr('classes', 'classes', 'أصناف')}</span><span className="labs-token-string">{tr('texte', 'strings', 'نصوص')}</span></div>
         </div>
+        {quoteHint && <div className="labs-source-hint" role="status">
+          <p><strong>{tr('Vérifiez les guillemets', 'Check quotation marks', 'تحقّق من علامات الاقتباس')}</strong> · {tr('Ligne', 'Line', 'السطر')} {quoteHint.line}:{quoteHint.column}</p>
+          <p>{tr('Ces caractères ne délimitent pas du texte dans ce langage :', 'These characters do not delimit strings in this language:', 'هذه الرموز لا تُستخدم لتحديد النصوص في هذه اللغة:')} <code dir="ltr">{quoteHint.characters.join(' ')}</code>. {tr('Utilisez des guillemets droits, par exemple', 'Use straight quotation marks, for example', 'استعمل علامات اقتباس مستقيمة، مثل')} <code dir="ltr">"hello world !!"</code>.</p>
+          {quoteHint.correctedSource !== null && <Button disabled={busy || !!session?.completedAt} onClick={() => { setSource(quoteHint.correctedSource); setExecution(null); setOutput([]); setError(''); setMessage(tr('Guillemets corrigés. Relancez le code.', 'Quotation marks fixed. Run the code again.', 'تم تصحيح علامات الاقتباس. شغّل الشيفرة من جديد.')); }}>{tr('Corriger les guillemets', 'Fix quotation marks', 'تصحيح علامات الاقتباس')}</Button>}
+        </div>}
         <details className="labs-input-panel"><summary>{tr('Entrées du programme (stdin)', 'Program input (stdin)', 'مدخلات البرنامج (stdin)')}</summary><label className="sr-only" htmlFor="labs-stdin">{tr('Entrées du programme', 'Program input', 'مدخلات البرنامج')}</label><textarea id="labs-stdin" className="input" dir="ltr" value={input} onChange={event => setInput(event.target.value)} maxLength={16000} disabled={busy} placeholder={tr('Une valeur par ligne pour input(), scanf(), cin ou prompt().', 'One value per line for input(), scanf(), cin or prompt().', 'قيمة في كل سطر لاستخدام input() أو scanf() أو cin أو prompt().')} /></details>
         {!session && <label className="labs-xp-choice"><input type="checkbox" checked={voluntaryXp} disabled={language !== 'javascript' || busy} onChange={event => setVoluntaryXp(event.target.checked)} /><span>{tr('Participer volontairement aux XP de pratique JavaScript', 'Voluntarily participate in JavaScript practice XP', 'المشاركة اختيارياً في نقاط تدريب JavaScript')}</span></label>}
         <div className="labs-actions"><Button variant="primary" icon={Play} disabled={busy || !source.trim()} onClick={check}>{busy ? tr('Exécution…', 'Running…', 'جارٍ التشغيل…') : language === 'json' ? tr('Valider et formater', 'Validate and format', 'تحقق ونسّق') : tr('Exécuter', 'Run code', 'تشغيل')}</Button>{busy && <Button icon={Square} onClick={() => controller.current?.abort()}>{tr('Arrêter', 'Stop', 'إيقاف')}</Button>}<Button icon={Save} disabled={busy || !session || !!session.completedAt || session.source !== source} onClick={complete}>{tr('Terminer la session', 'Finish session', 'إنهاء الجلسة')}</Button><span className="labs-shortcut">Ctrl / ⌘ ↵</span></div>
