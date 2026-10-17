@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { isProgrammingQuoteKey, isTypedDiaeresis } from '../src/lib/labs-keyboard.js';
+import { isProgrammingQuoteKey, isPossibleProgrammingQuote, isTypedDiaeresis } from '../src/lib/labs-keyboard.js';
 
 test('programming quotation keys cover the International dead quote and spacing diaeresis', () => {
   assert.equal(isProgrammingQuoteKey({ key: 'Dead', code: 'Quote', shiftKey: true }), true);
@@ -31,4 +31,15 @@ test('only directly typed cancellable diaeresis input is normalized', () => {
     { data: 'ü' },
     { data: '"' },
   ]) assert.equal(isTypedDiaeresis({ ...typed, ...change }), false, JSON.stringify(change));
+});
+
+test('ambiguous Linux IME quote key requires its own diaeresis composition', () => {
+  const process = { key: 'Process', code: 'Quote', shiftKey: true };
+  assert.equal(isPossibleProgrammingQuote(process), true);
+  assert.equal(isProgrammingQuoteKey(process), false, 'Process must not eagerly insert a delimiter.');
+  for (const change of [
+    { code: 'KeyU' }, { code: 'BracketLeft' }, { shiftKey: false },
+    { altKey: true }, { ctrlKey: true }, { metaKey: true }, { isComposing: true },
+    { key: 'Dead' }, { key: '"' },
+  ]) assert.equal(isPossibleProgrammingQuote({ ...process, ...change }), false, JSON.stringify(change));
 });

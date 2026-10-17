@@ -73,9 +73,50 @@ for (const browserType of browserTypes) {
     assert.equal(await value(), '"');
     await page.keyboard.press('Control+z');
     assert.equal(await value(), '', 'A normalized quote participates in normal editor undo.');
-    await page.keyboard.press('Control+Shift+z');
+    await page.keyboard.press('Control+Shift+Z');
     assert.equal(await value(), '"', 'A normalized quote participates in normal editor redo.');
     passed.push(`${browserType.name()}: physical and International dead quote keys, undo and redo`);
+
+    // Match the native Linux event order: a prevented Dead keydown can still
+    // start a non-cancellable composition and insert a second diaeresis.
+    // This is materially different from asserting defaultPrevented alone.
+    for (const physicalKey of ['Dead', 'Process']) {
+      await editor.fill('');
+      await page.waitForTimeout(550);
+      await key({ key: physicalKey, code: 'Quote', shiftKey: true, keyCode: physicalKey === 'Process' ? 229 : 0 });
+      if (browserType === chromium) {
+        const cdp = await context.newCDPSession(page);
+        await cdp.send('Input.imeSetComposition', { text: '¨', selectionStart: 1, selectionEnd: 1 });
+        await cdp.detach();
+      } else {
+        await editor.evaluate(element => {
+          element.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true, data: '' }));
+          element.dispatchEvent(new CompositionEvent('compositionupdate', { bubbles: true, data: '¨' }));
+          element.dispatchEvent(new InputEvent('beforeinput', { bubbles: true, cancelable: false, inputType: 'insertCompositionText', data: '¨', isComposing: true }));
+          const selection = window.getSelection();
+          const range = selection.getRangeAt(0);
+          range.deleteContents();
+          const text = document.createTextNode('¨');
+          range.insertNode(text);
+          selection.collapse(text, 1);
+          element.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertCompositionText', data: '¨', isComposing: true }));
+        });
+      }
+      await expect.poll(value).toBe('"');
+      await page.waitForTimeout(80);
+      await expect(editor).toBeFocused();
+      await page.keyboard.type('u');
+      assert.equal(await value(), '"u', `${physicalKey}: the next letter follows the quote and cannot inherit its dead key.`);
+      await page.keyboard.press('Control+z');
+      const firstUndo = await value();
+      assert.ok(['', '"'].includes(firstUndo), 'Undo removes a normal typing group, never restores a diaeresis.');
+      if (firstUndo === '"') await page.keyboard.press('Control+z');
+      await expect.poll(value).toBe('');
+      await page.keyboard.press('Control+Shift+Z');
+      if (firstUndo === '"') await page.keyboard.press('Control+Shift+Z');
+      await expect.poll(value).toBe('"u');
+    }
+    passed.push(`${browserType.name()}: native-style dead-key composition, no duplicate diaeresis, settled caret and history`);
 
     await editor.fill('');
     assert.equal(await key({ key: '¨', code: 'BracketLeft' }), true);
@@ -164,6 +205,55 @@ for (const browserType of browserTypes) {
     assert.equal(await value(), completed);
     assert.deepEqual(errors, []);
     passed.push(`${browserType.name()}: all languages, actual typed Hello World execution and read-only session`);
+
+    if (browserType === chromium) {
+      // CodeMirror uses EditContext on Android. Its composition events target
+      // that context, not contentDOM, so exercise this distinct native boundary.
+      const cdp = await context.newCDPSession(page);
+      await cdp.send('Emulation.setUserAgentOverride', {
+        userAgent: 'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Mobile Safari/537.36',
+        platform: 'Linux armv8l',
+      });
+      await page.reload();
+      await expect(editor).toBeVisible();
+      assert.equal(await editor.evaluate(element => !!element.editContext), true, 'This check must use an actual EditContext.');
+      for (const physicalKey of ['Dead', 'Process']) {
+        await editor.fill('');
+        await page.waitForTimeout(550);
+        await editor.evaluate(element => {
+          const trace = window.quoteEditContextTrace = { ends: 0, nextComposing: null };
+          element.editContext.addEventListener('compositionend', () => { trace.ends++; }, { once: true });
+          const nextLetter = event => {
+            if (event.key !== 'u') return;
+            trace.nextComposing = event.isComposing;
+            element.removeEventListener('keydown', nextLetter);
+          };
+          element.addEventListener('keydown', nextLetter);
+        });
+        await key({ key: physicalKey, code: 'Quote', shiftKey: true, keyCode: physicalKey === 'Process' ? 229 : 0 });
+        await cdp.send('Input.imeSetComposition', { text: '¨', selectionStart: 1, selectionEnd: 1 });
+        await expect.poll(value).toBe('"');
+        await page.waitForTimeout(80);
+        await page.keyboard.type('u');
+        await expect.poll(value).toBe('"u');
+        const composition = await editor.evaluate(element => ({
+          ...window.quoteEditContextTrace,
+          underlines: [...element.querySelectorAll('[style]')].filter(node => node.textContent && node.style.textDecoration.includes('underline')).map(node => node.textContent),
+        }));
+        assert.ok(composition.ends > 0, 'The browser must actually end the quote composition.');
+        assert.equal(composition.nextComposing, false, 'The next real letter must start outside the IME.');
+        assert.deepEqual(composition.underlines, [], 'A finished quote must not keep an IME underline.');
+      }
+      await editor.fill('');
+      await page.waitForTimeout(150);
+      await key({ key: 'Process', code: 'Quote', shiftKey: true, keyCode: 229 });
+      await cdp.send('Input.imeSetComposition', { text: 'مرحبا', selectionStart: 5, selectionEnd: 5 });
+      await cdp.send('Input.insertText', { text: 'مرحبا' });
+      await expect.poll(value).toBe('مرحبا');
+      await cdp.detach();
+      assert.deepEqual(errors, []);
+      passed.push('chromium: Android EditContext dead quotes, next-letter caret and genuine Arabic composition');
+    }
     await context.close();
   } catch (error) {
     if (page && !page.isClosed()) await page.screenshot({ path: `test-results/labs-keyboard-${browserType.name()}-failure.png`, fullPage: true }).catch(() => {});

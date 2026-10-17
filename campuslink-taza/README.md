@@ -117,6 +117,7 @@ npm run test:feedback
 npm run test:admin-mobile
 npm run test:profile-photo
 npm run test:labs-runtime
+npm run test:labs-editor
 npm run test:module-sharing
 npm run test:community-keyboard
 node tests/navigation-loading.browser.mjs

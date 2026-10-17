@@ -1,4 +1,4 @@
-import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useDeferredValue, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { Braces, ChartLine, CheckCircle2, Code2, Play, Plus, Save, Square, TerminalSquare, Trash2 } from 'lucide-react';
 import { api } from '../api';
 import { useApp } from '../context';
@@ -22,17 +22,48 @@ const starter = language => STARTERS[language] || '';
 export default function CampusLabs() {
   const { tr, language: locale, refresh } = useApp();
   const [tab, setTab] = useState('code'), [language, setLanguage] = useState('javascript');
-  const [source, setSource] = useState(starter('javascript')), [voluntaryXp, setVoluntaryXp] = useState(false);
+  const [source, setSourceState] = useState(starter('javascript')), [voluntaryXp, setVoluntaryXp] = useState(false);
+  const sourceRef = useRef(source);
+  const setSource = useCallback(value => {
+    sourceRef.current = typeof value === 'function' ? value(sourceRef.current) : value;
+    setSourceState(sourceRef.current);
+  }, []);
   const [session, setSession] = useState(null), [sessions, setSessions] = useState([]), [languages, setLanguages] = useState(null);
-  const [busy, setBusy] = useState(false), [error, setError] = useState(''), [message, setMessage] = useState('');
+  const [executing, setExecuting] = useState(false), [saving, setSaving] = useState(false), [completing, setCompleting] = useState(false);
+  const busy = executing || saving || completing;
+  const [error, setError] = useState(''), [message, setMessage] = useState('');
+  const [editorDocument, setEditorDocument] = useState(0);
+  const [editorReplacement, setEditorReplacement] = useState(null);
   const [expression, setExpression] = useState('sin(x)'), [min, setMin] = useState(-10), [max, setMax] = useState(10);
   const [yMin, setYMin] = useState(-2), [yMax, setYMax] = useState(2), [graph, setGraph] = useState(() => ({ points: sampleGraph('sin(x)'), min: -10, max: 10, yMin: -2, yMax: 2, expression: 'sin(x)' }));
   const [graphError, setGraphError] = useState('');
   const graphId = useId().replace(/:/g, '');
   const [output, setOutput] = useState([]), [execution, setExecution] = useState(null), [runPhase, setRunPhase] = useState('idle'), [runtimeProgress, setRuntimeProgress] = useState(0), [input, setInput] = useState('');
-  const controller = useRef(null), consoleEnd = useRef(null);
-  useEffect(() => () => controller.current?.abort(), []);
-  useEffect(() => { const panel = consoleEnd.current?.parentElement; if (panel) panel.scrollTop = panel.scrollHeight; }, [output]);
+  const controller = useRef(null), consoleEnd = useRef(null), outputFrame = useRef(null), queuedOutput = useRef([]);
+  const checkRef = useRef(null);
+  const runFromEditor = useCallback(() => checkRef.current?.(), []);
+  const deferredSource = useDeferredValue(source);
+  useEffect(() => () => { controller.current?.abort(); cancelAnimationFrame(outputFrame.current); queuedOutput.current = []; }, []);
+  function flushOutput() {
+    cancelAnimationFrame(outputFrame.current);
+    outputFrame.current = null;
+    const batch = queuedOutput.current;
+    queuedOutput.current = [];
+    if (batch.length) setOutput(previous => {
+      const next = previous.slice();
+      for (const item of batch) {
+        const last = next.at(-1);
+        if (last?.stream === item.stream) next[next.length - 1] = { stream: last.stream, text: last.text + item.text };
+        else next.push(item);
+      }
+      return next;
+    });
+  }
+  function appendOutput(item) {
+    queuedOutput.current.push({ stream: item.stream, text: item.text });
+    if (outputFrame.current === null) outputFrame.current = requestAnimationFrame(flushOutput);
+  }
+  useEffect(() => { const panel = consoleEnd.current?.parentElement; if (panel) panel.scrollTop = panel.scrollHeight; }, [output, tab]);
   useEffect(() => {
     let active = true;
     api('/labs').then(data => { if (active) { setSessions(data.sessions || []); setLanguages((data.languages || []).filter(item => Object.hasOwn(LANGUAGE_LABELS, item))); } }).catch(err => { if (active) setError(err.message); });
@@ -42,34 +73,42 @@ export default function CampusLabs() {
     setSession(next);
     setSessions(previous => [next, ...previous.filter(item => item.id !== next.id)].slice(0, 20));
   };
-  const newSession = () => { setSession(null); setMessage(''); setError(''); };
+  const newSession = () => { setSession(null); setMessage(''); setError(''); setOutput([]); setExecution(null); setEditorReplacement(null); setEditorDocument(previous => previous + 1); };
   const check = async () => {
-    if (busy || !source.trim()) return;
-    setBusy(true); setError(''); setMessage(''); setOutput([]); setExecution(null); setRunPhase('loading'); setRuntimeProgress(0);
+    const code = sourceRef.current;
+    if (busy || controller.current || !code.trim()) return;
+    setExecuting(true); setSaving(true); setError(''); setMessage(''); setOutput([]); setExecution(null); setRunPhase('loading'); setRuntimeProgress(0);
     const abort = new AbortController(); controller.current = abort;
     const started = performance.now();
     const save = async () => {
       if (!languages?.includes(language) || session?.completedAt) return;
       let current = session;
       if (!current) { current = (await api('/labs', { method: 'POST', body: { language, voluntaryXp: language === 'javascript' && voluntaryXp } })).session; updateSession(current); }
-      const response = await api(`/labs/${current.id}/check`, { method: 'POST', body: { source } });
+      const response = await api(`/labs/${current.id}/check`, { method: 'POST', body: { source: code } });
       updateSession(response.session);
     };
-    const [run, saved] = await Promise.allSettled([
-      runLabCode(language, source, { input, signal: abort.signal, onEvent: event => {
-        if (event.type === 'output') setOutput(previous => [...previous, { stream: event.stream, text: event.text }]);
-        if (event.type === 'phase') setRunPhase(event.phase);
-        if (event.type === 'progress') setRuntimeProgress(event.progress);
-      } }), save(),
-    ]);
-    if (run.status === 'fulfilled') setExecution({ ...run.value, durationMs: Math.round(performance.now() - started) });
-    else { setOutput(previous => [...previous, { stream: 'stderr', text: run.reason.message + '\n' }]); setExecution({ status: 'error', exitCode: null }); }
+    const execute = async () => {
+      try {
+        const result = await runLabCode(language, code, { input, signal: abort.signal, onEvent: event => {
+          if (event.type === 'output') appendOutput(event);
+          if (event.type === 'phase') setRunPhase(event.phase);
+          if (event.type === 'progress') setRuntimeProgress(event.progress);
+        } });
+        setExecution({ ...result, durationMs: Math.round(performance.now() - started) });
+      } catch (err) {
+        appendOutput({ stream: 'stderr', text: err.message + '\n' });
+        setExecution({ status: 'error', exitCode: null });
+      } finally {
+        flushOutput(); setRunPhase('idle'); setExecuting(false); controller.current = null;
+      }
+    };
+    const [, saved] = await Promise.allSettled([execute(), save().finally(() => setSaving(false))]);
     if (saved.status === 'rejected') setError(tr('Le code a été lancé, mais la session n’a pas été enregistrée : ', 'Code was launched, but the session could not be saved: ', 'تم تشغيل الشيفرة، لكن تعذّر حفظ الجلسة: ') + saved.reason.message);
-    setRunPhase('idle'); setBusy(false); controller.current = null;
   };
+  checkRef.current = check;
   const complete = async () => {
     if (!session || busy) return;
-    setBusy(true); setError('');
+    setCompleting(true); setError('');
     try {
       const result = await api(`/labs/${session.id}/complete`, { method: 'POST', body: {} });
       updateSession(result.session);
@@ -83,9 +122,9 @@ export default function CampusLabs() {
       setMessage(result.session.rewardedPoints ? tr(`Pratique reconnue : +${result.session.rewardedPoints} XP.`, `Practice recognized: +${result.session.rewardedPoints} XP.`, `تدريب معترف به: +${result.session.rewardedPoints} نقطة.`) : reasons[result.reason] || tr('Session enregistrée.', 'Session saved.', 'حُفظت الجلسة.'));
       await refresh().catch(() => {});
     } catch (err) { setError(err.message); }
-    finally { setBusy(false); }
+    finally { setCompleting(false); }
   };
-  const restore = item => { setLanguage(item.language); setSource(item.source || starter(item.language)); setVoluntaryXp(item.language === 'javascript' && !!item.voluntaryXp); setSession(item); setError(''); setMessage(''); };
+  const restore = item => { setLanguage(item.language); setSource(item.source || starter(item.language)); setVoluntaryXp(item.language === 'javascript' && !!item.voluntaryXp); setSession(item); setError(''); setMessage(''); setOutput([]); setExecution(null); setEditorReplacement(null); setEditorDocument(previous => previous + 1); };
   const drawGraph = () => {
     setGraphError('');
     try {
@@ -104,31 +143,32 @@ export default function CampusLabs() {
     return { path, xAxis: graph.yMin <= 0 && graph.yMax >= 0 ? sy(0) : null, yAxis: graph.min <= 0 && graph.max >= 0 ? sx(0) : null };
   }, [graph]);
   const valid = session?.result?.status === 'valid_syntax';
-  const quoteHint = useMemo(() => quotationHint(language, source), [language, source]);
+  const deferredHint = useMemo(() => quotationHint(language, deferredSource), [language, deferredSource]);
+  const quoteHint = deferredSource === source ? deferredHint : null;
   return <div className="labs-page page-enter">
     <PageHeader eyebrow="CampusLink" title={tr('Campus Labs', 'Campus Labs', 'مختبر البرمجة')} description={tr('Pratique du code et graphiques pour vos études.', 'Code practice and graphs for your studies.', 'تدريب على البرمجة ورسوم بيانية لدراستك.')} />
     <Tabs value={tab} onChange={setTab} items={[{ id: 'code', label: tr('Code', 'Code', 'البرمجة') }, { id: 'graphs', label: tr('Graphiques', 'Graphs', 'الرسوم البيانية') }]} />
-    {tab === 'code' ? <div className="labs-layout">
+    <div className="labs-layout" hidden={tab !== 'code'}>
       <section className="card labs-workspace">
         <div className="labs-ide-heading"><div className="labs-ide-mark"><Code2 size={22} /></div><div><h2>{tr('Votre espace de code', 'Your coding workspace', 'مساحتك البرمجية')}</h2><p className="muted">{tr('Écrivez, lancez et comprenez le résultat.', 'Write, run and understand the result.', 'اكتب وشغّل وافهم النتيجة.')}</p></div></div>
         <div className="labs-toolbar"><Field label={tr('Langage', 'Language', 'اللغة')}><Select className="input" value={language} disabled={busy} onChange={event => { setLanguage(event.target.value); setSource(starter(event.target.value)); setVoluntaryXp(false); newSession(); setOutput([]); setExecution(null); }}>{Object.entries(LANGUAGE_LABELS).map(([id, label]) => <option key={id} value={id}>{label}</option>)}</Select></Field><Button icon={Plus} disabled={busy} onClick={newSession}>{tr('Nouvelle session', 'New session', 'جلسة جديدة')}</Button></div>
         <div className="labs-editor-frame">
-          <div className="labs-editor-title"><span><Code2 size={15} />{({ javascript: 'campus.js', python: 'campus.py', c: 'campus.c', cpp: 'campus.cpp', json: 'campus.json' })[language]}</span><span>{source.split('\n').length} {tr('lignes', 'lines', 'سطر')}</span></div>
-          <LabsEditor value={source} onChange={setSource} language={language} disabled={busy || !!session?.completedAt} label={tr('Votre code', 'Your code', 'شيفرتك')} onRun={check} />
-          <div className="labs-editor-legend" aria-hidden="true"><span className="labs-token-function">{tr('fonctions', 'functions', 'دوال')}</span><span className="labs-token-variable">{tr('variables', 'variables', 'متغيرات')}</span><span className="labs-token-property">{tr('propriétés', 'properties', 'خصائص')}</span><span className="labs-token-class">{tr('classes', 'classes', 'أصناف')}</span><span className="labs-token-string">{tr('texte', 'strings', 'نصوص')}</span></div>
+          <div className="labs-editor-title"><span><Code2 size={15} />{({ javascript: 'campus.js', python: 'campus.py', c: 'campus.c', cpp: 'campus.cpp', json: 'campus.json' })[language]}</span><span>{LANGUAGE_LABELS[language]}</span></div>
+          <LabsEditor key={`${language}:${editorDocument}`} initialValue={source} replacement={editorReplacement} onReplacementApplied={setEditorReplacement} onChange={setSource} language={language} disabled={executing || completing || !!session?.completedAt} label={tr('Votre code', 'Your code', 'شيفرتك')} onRun={runFromEditor} uiLanguage={locale} />
+          <div className="labs-editor-legend" aria-hidden="true"><span className="labs-token-keyword">{tr('mots-clés', 'keywords', 'كلمات محجوزة')}</span><span className="labs-token-function">{tr('fonctions', 'functions', 'دوال')}</span><span className="labs-token-variable">{tr('variables', 'variables', 'متغيرات')}</span><span className="labs-token-property">{tr('propriétés', 'properties', 'خصائص')}</span><span className="labs-token-class">{tr('classes', 'classes', 'أصناف')}</span><span className="labs-token-string">{tr('texte', 'strings', 'نصوص')}</span><span className="labs-token-number">{tr('nombres', 'numbers', 'أعداد')}</span><span className="labs-token-comment">{tr('commentaires', 'comments', 'تعليقات')}</span></div>
         </div>
         {quoteHint && <div className="labs-source-hint" role="status">
           <p><strong>{tr('Vérifiez les guillemets', 'Check quotation marks', 'تحقّق من علامات الاقتباس')}</strong> · {tr('Ligne', 'Line', 'السطر')} {quoteHint.line}:{quoteHint.column}</p>
           <p>{tr('Ces caractères ne délimitent pas du texte dans ce langage :', 'These characters do not delimit strings in this language:', 'هذه الرموز لا تُستخدم لتحديد النصوص في هذه اللغة:')} <code dir="ltr">{quoteHint.characters.join(' ')}</code>. {tr('Utilisez des guillemets droits, par exemple', 'Use straight quotation marks, for example', 'استعمل علامات اقتباس مستقيمة، مثل')} <code dir="ltr">"hello world !!"</code>.</p>
-          {quoteHint.correctedSource !== null && <Button disabled={busy || !!session?.completedAt} onClick={() => { setSource(quoteHint.correctedSource); setExecution(null); setOutput([]); setError(''); setMessage(tr('Guillemets corrigés. Relancez le code.', 'Quotation marks fixed. Run the code again.', 'تم تصحيح علامات الاقتباس. شغّل الشيفرة من جديد.')); }}>{tr('Corriger les guillemets', 'Fix quotation marks', 'تصحيح علامات الاقتباس')}</Button>}
+          {quoteHint.correctedSource !== null && <Button disabled={busy || !!session?.completedAt} onClick={() => { if (sourceRef.current !== source) return; setSource(quoteHint.correctedSource); setEditorReplacement({ text: quoteHint.correctedSource }); setExecution(null); setOutput([]); setError(''); setMessage(tr('Guillemets corrigés. Relancez le code.', 'Quotation marks fixed. Run the code again.', 'تم تصحيح علامات الاقتباس. شغّل الشيفرة من جديد.')); }}>{tr('Corriger les guillemets', 'Fix quotation marks', 'تصحيح علامات الاقتباس')}</Button>}
         </div>}
         <details className="labs-input-panel"><summary>{tr('Entrées du programme (stdin)', 'Program input (stdin)', 'مدخلات البرنامج (stdin)')}</summary><label className="sr-only" htmlFor="labs-stdin">{tr('Entrées du programme', 'Program input', 'مدخلات البرنامج')}</label><textarea id="labs-stdin" className="input" dir="ltr" value={input} onChange={event => setInput(event.target.value)} maxLength={16000} disabled={busy} placeholder={tr('Une valeur par ligne pour input(), scanf(), cin ou prompt().', 'One value per line for input(), scanf(), cin or prompt().', 'قيمة في كل سطر لاستخدام input() أو scanf() أو cin أو prompt().')} /></details>
         {!session && <label className="labs-xp-choice"><input type="checkbox" checked={voluntaryXp} disabled={language !== 'javascript' || busy} onChange={event => setVoluntaryXp(event.target.checked)} /><span>{tr('Participer volontairement aux XP de pratique JavaScript', 'Voluntarily participate in JavaScript practice XP', 'المشاركة اختيارياً في نقاط تدريب JavaScript')}</span></label>}
-        <div className="labs-actions"><Button variant="primary" icon={Play} disabled={busy || !source.trim()} onClick={check}>{busy ? tr('Exécution…', 'Running…', 'جارٍ التشغيل…') : language === 'json' ? tr('Valider et formater', 'Validate and format', 'تحقق ونسّق') : tr('Exécuter', 'Run code', 'تشغيل')}</Button>{busy && <Button icon={Square} onClick={() => controller.current?.abort()}>{tr('Arrêter', 'Stop', 'إيقاف')}</Button>}<Button icon={Save} disabled={busy || !session || !!session.completedAt || session.source !== source} onClick={complete}>{tr('Terminer la session', 'Finish session', 'إنهاء الجلسة')}</Button><span className="labs-shortcut">Ctrl / ⌘ ↵</span></div>
+        <div className="labs-actions"><Button variant="primary" icon={Play} disabled={busy || !source.trim()} onClick={check}>{busy ? executing ? tr('Exécution…', 'Running…', 'جارٍ التشغيل…') : tr('Enregistrement…', 'Saving…', 'جارٍ الحفظ…') : language === 'json' ? tr('Valider et formater', 'Validate and format', 'تحقق ونسّق') : tr('Exécuter', 'Run code', 'تشغيل')}</Button>{executing && <Button icon={Square} onClick={() => controller.current?.abort()}>{tr('Arrêter', 'Stop', 'إيقاف')}</Button>}<Button icon={Save} disabled={busy || !session || !!session.completedAt || session.source !== source} onClick={complete}>{tr('Terminer la session', 'Finish session', 'إنهاء الجلسة')}</Button><span className="labs-shortcut">Ctrl / ⌘ ↵</span></div>
         <section className="labs-console" aria-label={tr('Console de sortie', 'Output console', 'وحدة النتائج')}>
-          <div className="labs-console-toolbar"><h3><TerminalSquare size={16} />{tr('Console', 'Console', 'النتائج')}</h3><div><span className={`labs-console-status ${execution?.status || ''}`} role="status">{busy ? ({ loading: tr('Préparation du moteur', 'Loading runtime', 'تحميل المحرك'), compiling: tr('Compilation', 'Compiling', 'ترجمة الشيفرة'), running: tr('En cours', 'Running', 'قيد التشغيل') })[runPhase] : execution ? ({ success: tr('Terminé', 'Completed', 'اكتمل'), error: tr('Erreur', 'Error', 'خطأ'), timeout: tr('Temps limite', 'Time limit', 'انتهت المهلة'), stopped: tr('Arrêté', 'Stopped', 'أُوقف') })[execution.status] : tr('Prête', 'Ready', 'جاهزة')}</span><button type="button" className="labs-console-clear" disabled={busy || !output.length} onClick={() => { setOutput([]); setExecution(null); }} aria-label={tr('Effacer la console', 'Clear console', 'مسح النتائج')} title={tr('Effacer la console', 'Clear console', 'مسح النتائج')}><Trash2 size={15} /></button></div></div>
-          <div className="labs-console-output" role="log" aria-live="off" dir="ltr">{output.length ? <pre>{output.map((item, index) => <span key={index} className={item.stream === 'stderr' ? 'is-stderr' : undefined}>{item.text}</span>)}</pre> : <p className="labs-console-placeholder">{busy ? tr('Le premier lancement de Python, C ou C++ prépare le moteur. Les lancements suivants utilisent les fichiers en cache.', 'The first Python, C or C++ run loads its runtime. Later runs reuse cached files.', 'يُحمّل المحرك عند التشغيل الأول لـ Python أو C أو C++، وتُستخدم الملفات المحفوظة لاحقاً.') : tr('Lancez votre code pour voir les résultats ici.', 'Run your code to see the results here.', 'شغّل الشيفرة لعرض النتائج هنا.')}</p>}<span ref={consoleEnd} /></div>
-          <div className="labs-console-footer"><span>{busy && runPhase === 'loading' && runtimeProgress > 0 ? `${Math.round(runtimeProgress * 100)} %` : execution?.exitCode !== null && execution?.exitCode !== undefined ? `${tr('Code de sortie', 'Exit code', 'رمز الخروج')} ${execution.exitCode}` : tr('Sortie standard et erreurs', 'Standard output and errors', 'النتائج والأخطاء')}</span><span>{execution?.durationMs ? `${(execution.durationMs / 1000).toFixed(2)} s · ` : ''}{tr('Limite : 5 s', 'Limit: 5 s', 'المهلة: 5 ثوانٍ')}</span></div>
+          <div className="labs-console-toolbar"><h3><TerminalSquare size={16} />{tr('Console', 'Console', 'النتائج')}</h3><div><span className={`labs-console-status ${execution?.status || ''}`} role="status">{executing ? ({ loading: tr('Préparation du moteur', 'Loading runtime', 'تحميل المحرك'), compiling: tr('Compilation', 'Compiling', 'ترجمة الشيفرة'), running: tr('En cours', 'Running', 'قيد التشغيل') })[runPhase] : execution ? ({ success: tr('Terminé', 'Completed', 'اكتمل'), error: tr('Erreur', 'Error', 'خطأ'), timeout: tr('Temps limite', 'Time limit', 'انتهت المهلة'), stopped: tr('Arrêté', 'Stopped', 'أُوقف') })[execution.status] : tr('Prête', 'Ready', 'جاهزة')}</span><button type="button" className="labs-console-clear" disabled={busy || !output.length} onClick={() => { setOutput([]); setExecution(null); }} aria-label={tr('Effacer la console', 'Clear console', 'مسح النتائج')} title={tr('Effacer la console', 'Clear console', 'مسح النتائج')}><Trash2 size={15} /></button></div></div>
+          <div className="labs-console-output" role="log" aria-live="off" dir="ltr">{output.length ? <pre>{output.map((item, index) => <span key={index} className={item.stream === 'stderr' ? 'is-stderr' : undefined}>{item.text}</span>)}</pre> : <p className="labs-console-placeholder">{executing ? tr('Le premier lancement de Python, C ou C++ prépare le moteur. Les lancements suivants utilisent les fichiers en cache.', 'The first Python, C or C++ run loads its runtime. Later runs reuse cached files.', 'يُحمّل المحرك عند التشغيل الأول لـ Python أو C أو C++، وتُستخدم الملفات المحفوظة لاحقاً.') : tr('Lancez votre code pour voir les résultats ici.', 'Run your code to see the results here.', 'شغّل الشيفرة لعرض النتائج هنا.')}</p>}<span ref={consoleEnd} /></div>
+          <div className="labs-console-footer"><span>{executing && runPhase === 'loading' && runtimeProgress > 0 ? `${Math.round(runtimeProgress * 100)} %` : execution?.exitCode !== null && execution?.exitCode !== undefined ? `${tr('Code de sortie', 'Exit code', 'رمز الخروج')} ${execution.exitCode}` : tr('Sortie standard et erreurs', 'Standard output and errors', 'النتائج والأخطاء')}</span><span>{execution?.durationMs ? `${(execution.durationMs / 1000).toFixed(2)} s · ` : ''}{tr('Limite : 5 s', 'Limit: 5 s', 'المهلة: 5 ثوانٍ')}</span></div>
         </section>
         {error && <div className="labs-alert is-error" role="alert">{error}</div>}
         {message && <div className="labs-alert" role="status">{message}</div>}
@@ -142,7 +182,8 @@ export default function CampusLabs() {
         <section className="card"><h2>{tr('Exécuter en toute simplicité', 'Run with confidence', 'شغّل بسهولة')}</h2><p className="muted">{Object.values(LANGUAGE_LABELS).join(' · ')}</p><p className="muted">{tr('Votre code s’exécute dans votre navigateur. Préparez les valeurs à lire dans « Entrées du programme », puis lancez votre code. Python inclut sa bibliothèque standard. JSON est validé et formaté.', 'Your code runs in your browser. Add any values to read under “Program input”, then run your code. Python includes its standard library. JSON is validated and formatted.', 'تعمل الشيفرة داخل متصفحك. أضف القيم المطلوبة في «مدخلات البرنامج»، ثم شغّل الشيفرة. تتوفر مكتبة Python القياسية. تُفحص بيانات JSON وتُنسّق.')}</p></section>
         <section className="card"><h2>{tr('Vos sessions privées', 'Your private sessions', 'جلساتك الخاصة')}</h2>{sessions.length ? <div className="labs-session-list">{sessions.map(item => <button key={item.id} disabled={busy} onClick={() => restore(item)}><strong>{LANGUAGE_LABELS[item.language] || item.language}</strong><span>{new Date(item.updatedAt).toLocaleDateString(locale === 'ar' ? 'ar-MA' : locale === 'en' ? 'en-GB' : 'fr-FR')} · {item.completedAt ? tr('Terminée', 'Completed', 'منتهية') : tr('En cours', 'In progress', 'قيد العمل')}</span></button>)}</div> : <p className="muted">{tr('Votre première exécution démarrera une session.', 'Your first run starts a session.', 'يبدأ التشغيل الأول جلسة جديدة.')}</p>}</section>
       </aside>
-    </div> : <section className="card labs-workspace labs-graph-workspace">
+    </div>
+    {tab === 'graphs' && <section className="card labs-workspace labs-graph-workspace">
       <h2><ChartLine size={19} />{tr('Tracer une fonction', 'Plot a function', 'رسم دالة')}</h2>
       <Field label="f(x)"><input className="input" dir="ltr" value={expression} maxLength={256} onChange={event => setExpression(event.target.value)} placeholder="sin(x) + x^2 / 10" /></Field>
       <p className="muted labs-notice">x · pi · e · + − * / ^ · {MATH_FUNCTIONS.join(', ')}</p>
