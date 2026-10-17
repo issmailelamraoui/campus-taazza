@@ -1,3 +1,4 @@
+import { Analytics } from '@vercel/analytics/react';
 import React from 'react';
 import {createRoot} from 'react-dom/client';
 import {BrowserRouter} from 'react-router-dom';
@@ -27,4 +28,15 @@ document.addEventListener('keydown', event => {
 registerInstallWorker();
 // URL-backed controls must update with typing and clicks, before another
 // interaction or native Back can overtake a deferred router transition.
-createRoot(document.getElementById('root')).render(<React.StrictMode><BrowserRouter useTransitions={false}><AppProvider><InstallAppProvider><App/></InstallAppProvider></AppProvider></BrowserRouter></React.StrictMode>);
+createRoot(document.getElementById('root')).render(
+  <React.StrictMode>
+    <BrowserRouter useTransitions={false}>
+      <AppProvider>
+        <InstallAppProvider>
+          <App />
+          <Analytics />
+        </InstallAppProvider>
+      </AppProvider>
+    </BrowserRouter>
+  </React.StrictMode>
+);
