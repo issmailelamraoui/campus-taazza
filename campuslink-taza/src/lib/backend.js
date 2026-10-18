@@ -29,8 +29,8 @@ export function normalizeResource(raw) {
   const bytes = Number(raw.size) || 0;
   return { ...raw, id: id(raw.id), facultyId: raw.faculty_id, filiereId: raw.filiere_id,
     filiereName: getFiliere(raw.filiere_id)?.name || raw.filiere_id, semester: Number(raw.semester), category,
-    part: normalizePart(raw.part_number ?? raw.part ?? 'complete'), author: raw.teacher_name || '',
-    uploader: raw.author?.name || raw.uploader || '', originalName: filename, name: filename,
+    part: raw.part_number == null && raw.part == null ? null : normalizePart(raw.part_number ?? raw.part), author: raw.teacher_name || '',
+    uploader: raw.author?.name || raw.uploader || '', uploaderUsername: raw.author?.username || raw.uploaderUsername || raw.uploader_username || '', originalName: filename, name: filename,
     date: raw.created_at || raw.date || '', sizeBytes: bytes,
     size: bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))} Ko` : `${(bytes / (1024 * 1024)).toFixed(1)} Mo`,
     fileType, path: raw.relative_path || filename, url: `/api/files/${raw.id}`, downloadUrl: `/api/files/${raw.id}?download=1`,
@@ -61,6 +61,7 @@ export function normalizeAnnouncement(raw) {
 }
 export function clientPath(path, resources = []) {
   const raw = String(path || '');
+  if (!raw.startsWith('/app') || raw.startsWith('//') || !/^\/app(?:[/?#]|$)/.test(raw)) return '/app';
   if (raw.includes('/calendar')) return '/app/announcements';
   const message = /#message-(\d+)/.exec(raw);
   if (raw.includes('/chat/')) {
@@ -69,11 +70,12 @@ export function clientPath(path, resources = []) {
     return `/app/community?channel=${channel === 'filiere' ? `year-${year}` : channel}${message ? `&message=${message[1]}` : ''}`;
   }
   const document = /#resource-(\d+)/.exec(raw);
-  if (raw.includes('/resources/')) {
+  if (/^\/app\/resources(?:[/?#]|$)/.test(raw)) {
     const resource = resources.find(item => item.id === document?.[1]);
     const query = new URLSearchParams(resource ? { semester: resource.semester, category: resource.category, module: resource.module } : {});
     const sourceParams=new URLSearchParams(raw.split('?')[1]?.split('#')[0]);
     for(const key of ['page','version'])if(sourceParams.has(key))query.set(key,sourceParams.get(key));
+    if(document)query.set('document',document[1]);
     return `/app/library${query.size ? `?${query}` : ''}${document ? `#resource-${document[1]}` : ''}`;
   }
   if (raw.includes('/admin')) {const params=new URLSearchParams(raw.split('?')[1]?.split('#')[0]);if(['contacts','assistance'].includes(params.get('tab'))&&params.get('contact'))return '/app/feedback?ticket='+params.get('contact')+'&admin=1';return raw.replace('tab=contacts', 'tab=assistance').replace('tab=registrations', 'tab=accounts');}
@@ -92,10 +94,13 @@ export function normalizeBootstrap(raw) {
       const type = { resources: 'document', announcements: 'announcement', important: 'discussion', admin: 'administration', mentions: 'mention', calendar: 'calendar' }[item.type] || item.type;
       const href = clientPath(item.path, resources);
       return { ...item, id: id(item.id), type, date: item.created_at, description: item.body || item.description || '', read: Boolean(item.read), href, path: href, serverPath: item.path,
+        popupEligible: item.popup_eligible === true && isAdministrator(user) && type === 'administration' && item.target_available !== false,
         facultyId: user?.facultyId, targetId: target?.[1], channel: new URLSearchParams(href.split('?')[1]).get('channel') };
     }),
     unreadCount: Number.isSafeInteger(Number(raw.unread_count))&&raw.unread_count!==undefined?Number(raw.unread_count):(raw.notifications||[]).filter(n=>!n.read).length,
-    notificationsHasMore:(raw.notifications||[]).length>=200,
+    discussionUnreadCount: raw.discussion_unread_count !== undefined ? Math.max(0,Number(raw.discussion_unread_count)||0) : (raw.notifications||[]).filter(n=>!n.read&&['important','mentions'].includes(n.type)&&n.target_available!==false).length,
+    adminUnreadCount: Math.max(0,Number(raw.admin_unread_count)||0),
+    notificationsHasMore:raw.has_more ?? (raw.notifications||[]).length>=200,
     saved: (raw.saved || []).map(item => ({ ...item, type: { resource: 'document', message: 'discussion' }[item.type] || item.type, id: id(item.id) })),
     history: (raw.history || []).map(item => id(item.resource_id)),
     events: [],
