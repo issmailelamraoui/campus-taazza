@@ -1,4 +1,5 @@
 .admin-page { min-width: 0; }
+.admin-page .admin-notification-target { scroll-margin-top: 90px; box-shadow: 0 0 0 2px var(--accent); border-radius: 9px; }
 .admin-demo-notice { display: flex; align-items: center; gap: 12px; padding: 13px 17px; border: 1px solid var(--line); background: var(--surface2); border-radius: 9px; margin-bottom: 24px; color: var(--muted); }
 .admin-demo-notice > svg { flex-shrink: 0; color: var(--accent-ink); }
 .admin-demo-notice p { margin: 0; font-size: 11px; line-height: 1.8; }
@@ -348,3 +349,20 @@ html[data-input-modality="keyboard"] .admin-search-field input:focus-visible { o
 .admin-pending-icon { animation: admin-pending-spin 1s linear infinite; }
 @keyframes admin-pending-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .admin-pending-icon { animation: none; } }
+
+.admin-report-copy > span,.admin-account-review h3,.admin-account-review p,.admin-resource-review-title h3,.admin-resource-review-title p { overflow-wrap: anywhere; }
+.admin-assistance-row > .text-link { display: inline-flex; align-items: center; min-height: 44px; }
+.permissions-capability:focus-within { border-color: var(--focus); }
+.permissions-appointment .admin-status { flex-shrink: 0; }
+@media (max-width: 600px) {
+  .admin-search-field { min-height: 44px; }
+  .admin-search-field input { min-height: 42px; font-size: 16px; }
+  .admin-filter-select { min-height: 44px; }
+  .admin-page .admin-community-actions button,.admin-page .admin-row-actions button,.admin-page .admin-admission-actions .btn,.admin-assistance-row > .btn { min-height: 44px; }
+  .admin-assistance-row > .text-link { margin-inline-start: auto; }
+  .permissions-appointment-heading { flex-wrap: wrap; gap: 10px; }
+  .permissions-capability { min-height: 44px; }
+}
+.copy-value { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 7px; min-width: 0; }
+.copy-value bdi { overflow-wrap: anywhere; }
+.copy-value small { color: var(--accent-ink); }
