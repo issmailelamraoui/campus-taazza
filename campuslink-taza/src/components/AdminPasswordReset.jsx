@@ -21,7 +21,7 @@ function generatePassword() {
 }
 
 export default function AdminPasswordReset({ account, contact, onClose, onSuccess }) {
-  const { user, tr } = useApp();
+  const { user, tr, language } = useApp();
   const formId = useId();
   const [password, setPassword] = useState('');
   const [reason, setReason] = useState('');
@@ -151,7 +151,7 @@ export default function AdminPasswordReset({ account, contact, onClose, onSucces
       <Field label={tr('Mot de passe temporaire', 'Temporary password', 'كلمة المرور المؤقتة')}><input className="input admin-password-secret" type={visible ? 'text' : 'password'} value={receipt} readOnly autoComplete="off" spellCheck={false} dir="ltr" /></Field>
       <div className="admin-password-tools"><Button icon={visible ? EyeOff : Eye} onClick={() => setVisible(value => !value)}>{visible ? tr('Masquer', 'Hide', 'إخفاء') : tr('Afficher', 'Show', 'إظهار')}</Button><Button icon={copied ? Check : Copy} onClick={copy}>{copied ? tr('Copié', 'Copied', 'تم النسخ') : tr('Copier', 'Copy', 'نسخ')}</Button></div>
       <p className="muted admin-password-note">{tr('Transmettez-le directement à l’étudiant après vérification de son identité. Il devra choisir son propre mot de passe à sa prochaine connexion. Le fermer efface cette copie.', 'Give it directly to the student after verifying their identity. They must choose their own password at the next sign-in. Closing clears this copy.', 'سلّمها مباشرة للطالب بعد التحقق من هويته. يجب عليه اختيار كلمة مرور خاصة عند الدخول القادم. الإغلاق يمسح هذه النسخة.')}</p>
-      {expiresAt && Number.isFinite(Date.parse(expiresAt)) && <p className="muted admin-password-note">{tr('Accès temporaire valable jusqu’au', 'Temporary access expires at', 'تنتهي صلاحية الوصول المؤقت في')} <bdi>{new Date(expiresAt).toLocaleString()}</bdi>.</p>}
+      {expiresAt && Number.isFinite(Date.parse(expiresAt)) && <p className="muted admin-password-note">{tr('Accès temporaire valable jusqu’au', 'Temporary access expires at', 'تنتهي صلاحية الوصول المؤقت في')} <bdi>{new Date(expiresAt).toLocaleString({ fr: 'fr-FR', en: 'en-GB', ar: 'ar-MA' }[language] || 'fr-FR', { timeZone: 'Africa/Casablanca' })}</bdi>.</p>}
     </div> : <form id={formId} className="stack" onSubmit={submit}>
       <p className="muted admin-password-note">{tr('Créez un accès temporaire pour une demande vérifiée. Les sessions de ce compte seront révoquées et l’étudiant devra changer son mot de passe.', 'Create temporary access for a verified request. This account’s sessions will be revoked and the student must change their password.', 'أنشئ وصولاً مؤقتاً لطلب تم التحقق منه. ستُلغى جلسات الحساب ويجب على الطالب تغيير كلمة مروره.')}</p>
       {contact && <p className="admin-password-ticket">{tr('Demande liée', 'Linked request', 'الطلب المرتبط')} #{contact.id} · <bdi>{contact.subject || contact.reason}</bdi></p>}

@@ -24,7 +24,7 @@ export function RecentResourceCards({ documents }) {
       else query.removeListener(change);
     };
   }, []);
-  return mobile ? <ResourceStack documents={documents} /> : <div className="document-grid">{documents.slice(0, 3).map(document => <DocumentCard key={document.id} document={document} />)}</div>;
+  return mobile ? <ResourceStack documents={documents} /> : <div className="document-grid">{documents.slice(0, 3).map(document => <DocumentCard key={document.id} document={document} metadata="recent" />)}</div>;
 }
 
 function ResourceStack({ documents }) {
@@ -338,7 +338,7 @@ function ResourceStack({ documents }) {
             ref={node => { if (node) planes.current.set(document.id, node); else planes.current.delete(document.id); }}
             className={`resource-stack-card${index === active ? ' is-active' : ''}`} data-stack-index={index} data-resource-id={document.id}
             aria-hidden={index !== active} inert={index !== active}>
-            <StackDocument document={document} />
+            <StackDocument metadata="recent" document={document} />
           </div>)}
         </div>
       </div>
