@@ -36,7 +36,7 @@ export async function api(path, options = {}) {
     const data = await response.json().catch(error => { if (controller.signal.aborted) throw error; return null; });
     if (!response.ok) {
       const error = Object.assign(new Error(data?.error || data?.message || `Erreur ${response.status}`), { status: response.status, data: data || {} });
-      if (response.status === 401 && path !== '/login' && generation === sessionGeneration) window.dispatchEvent(new Event('campus-session-expired'));
+      if (response.status === 401 && path !== '/login' && !path.startsWith('/support/') && generation === sessionGeneration) window.dispatchEvent(new Event('campus-session-expired'));
       throw error;
     }
     if (!data || typeof data !== 'object') throw new Error('La réponse du serveur est invalide. Réessayez.');
