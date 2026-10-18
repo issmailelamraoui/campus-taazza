@@ -1,0 +1,16 @@
+.connection-status { display: flex; align-items: center; gap: 9px; min-width: 0; padding: 8px 12px; margin-bottom: 12px; border: 1px solid var(--line); border-radius: 10px; color: var(--muted); background: var(--surface); font-size: 11px; }
+.connection-status strong { font-weight: 500; }
+.connection-status[data-state="connected"] > svg { color: var(--accent-ink); }
+.connection-status[data-state="error"],.connection-status[data-state="offline"] { color: var(--ink); }
+.connection-status-initial { flex-direction: column; padding: 32px; max-width: 420px; text-align: center; font-size: 15px; gap: 18px; }
+.connection-status-initial p { font-size: 13px; margin-top: 10px; line-height: 1.7; color: var(--muted); }
+.app-shell--community .connection-status { margin: 0; border-radius: 0; flex-shrink: 0; }
+.app-shell--community .connection-status[data-state="connected"] { padding-block: 3px; }
+.app-shell--community .content { display: flex; flex-direction: column; }
+.app-shell--community .community-page { flex: 1; height: auto; min-height: 0; }
+.app-shell--community[data-keyboard-open="true"] .connection-status[data-state="connected"] { display: none; }
+@media (max-width: 760px) {
+  .connection-status:not(.connection-status-initial)[data-state="connected"],
+  .app-shell--community .connection-status:not(.connection-status-initial)[data-state="connected"] { display: none; }
+  .connection-status:not(.connection-status-initial) { padding: 5px 10px; gap: 7px; font-size: 11px; }
+}
