@@ -67,6 +67,7 @@ export function createAuthService({db,baseUrl=process.env.NEON_AUTH_BASE_URL,jwk
   }
   const jar=result=>result.cookies.filter(c=>c.name===PROVIDER_COOKIE).map(c=>`${c.name}=${encodeURIComponent(c.value)}`).join('; ');
   function errorFor(result,credentials=false) {
+    if(['INVALID_ORIGIN','MISSING_OR_NULL_ORIGIN','INVALID_CALLBACK_URL'].includes(result.data?.code))throw new AuthError(503,'La configuration du service de connexion doit être vérifiée par l’administration.','AUTH_CONFIGURATION');
     if(result.status>=500)throw unavailable();
     if(credentials&&(result.status===400||result.status===401||result.status===403))throw invalidCredentials();
     if(result.status===429){const error=new AuthError(429,'Trop de demandes. Réessayez dans un instant.');error.retryAfter=result.retryAfter;throw error;}
@@ -75,6 +76,7 @@ export function createAuthService({db,baseUrl=process.env.NEON_AUTH_BASE_URL,jwk
   }
   async function identity(req,res,cookies) {
     const result=await call('get-session?disableCookieCache=true',{req,res,cookies});
+    if(result.data?.code==='INVALID_ORIGIN')errorFor(result);
     if(result.status===401||result.status===403)return null;
     if(!result.ok)errorFor(result);
     const user=result.data?.user,session=result.data?.session;
