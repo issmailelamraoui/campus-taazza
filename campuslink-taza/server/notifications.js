@@ -2,7 +2,7 @@ export const NOTIFICATION_RETENTION_MS = 3 * 24 * 60 * 60 * 1000;
 
 // The same predicate is used by paging, counters and destination visits. An
 // expired row can never reappear while the throttled physical cleanup waits.
-const visible = `n.type<>'calendar' AND n.path NOT LIKE '/app/calendar%' AND (
+const visible = `n.type<>'calendar' AND n.target_deleted=0 AND n.path NOT LIKE '/app/calendar%' AND (
   (n.registration_user_id IS NULL AND n.created_at>=?) OR
   (n.registration_user_id IS NOT NULL AND EXISTS (
     SELECT 1 FROM users registration WHERE registration.id=n.registration_user_id AND registration.account_status='pending'
