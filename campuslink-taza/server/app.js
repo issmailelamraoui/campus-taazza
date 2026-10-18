@@ -569,7 +569,7 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
       announcementsFor(announcementRows.filter(a=>access.readable('announcements',a))),
     ]);
     res.json({
-      unread_count:Number((await db.prepare("SELECT COUNT(*) AS n FROM notifications WHERE user_id=? AND faculty_id=? AND read=0 AND type<>'calendar' AND path NOT LIKE '/app/calendar%'").get(req.user.id,faculty.id)).n),user:publicUser(req.user),filieres:getFilieres(faculty.id),faculty:{...faculty,members:members.length,online:members.filter(u=>u.online).length,chat_online:chatOnline},
+      unread_count:Number((await db.prepare("SELECT COUNT(*) AS n FROM notifications WHERE user_id=? AND faculty_id=? AND read=0 AND type<>'calendar' AND path NOT LIKE '/app/calendar%' AND target_deleted=0").get(req.user.id,faculty.id)).n),user:publicUser(req.user),filieres:getFilieres(faculty.id),faculty:{...faculty,members:members.length,online:members.filter(u=>u.online).length,chat_online:chatOnline},
       channels:channels.map(c=>({...c,read_only:!!c.read_only})),messages,resources,announcements,events:[],
       notifications:await Promise.all(notificationRows.map(async n=>({...n,read:!!n.read,target_available:!n.target_deleted&&access.notification(n)&&await authorizeNotificationTarget(req.user,n.path)}))),members,saved:savedRows.filter(access.saved),history:history.filter(item=>access.readable('resources',resourceRows.find(row=>row.id===item.resource_id))),
     });
