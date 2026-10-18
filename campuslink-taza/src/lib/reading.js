@@ -3,6 +3,16 @@ const PREFIX='campuslink-private-study-v1:';
 let activeUser=null,session=0;
 const uid=()=>globalThis.crypto?.randomUUID?.()||`study-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 export const studyId=uid;
+export function checklistItemsFromLines(lines, existingItems=[]){
+ const remaining=new Map();
+ for(const item of existingItems){
+  const matches=remaining.get(item.text)||[];matches.push(item);remaining.set(item.text,matches);
+ }
+ return String(lines).split('\n').map(value=>value.trim()).filter(Boolean).map(text=>{
+  const existing=remaining.get(text)?.shift();
+  return existing||{id:studyId(),text,done:false};
+ });
+}
 export function beginStudySession(userId){const next=String(userId||'');if(activeUser&&activeUser!==next)clearStudyCache();activeUser=next;return session;}
 export function clearStudyCache(){session++;activeUser=null;try{for(let i=localStorage.length-1;i>=0;i--){const key=localStorage.key(i);if(key?.startsWith(PREFIX))localStorage.removeItem(key);}}catch{}}
 if(typeof window!=='undefined')window.addEventListener('campus-session-cleared',clearStudyCache);

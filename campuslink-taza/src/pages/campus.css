@@ -15,6 +15,9 @@
 .campus-search>.custom-select{width:180px;flex-shrink:0}
 .campus-tabs button[aria-pressed=true]{color:var(--accent-ink);border-color:var(--accent-solid)}
 .campus-loading{padding:24px 0;color:var(--muted);font-size:13px}
+.campus-error{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.campus-error>span{min-width:0;overflow-wrap:anywhere}
+.campus-cards>.campus-error{grid-column:1/-1}
 .campus-cards>.campus-loading,.campus-cards>.empty-state{grid-column:1/-1}
 .campus-entry small{color:var(--muted);font-size:11px;overflow-wrap:anywhere}
 button.campus-entry{transition:border-color var(--transition),background var(--transition)}

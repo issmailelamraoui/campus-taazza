@@ -3,11 +3,11 @@ import { Check, ClipboardList, LockKeyhole, MessageCircle, ShieldCheck, UserChec
 import { Button, EmptyState } from './ui';
 import { getFiliere } from '../data/studies';
 
-export function AdminRegistrations({ requests, tr, busy, facultyName, shortDate, onReview }) {
+export function AdminRegistrations({ requests, tr, busy, facultyName, shortDate, onReview, selectedId }) {
   return <section className="admin-subsection" aria-labelledby="admin-admissions-title">
     <div className="admin-section-header"><div><h2 id="admin-admissions-title">{tr('Demandes d’inscription', 'Registration requests', 'طلبات التسجيل')}</h2><p>{tr('Vérifiez les informations avant d’accepter ou de refuser un étudiant.', 'Review the details before approving or declining a student.', 'راجع المعلومات قبل قبول الطالب أو رفضه.')}</p></div></div>
     <div className="card admin-report-list">
-      {!requests.length ? <EmptyState icon={ClipboardList} title={tr('Aucune demande d’inscription', 'No registration requests', 'لا توجد طلبات تسجيل')} /> : requests.map(item => <article key={item.id} className="admin-report-row" data-registration-id={item.id}>
+      {!requests.length ? <EmptyState icon={ClipboardList} title={tr('Aucune demande d’inscription', 'No registration requests', 'لا توجد طلبات تسجيل')} /> : requests.map(item => <article key={item.id} id={`registration-${item.id}`} tabIndex={-1} className={`admin-report-row ${String(selectedId) === String(item.id) ? 'admin-notification-target' : ''}`} data-registration-id={item.id}>
         <span className="admin-task-icon"><ClipboardList size={18} /></span>
         <div className="admin-report-copy"><div><h3 dir="auto">{item.name}</h3><span className={`admin-status ${item.account_status}`}>{item.account_status === 'pending' ? tr('En attente', 'Pending', 'في الانتظار') : tr('Refusée', 'Declined', 'مرفوض')}</span></div><p dir="auto">@{item.username} · {item.email}<br />{facultyName(item.faculty_id)} · {getFiliere(item.filiere_id)?.name || '—'} · S{item.current_semester}</p><span>{shortDate(item.registered_at)}</span></div>
         <div className="admin-admission-actions"><Button disabled={Boolean(busy)} variant="primary" icon={Check} onClick={() => onReview(item, 'approved')}>{busy === `admission-${item.id}` ? tr('Enregistrement…', 'Saving…', 'جارٍ الحفظ…') : tr('Accepter', 'Approve', 'قبول')}</Button>{item.account_status === 'pending' && <Button disabled={Boolean(busy)} variant="secondary" icon={X} onClick={() => onReview(item, 'rejected')}>{busy === `admission-${item.id}` ? tr('Enregistrement…', 'Saving…', 'جارٍ الحفظ…') : tr('Refuser', 'Decline', 'رفض')}</Button>}</div>

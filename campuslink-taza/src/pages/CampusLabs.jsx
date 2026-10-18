@@ -1,5 +1,5 @@
 import React, { useCallback, useDeferredValue, useEffect, useId, useMemo, useRef, useState } from 'react';
-import { Braces, ChartLine, CheckCircle2, Code2, Play, Plus, Save, Square, TerminalSquare, Trash2 } from 'lucide-react';
+import { Braces, ChartLine, CheckCircle2, Code2, Play, Plus, RefreshCw, Save, Square, TerminalSquare, Trash2 } from 'lucide-react';
 import { api } from '../api';
 import { useApp } from '../context';
 import { Button, EmptyState, Field, PageHeader, Tabs } from '../components/ui';
@@ -29,6 +29,7 @@ export default function CampusLabs() {
     setSourceState(sourceRef.current);
   }, []);
   const [session, setSession] = useState(null), [sessions, setSessions] = useState([]), [languages, setLanguages] = useState(null);
+  const [sessionsLoading, setSessionsLoading] = useState(true), [sessionsError, setSessionsError] = useState(''), [sessionsRevision, setSessionsRevision] = useState(0);
   const [executing, setExecuting] = useState(false), [saving, setSaving] = useState(false), [completing, setCompleting] = useState(false);
   const busy = executing || saving || completing;
   const [error, setError] = useState(''), [message, setMessage] = useState('');
@@ -65,10 +66,14 @@ export default function CampusLabs() {
   }
   useEffect(() => { const panel = consoleEnd.current?.parentElement; if (panel) panel.scrollTop = panel.scrollHeight; }, [output, tab]);
   useEffect(() => {
-    let active = true;
-    api('/labs').then(data => { if (active) { setSessions(data.sessions || []); setLanguages((data.languages || []).filter(item => Object.hasOwn(LANGUAGE_LABELS, item))); } }).catch(err => { if (active) setError(err.message); });
-    return () => { active = false; };
-  }, []);
+    let active = true; const request = new AbortController();
+    setSessionsLoading(true);
+    api('/labs', { signal: request.signal }).then(data => {
+      if (active) { setSessions(data.sessions || []); setLanguages((data.languages || []).filter(item => Object.hasOwn(LANGUAGE_LABELS, item))); setSessionsError(''); }
+    }).catch(err => { if (active && !request.signal.aborted) { setSessionsError(err.message); setLanguages(null); } })
+      .finally(() => { if (active) setSessionsLoading(false); });
+    return () => { active = false; request.abort(); };
+  }, [sessionsRevision]);
   const updateSession = next => {
     setSession(next);
     setSessions(previous => [next, ...previous.filter(item => item.id !== next.id)].slice(0, 20));
@@ -81,11 +86,14 @@ export default function CampusLabs() {
     const abort = new AbortController(); controller.current = abort;
     const started = performance.now();
     const save = async () => {
-      if (!languages?.includes(language) || session?.completedAt) return;
+      if (session?.completedAt) return 'completed';
+      if (sessionsLoading || sessionsError || !languages) return 'unavailable';
+      if (!languages.includes(language)) return 'unsupported';
       let current = session;
       if (!current) { current = (await api('/labs', { method: 'POST', body: { language, voluntaryXp: language === 'javascript' && voluntaryXp } })).session; updateSession(current); }
       const response = await api(`/labs/${current.id}/check`, { method: 'POST', body: { source: code } });
       updateSession(response.session);
+      return 'saved';
     };
     const execute = async () => {
       try {
@@ -104,6 +112,8 @@ export default function CampusLabs() {
     };
     const [, saved] = await Promise.allSettled([execute(), save().finally(() => setSaving(false))]);
     if (saved.status === 'rejected') setError(tr('Le code a été lancé, mais la session n’a pas été enregistrée : ', 'Code was launched, but the session could not be saved: ', 'تم تشغيل الشيفرة، لكن تعذّر حفظ الجلسة: ') + saved.reason.message);
+    else if (saved.value === 'unavailable') setMessage(tr('Exécution locale uniquement : cette exécution n’a pas été enregistrée. Une fois les sessions disponibles, relancez le code pour l’enregistrer.', 'Local execution only: this run was not saved. Once sessions are available, run the code again to save it.', 'تشغيل محلي فقط: لم يُحفظ هذا التشغيل. بعد توفر الجلسات، شغّل الشيفرة مجدداً لحفظها.'));
+    else if (saved.value === 'unsupported') setMessage(tr('Exécution locale uniquement : l’enregistrement n’est pas disponible pour ce langage.', 'Local execution only: saving is unavailable for this language.', 'تشغيل محلي فقط: الحفظ غير متوفر لهذه اللغة.'));
   };
   checkRef.current = check;
   const complete = async () => {
@@ -151,6 +161,8 @@ export default function CampusLabs() {
     <div className="labs-layout" hidden={tab !== 'code'}>
       <section className="card labs-workspace">
         <div className="labs-ide-heading"><div className="labs-ide-mark"><Code2 size={22} /></div><div><h2>{tr('Votre espace de code', 'Your coding workspace', 'مساحتك البرمجية')}</h2><p className="muted">{tr('Écrivez, lancez et comprenez le résultat.', 'Write, run and understand the result.', 'اكتب وشغّل وافهم النتيجة.')}</p></div></div>
+        {sessionsLoading && <p className="muted labs-sessions-loading" role="status">{tr('Chargement de vos sessions privées… Vous pouvez exécuter le code localement.', 'Loading your private sessions… You can run code locally.', 'جارٍ تحميل جلساتك الخاصة… يمكنك تشغيل الشيفرة محلياً.')}</p>}
+        {sessionsError && <div className="labs-alert is-error labs-sessions-error" role="alert"><p>{tr('Sessions privées indisponibles : ', 'Private sessions unavailable: ', 'الجلسات الخاصة غير متوفرة: ')}{sessionsError}</p><Button icon={RefreshCw} disabled={sessionsLoading || busy} onClick={() => setSessionsRevision(value => value + 1)}>{sessionsLoading ? tr('Chargement…', 'Loading…', 'جارٍ التحميل…') : tr('Réessayer le chargement des sessions', 'Retry loading sessions', 'إعادة تحميل الجلسات')}</Button></div>}
         <div className="labs-toolbar"><Field label={tr('Langage', 'Language', 'اللغة')}><Select className="input" value={language} disabled={busy} onChange={event => { setLanguage(event.target.value); setSource(starter(event.target.value)); setVoluntaryXp(false); newSession(); setOutput([]); setExecution(null); }}>{Object.entries(LANGUAGE_LABELS).map(([id, label]) => <option key={id} value={id}>{label}</option>)}</Select></Field><Button icon={Plus} disabled={busy} onClick={newSession}>{tr('Nouvelle session', 'New session', 'جلسة جديدة')}</Button></div>
         <div className="labs-editor-frame">
           <div className="labs-editor-title"><span><Code2 size={15} />{({ javascript: 'campus.js', python: 'campus.py', c: 'campus.c', cpp: 'campus.cpp', json: 'campus.json' })[language]}</span><span>{LANGUAGE_LABELS[language]}</span></div>
@@ -180,7 +192,7 @@ export default function CampusLabs() {
       <aside className="labs-sidebar">
         <section className="card"><h2>{tr('Pratique équitable', 'Fair practice', 'تدريب عادل')}</h2><p className="muted">{tr('10 XP de potentiel. Chaque erreur de syntaxe distincte retire 2 XP de ce potentiel, sans réduire les XP déjà acquis. Maximum 10 XP de code par jour.', '10 potential XP. Each distinct syntax error removes 2 potential XP, preserving previously earned XP. Up to 10 code XP per day.', '10 نقاط محتملة. تخصم كل مشكلة صياغة مختلفة نقطتين من الرصيد المحتمل دون المساس بالنقاط السابقة. حتى 10 نقاط برمجة يومياً.')}</p><p className="muted">{tr('Au moins 90 secondes, deux révisions différentes et un programme développé. Les programmes de structure similaire sont dédupliqués. La programmation reste facultative pour toutes les facultés.', 'At least 90 seconds, two distinct revisions and a developed program. Similar program structures are deduplicated. Programming remains optional for every faculty.', '90 ثانية على الأقل وتعديلان مختلفان وبرنامج مطور. لا تتكرر مكافأة البنية البرمجية المتشابهة. البرمجة اختيارية لجميع الكليات.')}</p></section>
         <section className="card"><h2>{tr('Exécuter en toute simplicité', 'Run with confidence', 'شغّل بسهولة')}</h2><p className="muted">{Object.values(LANGUAGE_LABELS).join(' · ')}</p><p className="muted">{tr('Votre code s’exécute dans votre navigateur. Préparez les valeurs à lire dans « Entrées du programme », puis lancez votre code. Python inclut sa bibliothèque standard. JSON est validé et formaté.', 'Your code runs in your browser. Add any values to read under “Program input”, then run your code. Python includes its standard library. JSON is validated and formatted.', 'تعمل الشيفرة داخل متصفحك. أضف القيم المطلوبة في «مدخلات البرنامج»، ثم شغّل الشيفرة. تتوفر مكتبة Python القياسية. تُفحص بيانات JSON وتُنسّق.')}</p></section>
-        <section className="card"><h2>{tr('Vos sessions privées', 'Your private sessions', 'جلساتك الخاصة')}</h2>{sessions.length ? <div className="labs-session-list">{sessions.map(item => <button key={item.id} disabled={busy} onClick={() => restore(item)}><strong>{LANGUAGE_LABELS[item.language] || item.language}</strong><span>{new Date(item.updatedAt).toLocaleDateString(locale === 'ar' ? 'ar-MA' : locale === 'en' ? 'en-GB' : 'fr-FR')} · {item.completedAt ? tr('Terminée', 'Completed', 'منتهية') : tr('En cours', 'In progress', 'قيد العمل')}</span></button>)}</div> : <p className="muted">{tr('Votre première exécution démarrera une session.', 'Your first run starts a session.', 'يبدأ التشغيل الأول جلسة جديدة.')}</p>}</section>
+        <section className="card"><h2>{tr('Vos sessions privées', 'Your private sessions', 'جلساتك الخاصة')}</h2>{sessions.length ? <div className="labs-session-list">{sessions.map(item => <button key={item.id} disabled={busy} onClick={() => restore(item)}><strong>{LANGUAGE_LABELS[item.language] || item.language}</strong><span>{new Date(item.updatedAt).toLocaleDateString(locale === 'ar' ? 'ar-MA' : locale === 'en' ? 'en-GB' : 'fr-FR')} · {item.completedAt ? tr('Terminée', 'Completed', 'منتهية') : tr('En cours', 'In progress', 'قيد العمل')}</span></button>)}</div> : <p className="muted">{sessionsLoading ? tr('Chargement des sessions…', 'Loading sessions…', 'جارٍ تحميل الجلسات…') : sessionsError ? tr('Réessayez le chargement pour retrouver vos sessions enregistrées.', 'Retry loading to find your saved sessions.', 'أعد التحميل للعثور على جلساتك المحفوظة.') : tr('Votre première exécution démarrera une session.', 'Your first run starts a session.', 'يبدأ التشغيل الأول جلسة جديدة.')}</p>}</section>
       </aside>
     </div>
     {tab === 'graphs' && <section className="card labs-workspace labs-graph-workspace">

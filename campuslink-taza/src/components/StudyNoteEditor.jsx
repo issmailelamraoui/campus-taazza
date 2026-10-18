@@ -1,4 +1,4 @@
-import React,{useState} from 'react';
+import React,{useRef,useState} from 'react';
 import {useApp} from '../context';
 import {Button,Field} from './ui';
 import {Select} from './Select';
@@ -6,7 +6,8 @@ import {NOTE_TEMPLATES} from '../lib/note-templates.js';
 import {saveKnowledge} from '../lib/reading.js';
 export default function StudyNoteEditor({item={},source={},onSaved,onCancel}){
  const{user,tr}=useApp();const[title,setTitle]=useState(item.title||source.title||''),[content,setContent]=useState(item.content||''),[tags,setTags]=useState((item.tags||[]).join(', ')),[color,setColor]=useState(item.color||'yellow'),[author,setAuthor]=useState(item.source?.author||source.author||''),[year,setYear]=useState(item.source?.year||''),[busy,setBusy]=useState(false),[error,setError]=useState('');
- async function save(event){event.preventDefault();setBusy(true);setError('');try{const result=await saveKnowledge(user.id,{...item,...source,title,content,tags:tags.split(',').map(value=>value.trim()).filter(Boolean),color,citationAuthor:author,citationYear:year});onSaved(result);}catch(error){setError(error.message);}finally{setBusy(false);}}
+ const request=useRef(false);
+ async function save(event){event.preventDefault();if(request.current)return;request.current=true;setBusy(true);setError('');try{const result=await saveKnowledge(user.id,{...item,...source,title,content,tags:tags.split(',').map(value=>value.trim()).filter(Boolean),color,citationAuthor:author,citationYear:year});onSaved(result);}catch(error){setError(error.message);}finally{request.current=false;setBusy(false);}}
  return<form className="study-note-editor stack" onSubmit={save} aria-busy={busy}>
  <Field label={tr('Titre','Title','العنوان')}><input value={title} onChange={event=>setTitle(event.target.value)} required maxLength={180}/></Field>
  {!item.revision&&<Field label={tr('Modèle facultatif','Optional template','نموذج اختياري')}><Select defaultValue="" onChange={event=>{const template=NOTE_TEMPLATES.find(value=>value.id===event.target.value);if(template){setContent(template.content);if(!title)setTitle(template.name);}}}><option value="">{tr('Note libre','Blank note','ملاحظة حرة')}</option>{NOTE_TEMPLATES.map(template=><option value={template.id} key={template.id}>{template.name}</option>)}</Select></Field>}

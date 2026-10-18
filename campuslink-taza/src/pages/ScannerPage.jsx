@@ -7,7 +7,7 @@ import {saveKnowledge} from '../lib/reading.js';
 import './scanner.css';
 
 export default function ScannerPage(){
- const {user,tr,notify}=useApp(),canvas=useRef(null),drag=useRef(null),loadId=useRef(0);
+ const {user,tr,notify}=useApp(),canvas=useRef(null),drag=useRef(null),loadId=useRef(0),saveRequest=useRef(false);
  const [image,setImage]=useState(null),[rotation,setRotation]=useState(0),[brightness,setBrightness]=useState(1),[contrast,setContrast]=useState(1),[crop,setCrop]=useState({x:0,y:0,width:1,height:1}),[selecting,setSelecting]=useState(false),[title,setTitle]=useState(''),[module,setModule]=useState(''),[content,setContent]=useState(''),[busy,setBusy]=useState(false),[error,setError]=useState('');
  useEffect(()=>()=>{loadId.current++;},[]);
  useEffect(()=>()=>image?.close(),[image]);
@@ -27,11 +27,11 @@ export default function ScannerPage(){
  function updateCrop(event){if(!drag.current)return;const p=point(event),start=drag.current;setCrop({x:Math.min(start.x,p.x),y:Math.min(start.y,p.y),width:Math.max(.005,Math.abs(start.x-p.x)),height:Math.max(.005,Math.abs(start.y-p.y))});}
  function cropField(key,value){const v=Math.max(0,Math.min(100,Number(value)||0))/100;setCrop(previous=>{const next={...previous,[key]:v};next.x=Math.min(.99,next.x);next.y=Math.min(.99,next.y);next.width=Math.max(.005,Math.min(next.width,1-next.x));next.height=Math.max(.005,Math.min(next.height,1-next.y));return next;});}
  async function save(event){
-  event.preventDefault();if(!image||busy)return;setBusy(true);setError('');
+  event.preventDefault();if(!image||saveRequest.current)return;saveRequest.current=true;setBusy(true);setError('');
   try{const source=canvas.current,output=document.createElement('canvas');output.width=Math.max(1,Math.round(source.width*crop.width));output.height=Math.max(1,Math.round(source.height*crop.height));output.getContext('2d').drawImage(source,source.width*crop.x,source.height*crop.y,output.width,output.height,0,0,output.width,output.height);
    let imageData=output.toDataURL('image/jpeg',.85);for(let attempt=0;imageData.length>340000&&attempt<7;attempt++){const smaller=document.createElement('canvas');smaller.width=Math.max(1,Math.round(output.width*.8));smaller.height=Math.max(1,Math.round(output.height*.8));smaller.getContext('2d').drawImage(output,0,0,smaller.width,smaller.height);output.width=smaller.width;output.height=smaller.height;output.getContext('2d').drawImage(smaller,0,0);imageData=output.toDataURL('image/jpeg',.8);}if(imageData.length>340000)throw new Error(tr('Réduisez davantage la zone sélectionnée.','Select a smaller region.','اختر منطقة أصغر.'));
    const item=await saveKnowledge(user.id,{kind:'region',title,module,content,imageData,tags:[],anchor:[],color:'yellow'});notify(item.pending?tr('Scan privé conservé sur cet appareil, en attente de synchronisation.','Private scan saved on this device, awaiting synchronization.','حُفظ المسح الخاص على هذا الجهاز بانتظار المزامنة.'):tr('Scan enregistré dans vos notes privées.','Scan saved in your private notes.','حُفظ المسح في ملاحظاتك الخاصة.'));
-  }catch(e){setError(e.message);}finally{setBusy(false);}
+  }catch(e){setError(e.message);}finally{saveRequest.current=false;setBusy(false);}
  }
  return <div className="scanner-page"><PageHeader eyebrow="CAMPUS SCANNER" title={tr('Mes pages numérisées','My scanned pages','صفحاتي الممسوحة')} description={tr('Cadrez une photo, ajustez-la et conservez-la dans vos notes privées.','Crop and adjust a photo, then save it in your private notes.','قص صورة وعدّلها ثم احفظها في ملاحظاتك الخاصة.')} actions={<Link className="btn btn-secondary" to="/app/study?tab=knowledge">{tr('Mes notes','My notes','ملاحظاتي')}</Link>}/>
  <div className="scanner-upload card"><Camera size={24}/><Field label={tr('Photographier ou choisir une page','Take or choose a page photo','التقاط أو اختيار صورة صفحة')}><input type="file" accept="image/jpeg,image/png,image/webp" capture="environment" onChange={choose}/></Field><small>{tr('JPEG, PNG ou WebP · 20 Mo maximum · privé par défaut','JPEG, PNG, or WebP · up to 20 MB · private by default','JPEG أو PNG أو WebP · حتى 20 ميغابايت · خاص افتراضياً')}</small></div>

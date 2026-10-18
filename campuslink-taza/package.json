@@ -8,6 +8,8 @@
     "build": "vite build",
     "preview": "vite preview --host 0.0.0.0 --port 5180",
     "test": "node --test --test-concurrency=2 tests/*.test.mjs",
+    "test:notifications": "node --test tests/notifications.test.mjs tests/backend-notifications.test.mjs",
+    "test:notifications-ui": "node tests/notifications.browser.mjs",
     "test:browser": "node tests/integration.browser.mjs",
     "test:community": "node tests/community.browser.mjs",
     "test:community-reference": "node tests/community-reference.browser.mjs",

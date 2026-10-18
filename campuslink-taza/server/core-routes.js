@@ -10,7 +10,7 @@ import {storageObjectKey} from './storage.js';
 import {validatedAchievements} from './xp-achievements.js';
 import {FILE_CONTRIBUTION_POLICY,fileContributionSummary} from './file-contribution-xp.js';
 
-export function installCoreRoutes(app,{db,requireFaculty,problem,permissions,asId,string,resource,scoped,broadcast,author,authorizeNotificationTarget,notifyDirect,upload,storage,notifyAdminInbox,broadcastAdminInbox}) {
+export function installCoreRoutes(app,{db,requireFaculty,problem,permissions,asId,string,resource,scoped,broadcast,broadcastUserUpdate,author,authorizeNotificationTarget,notificationStore,notifyDirect,upload,storage,notifyAdminInbox,broadcastAdminInbox}) {
   const now=()=>new Date().toISOString();
   const owner=(req,_res,next)=>permissions.isOwner(req.user)?next():next(problem(403,'Seul le propriétaire peut effectuer cette action.'));
   const statuses=['open','resolved','closed','received','reviewing','accepted','planned','done','declined'];
@@ -26,15 +26,70 @@ export function installCoreRoutes(app,{db,requireFaculty,problem,permissions,asI
     else if(row.user_id!==req.user.id)throw problem(403,'Demande privée.');
     return row;
   }
-  async function ticketDTO(row){
-    const [replies,attachments]=await Promise.all([
-      db.prepare('SELECT * FROM contact_replies WHERE contact_id=? ORDER BY id').all(row.id),
-      db.prepare('SELECT id,filename,size,mime,created_at FROM contact_attachments WHERE contact_id=? ORDER BY id').all(row.id),
+  async function ticketDTO(row,viewer=null){
+    const {recovery_hash,client_id,...safe}=row;
+    const restricted=viewer&&viewer.id!==row.user_id&&row.assigned_to&&viewer.id!==row.assigned_to&&!permissions.isOwner(viewer);
+    const actorKey=viewer?'user:'+viewer.id:'guest:'+row.id;
+    // All collections share one parallel round trip. Avoid author/profile/XP
+    // queries for each message in an ever-growing private conversation.
+    const [replies,attachments,people,reactions]=await Promise.all([
+      restricted?[]:db.prepare('SELECT * FROM contact_replies WHERE contact_id=? ORDER BY id').all(row.id),
+      restricted?[]:db.prepare('SELECT id,filename,size,mime,created_at FROM contact_attachments WHERE contact_id=? ORDER BY id').all(row.id),
+      db.prepare('SELECT id,name,username,avatar,account_status FROM users WHERE id IN (SELECT author_id FROM contact_replies WHERE contact_id=? UNION SELECT user_id FROM contacts WHERE id=? UNION SELECT assigned_to FROM contacts WHERE id=?)').all(row.id,row.id,row.id),
+      restricted?[]:db.prepare('SELECT r.reply_id,r.reaction,COUNT(*) AS count,BOOL_OR(r.actor_key=?) AS mine FROM contact_reactions r JOIN contact_replies m ON m.id=r.reply_id WHERE m.contact_id=? GROUP BY r.reply_id,r.reaction').all(actorKey,row.id),
     ]);
-    return {...row,title:row.subject,description:row.message,attachments:attachments.map(r=>({...r,url:`/api/feedback/attachments/${r.id}/file`})),replies:await Promise.all(replies.map(async r=>({id:r.id,content:r.content,created_at:r.created_at,author:r.administrative?{id:null,name:'Administration',username:'',avatar:'',role:'student'}:await author(r.author_id)})))};
+    const byId=new Map(people.map(({account_status,...person})=>[person.id,account_status==='deleted'?{id:person.id,name:'Étudiant supprimé',username:'',avatar:''}:person]));
+    const requester=byId.get(row.user_id),assigned=byId.get(row.assigned_to)||null;
+    return {...safe,username:requester?.username||'',assigned,title:row.subject,description:row.message,restricted:!!restricted,attachments:attachments.map(r=>({...r,url:`/api/feedback/attachments/${r.id}/file`})),replies:replies.map(r=>({id:r.id,content:r.content,created_at:r.created_at,administrative:!!r.administrative,author:byId.get(r.author_id)||{id:null,name:row.name,username:''},my_reactions:reactions.filter(x=>x.reply_id===r.id&&x.mine).map(x=>x.reaction),reactions:Object.fromEntries(reactions.filter(x=>x.reply_id===r.id).map(x=>[x.reaction,Number(x.count)]))}))};
   }
+  function assertParticipant(row,actor,administrative){
+    if(!row.assigned_to)throw problem(409,'Cette demande attend d’être acceptée par un administrateur.');
+    if(administrative&&row.assigned_to!==actor.id&&!permissions.isOwner(actor))throw problem(403,'Cette conversation appartient à l’administrateur assigné.');
+    if(!administrative&&row.user_id!==actor.id)throw problem(403,'Demande privée.');
+  }
+  app.post('/api/admin/feedback/:id/accept',requireFaculty,async(req,res)=>{
+    const row=await db.transaction(async()=>{
+      const actor=await activeActor(req);
+      const fresh=await db.prepare('SELECT * FROM contacts WHERE id=? FOR UPDATE').get(asId(req.params.id));
+      if(!fresh)throw problem(404,'Demande introuvable.');
+      if(!permissions.can(actor,'feedback.manage',fresh.faculty_id,fresh.filiere_id))throw problem(403,'Permission d’assistance requise.');
+      if(fresh.assigned_to&&fresh.assigned_to!==actor.id)throw problem(409,'Cette demande est déjà prise en charge.');
+      if(fresh.closed_at||['closed','resolved','done'].includes(fresh.status))throw problem(409,'Cette demande est clôturée.');
+      if(fresh.assigned_to)return fresh;
+      const updated=await db.prepare("UPDATE contacts SET assigned_to=?,accepted_at=?,status='reviewing',updated_at=? WHERE id=? RETURNING *").get(actor.id,now(),now(),fresh.id);
+      await permissions.audit(actor,'feedback.accept','contact',fresh.id);
+      if(fresh.user_id)await notifyDirect(fresh.user_id,'admin','Demande prise en charge',fresh.subject,`/app/feedback?ticket=${fresh.id}`);
+      return updated;
+    });
+    await broadcast(row.faculty_id);res.json({ticket:await ticketDTO(row,req.user)});
+  });
+  app.post('/api/admin/feedback/:id/close',requireFaculty,async(req,res)=>{
+    const row=await db.transaction(async()=>{
+      const actor=await activeActor(req),fresh=await ticket({...req,user:actor},req.params.id,true);
+      await db.prepare('SELECT id FROM contacts WHERE id=? FOR UPDATE').get(fresh.id);
+      assertParticipant(fresh,actor,true);
+      const updated=await db.prepare("UPDATE contacts SET status='closed',closed_at=?,updated_at=? WHERE id=? RETURNING *").get(now(),now(),fresh.id);
+      await permissions.audit(actor,'feedback.close','contact',fresh.id);
+      return updated;
+    });
+    await broadcast(row.faculty_id);res.json({ticket:await ticketDTO(row,req.user)});
+  });
+  app.post('/api/feedback/:id/replies/:reply/reactions',requireFaculty,async(req,res)=>{
+    const row=await ticket(req,req.params.id,req.body.administrative===true);
+    assertParticipant(row,req.user,req.body.administrative===true);
+    const reaction=req.body.reaction;
+    if(!['like','heart'].includes(reaction)||typeof req.body.active!=='boolean')throw problem(400,'Réaction invalide.');
+    const target=await db.prepare('SELECT id FROM contact_replies WHERE id=? AND contact_id=?').get(asId(req.params.reply),row.id);
+    if(!target)throw problem(404,'Message introuvable.');
+    const actor='user:'+req.user.id;
+    if(req.body.active)await db.prepare('INSERT INTO contact_reactions(reply_id,actor_key,reaction) VALUES(?,?,?) ON CONFLICT DO NOTHING').run(target.id,actor,reaction);
+    else await db.prepare('DELETE FROM contact_reactions WHERE reply_id=? AND actor_key=? AND reaction=?').run(target.id,actor,reaction);
+    await broadcast(row.faculty_id);res.json({ticket:await ticketDTO(row,req.user)});
+  });
   async function reply(req,row,administrative){
     const content=string(req.body.content??req.body.reply,'Réponse',4000);
+    const client=req.body.client_id||null;
+    if(client&&!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(client))throw problem(400,'Identifiant de message invalide.');
     if(req.body.status!==undefined&&!statuses.includes(req.body.status))throw problem(400,'Statut invalide.');
     await db.transaction(async()=>{
       const fresh=await db.prepare('SELECT * FROM contacts WHERE id=? FOR UPDATE').get(row.id);
@@ -43,38 +98,45 @@ export function installCoreRoutes(app,{db,requireFaculty,problem,permissions,asI
       if(!actor||actor.disabled||actor.account_status!=='approved')throw problem(403,'Compte indisponible.');
       if(administrative&&!permissions.can(await permissions.load(actor),'feedback.manage',fresh.faculty_id,fresh.filiere_id))throw problem(403,'Demande privée.');
       if(!administrative&&fresh.user_id!==actor.id)throw problem(403,'Demande privée.');
-      await db.prepare('INSERT INTO contact_replies(contact_id,author_id,content,administrative,created_at) VALUES(?,?,?,?,?)').run(row.id,req.user.id,content,administrative?1:0,now());
+      assertParticipant(fresh,actor,administrative);
+      if(fresh.closed_at||['closed','resolved','done'].includes(fresh.status))throw problem(409,'La conversation est clôturée.');
+      if(client){const prior=await db.prepare('SELECT content,author_id FROM contact_replies WHERE contact_id=? AND client_id=?').get(row.id,client);if(prior){if(prior.author_id!==actor.id||prior.content!==content)throw problem(409,'Identifiant de message déjà utilisé.');return;}}
+      await db.prepare('INSERT INTO contact_replies(contact_id,author_id,content,administrative,created_at,client_id) VALUES(?,?,?,?,?,?)').run(row.id,req.user.id,content,administrative?1:0,now(),client);
       await db.prepare('UPDATE contacts SET updated_at=?,status=? WHERE id=?').run(now(),administrative?(req.body.status||fresh.status):fresh.status,row.id);
+      if(administrative&&['closed','resolved','done'].includes(req.body.status))await db.prepare('UPDATE contacts SET closed_at=? WHERE id=?').run(now(),row.id);
       if(administrative){
         await permissions.audit(req.user,'feedback.reply','contact',row.id,{status:req.body.status||row.status});
         if(row.user_id)await notifyDirect(row.user_id,'admin',`Réponse : ${row.subject}`,content,`/app/feedback?ticket=${row.id}#feedback-${row.id}`);
       }
     });
     await broadcast(row.faculty_id);
-    return ticketDTO(await db.prepare('SELECT * FROM contacts WHERE id=?').get(row.id));
+    return ticketDTO(await db.prepare('SELECT * FROM contacts WHERE id=?').get(row.id),req.user);
   }
   app.get('/api/feedback',requireFaculty,async(req,res)=>{
     const rows=await db.prepare('SELECT * FROM contacts WHERE user_id=? ORDER BY created_at DESC,id DESC LIMIT 200').all(req.user.id);
-    res.json({tickets:rows.map(r=>({...r,title:r.subject,description:r.message}))});
+    res.json({tickets:rows.map(({recovery_hash,client_id,...r})=>({...r,title:r.subject,description:r.message}))});
   });
   app.post('/api/feedback',requireFaculty,async(req,res)=>{
     const category=req.body.category||'concern';
     if(!['feature','bug','improvement','concern'].includes(category))throw problem(400,'Catégorie invalide.');
     const title=string(req.body.title,'Titre',180),description=string(req.body.description,'Description',6000);
+    const client=req.body.client_id||null;
+    if(client&&!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(client))throw problem(400,'Identifiant de demande invalide.');
     const {row,recipients}=await db.transaction(async()=>{
       await db.prepare('SELECT pg_advisory_xact_lock(hashtext(?))').get(`campuslink:feedback-rate:${req.user.id}`);
+      if(client){const prior=await db.prepare('SELECT * FROM contacts WHERE client_id=?').get(client);if(prior){if(prior.user_id!==req.user.id||prior.subject!==title||prior.message!==description||prior.category!==category)throw problem(409,'Identifiant de demande déjà utilisé.');return {row:prior,recipients:[]};}}
       const count=await db.prepare('SELECT COUNT(*) AS daily,COUNT(*) FILTER(WHERE created_at>?) AS hourly FROM contacts WHERE user_id=? AND created_at>?').get(new Date(Date.now()-3600000).toISOString(),req.user.id,new Date(Date.now()-86400000).toISOString());
       if(Number(count.hourly)>=10||Number(count.daily)>=30)throw problem(429,'Limite de demandes atteinte : 10 par heure et 30 par jour. Réessayez plus tard.');
-      const row=await db.prepare("INSERT INTO contacts(faculty_id,user_id,name,email,subject,message,created_at,status,category,updated_at,filiere_id) VALUES(?,?,?,?,?,?,?,'received',?,?,?) RETURNING *").get(req.user.faculty_id,req.user.id,req.user.name,req.user.email,title,description,now(),category,now(),req.user.filiere_id);
+      const row=await db.prepare("INSERT INTO contacts(faculty_id,user_id,name,email,subject,message,created_at,status,category,updated_at,filiere_id,client_id) VALUES(?,?,?,?,?,?,?,'received',?,?,?,?) RETURNING *").get(req.user.faculty_id,req.user.id,req.user.name,req.user.email,title,description,now(),category,now(),req.user.filiere_id,client);
       const recipients=await notifyAdminInbox(row.faculty_id,'Nouvelle demande de feedback',title,`/app/admin?tab=contacts&contact=${row.id}`,{filiereId:row.filiere_id});
       return {row,recipients};
     });
     await broadcastAdminInbox(recipients);
     res.status(201).json({ticket:await ticketDTO(row)});
   });
-  app.get('/api/feedback/:id',requireFaculty,async(req,res)=>res.json({ticket:await ticketDTO(await ticket(req,req.params.id))}));
+  app.get('/api/feedback/:id',requireFaculty,async(req,res)=>res.json({ticket:await ticketDTO(await ticket(req,req.params.id),req.user)}));
   app.post('/api/feedback/:id/replies',requireFaculty,async(req,res)=>res.status(201).json({ticket:await reply(req,await ticket(req,req.params.id),false)}));
-  app.get('/api/admin/feedback/:id',requireFaculty,async(req,res)=>res.json({ticket:await ticketDTO(await ticket(req,req.params.id,true))}));
+  app.get('/api/admin/feedback/:id',requireFaculty,async(req,res)=>res.json({ticket:await ticketDTO(await ticket(req,req.params.id,true),req.user)}));
   app.post('/api/admin/feedback/:id/replies',requireFaculty,async(req,res)=>res.status(201).json({ticket:await reply(req,await ticket(req,req.params.id,true),true)}));
   app.post('/api/feedback/:id/attachments',requireFaculty,upload.single('file'),async(req,res)=>{
     const row=await ticket(req,req.params.id);
@@ -103,7 +165,7 @@ export function installCoreRoutes(app,{db,requireFaculty,problem,permissions,asI
     const attachment=await db.prepare('SELECT * FROM contact_attachments WHERE id=?').get(asId(req.params.id));
     if(!attachment)throw problem(404,'Pièce jointe introuvable.');
     const row=await db.prepare('SELECT * FROM contacts WHERE id=?').get(attachment.contact_id);
-    if(!row||row.user_id!==req.user.id&&!permissions.can(req.user,'feedback.manage',row.faculty_id,row.filiere_id))throw problem(403,'Pièce jointe privée.');
+    if(!row||row.user_id!==req.user.id&&!(permissions.can(req.user,'feedback.manage',row.faculty_id,row.filiere_id)&&(row.assigned_to===req.user.id||permissions.isOwner(req.user))))throw problem(403,'Pièce jointe privée.');
     const file=await storage.get(attachment.object_key);
     res.type(attachment.mime);res.set('Content-Disposition',`${mayInlineFile(attachment.mime,attachment.filename)?'inline':'attachment'}; filename="${attachment.filename.replace(/[^a-zA-Z0-9._-]/g,'_')}"; filename*=UTF-8''${encodeURIComponent(attachment.filename)}`);
     res.set('Cache-Control','private, no-store');res.set('X-Content-Type-Options','nosniff');res.set('Content-Security-Policy',"sandbox; default-src 'none'");
@@ -212,7 +274,7 @@ export function installCoreRoutes(app,{db,requireFaculty,problem,permissions,asI
     res.json({achievements:achievements.filter(a=>a.earned).map(({id,title,tier})=>({id,title,tier}))});
   });
   async function notification(req){
-    const row=await db.prepare('SELECT * FROM notifications WHERE id=? AND user_id=? AND faculty_id=?').get(asId(req.params.id),req.user.id,req.user.faculty_id);
+    const row=await notificationStore.find(req.user,asId(req.params.id));
     if(!row)throw problem(404,'Notification introuvable.');
     if(row.target_deleted||!await authorizeNotificationTarget(req.user,row.path))throw problem(403,'La destination est indisponible ou non autorisée.');
     return row;
@@ -220,26 +282,7 @@ export function installCoreRoutes(app,{db,requireFaculty,problem,permissions,asI
   app.get('/api/notifications',requireFaculty,async(req,res)=>{
     const limit=req.query.limit===undefined?100:asId(req.query.limit);if(limit>200)throw problem(400,'Limite invalide.');
     const before=req.query.before_id===undefined?null:asId(req.query.before_id);
-    const rows=await db.prepare(`SELECT id,type,title,body,path,created_at,read,target_deleted FROM notifications WHERE user_id=? AND faculty_id=?${before?' AND id<?':''} AND type<>'calendar' AND path NOT LIKE '/app/calendar%' AND target_deleted=0 ORDER BY id DESC LIMIT ?`).all(req.user.id,req.user.faculty_id,...(before?[before]:[]),limit+1);
-    const count=await db.prepare("SELECT COUNT(*) AS n FROM notifications WHERE user_id=? AND faculty_id=? AND read=0 AND type<>'calendar' AND path NOT LIKE '/app/calendar%' AND target_deleted=0").get(req.user.id,req.user.faculty_id);
-    res.json({notifications:await Promise.all(rows.slice(0,limit).map(async n=>({...n,read:!!n.read,target_available:!n.target_deleted&&await authorizeNotificationTarget(req.user,n.path)}))),unread_count:Number(count.n),has_more:rows.length>limit,next_before_id:rows.length>limit?rows[limit-1].id:null});
-  });
-  // A click can acknowledge a stale/forbidden notification without granting
-  // access to its destination or another student's notifications.
-  app.post('/api/notifications/:id/read',requireFaculty,async(req,res)=>{
-    const id=asId(req.params.id);
-    const row=await db.prepare('SELECT id,read FROM notifications WHERE id=? AND user_id=? AND faculty_id=?').get(id,req.user.id,req.user.faculty_id);
-    if(!row)throw problem(404,'Notification introuvable.');
-    if(!row.read){
-      await db.prepare('UPDATE notifications SET read=1 WHERE id=? AND user_id=? AND faculty_id=?').run(id,req.user.id,req.user.faculty_id);
-      await broadcast(req.user.faculty_id);
-    }
-    res.json({ok:true});
-  });
-  // Lightweight fallback for serverless requests handled by different instances.
-  app.get('/api/notifications/state',requireFaculty,async(req,res)=>{
-    const row=await db.prepare("SELECT COUNT(*) AS total,COUNT(*) FILTER (WHERE read=0) AS unread_count,COALESCE(MAX(id),0) AS latest_id FROM notifications WHERE user_id=? AND faculty_id=? AND type<>'calendar' AND path NOT LIKE '/app/calendar%' AND target_deleted=0").get(req.user.id,req.user.faculty_id);
-    res.json({total:Number(row.total),unread_count:Number(row.unread_count),latest_id:Number(row.latest_id)});
+    res.json(await notificationStore.payload(req.user,{limit,before}));
   });
   app.post('/api/notifications/:id/viewed',requireFaculty,async(req,res)=>{
     const row=await notification(req);
@@ -258,8 +301,21 @@ export function installCoreRoutes(app,{db,requireFaculty,problem,permissions,asI
       await db.prepare('UPDATE notification_visits SET departed_at=? WHERE token=?').run(now(),token);
       await db.prepare('UPDATE notifications SET read=1 WHERE id=? AND user_id=?').run(row.id,req.user.id);
     });
-    await broadcast(req.user.faculty_id);res.json({ok:true});
+    await broadcastUserUpdate([req.user.id],{notifications:true});res.json({ok:true});
   });
-  app.post('/api/notifications/read',requireFaculty,(_req,_res,next)=>next(problem(400,'Ouvrez la destination puis terminez sa visite pour lire une notification.')));
-  return {ticketDTO,reply,statuses};
+  app.post('/api/notifications/read',requireFaculty,async(req,res)=>{
+    await notificationStore.markRead(req.user);
+    await broadcastUserUpdate([req.user.id],{notifications:true});
+    res.json(await notificationStore.payload(req.user));
+  });
+  app.post('/api/notifications/:id/read',requireFaculty,async(req,res)=>{
+    const row=await notificationStore.find(req.user,asId(req.params.id));
+    if(!row)throw problem(404,'Notification introuvable.');
+    // The explicit click reads the notice even when its destination is gone.
+    // Ownership is required; destination access is never granted by this action.
+    await notificationStore.markRead(req.user,row.id);
+    await broadcastUserUpdate([req.user.id],{notifications:true});
+    res.json(await notificationStore.payload(req.user));
+  });
+  return {ticketDTO,reply,statuses,assertParticipant};
 }

@@ -1,5 +1,5 @@
 import {getFilieres} from '../shared/studies.js';
-export const CAPABILITIES=['content.moderate','resource.manage','resource.upload','announcement.publish','student.support','feedback.manage','channel.manage'];
+export const CAPABILITIES=['content.moderate','resource.manage','resource.upload','announcement.publish','student.support','student.admit','feedback.manage','channel.manage'];
 const error=message=>Object.assign(new Error(message),{status:403});
 export async function createPermissions(db) {
   let newlyBound=false;

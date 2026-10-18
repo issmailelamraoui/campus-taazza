@@ -1,3 +1,4 @@
+import ChatPresence from '../components/ChatPresence';
 import React, {
   useEffect,
   useLayoutEffect,
@@ -141,14 +142,14 @@ function MessageContent({ children, query = "" }) {
   );
 }
 
-function AttachmentClassification({ attachment }) {
-  const { t, language } = useApp();
+function AttachmentClassification({ attachment, uploader }) {
+  const { language } = useApp();
   if (!attachment.module) return null;
+  const username = attachment.uploaderUsername || uploader;
   return <span className="community-file-classification">
-    <span className="community-file-module"><bdi>{attachment.module}</bdi><span>S{attachment.semester}</span></span>
-    <span className="community-file-labels"><span className={`community-file-category community-file-category-${attachment.category}`}>{t(attachment.category)}</span><span>{partLabel(attachment.part, language)}</span></span>
-    {attachment.filiereName && <small className="community-file-program" dir="auto">{attachment.filiereName}</small>}
-    {attachment.author && <small className="community-file-author" dir="auto">{attachment.author}</small>}
+    <strong className="community-file-module" dir="auto">{attachment.module}</strong>
+    <span className="community-file-labels"><span>{partLabel(attachment.part, language)}</span>{attachment.semester && <span>S{attachment.semester}</span>}</span>
+    {(username || attachment.uploader) && <small className="community-file-uploader" dir="auto">{username ? '@' + String(username).replace(/^@/, '') : attachment.uploader}</small>}
   </span>;
 }
 
@@ -595,6 +596,7 @@ export default function CommunityPage() {
     isSaved,
     resources,
     openDocument,
+    markDiscussionRead,
     t,
   } = useApp();
   const [params, setParams] = useSearchParams();
@@ -647,10 +649,18 @@ export default function CommunityPage() {
   const searchTriggerRef = useRef(null);
   const mobileBackRef = useRef(null);
   const autoFollow = useRef(true);
+  const discussionReads = useRef(new Map());
   const academicScope = `${user.id}:${selection?.facultyId || ""}:${selection?.filiereId || ""}`;
   const previousScope = useRef(academicScope);
   const currentScope = useRef(academicScope);
   currentScope.current = academicScope;
+  const previewSequence = useRef(0);
+  const currentChannel = useRef(channel);
+  currentChannel.current = channel;
+  useEffect(() => {
+    previewSequence.current += 1;
+    return () => { previewSequence.current += 1; };
+  }, [academicScope, channel]);
   useEffect(() => {
     if (previousScope.current === academicScope) return;
     previousScope.current = academicScope;
@@ -671,9 +681,19 @@ export default function CommunityPage() {
     clearTimeout(highlightTimer.current);
     cancelAnimationFrame(jumpFrame.current);
   }, [academicScope, channel]);
+  useEffect(() => () => {
+    for (const attachment of Object.values(attachmentDraftsRef.current).flat()) releaseSessionAttachment(attachment.id);
+  }, []);
   const locale =
     language === "ar" ? "ar-MA" : language === "en" ? "en-GB" : "fr-FR";
-  const isAdmin = ["global_admin", "faculty_admin", "moderator"].includes(user?.role);
+  function canModerate(facultyId, filiereId) {
+    if (user?.role === 'global_admin') return true;
+    const grants = user?.administrative_capabilities;
+    if (Array.isArray(grants)) return grants.some(grant => grant.facultyId === facultyId &&
+      (!grant.filiereId || grant.filiereId === filiereId) && grant.capabilities.includes('content.moderate'));
+    return ['faculty_admin', 'moderator'].includes(user?.role);
+  }
+  const canWriteReadOnly = canModerate(selection?.facultyId, selection?.filiereId);
   const channelInfo = CHANNELS.find((item) => item.id === channel);
   const yearInfo = COMMUNITY_YEAR_CHANNELS.find(item => item.id === channel);
   const channelLabel = channelInfo
@@ -682,7 +702,7 @@ export default function CommunityPage() {
   const configuredChannel = channels.find(item => item.id === (yearInfo ? "filiere" : channel));
   const blocked = Boolean(user.chatBlocked || user.chat_blocked);
   const missingProgram = Boolean(yearInfo && !selection?.filiereId);
-  const readOnly = Boolean(!isAdmin && configuredChannel?.read_only);
+  const readOnly = Boolean(!canWriteReadOnly && configuredChannel?.read_only);
   const composerUnavailable = blocked || missingProgram || readOnly;
   const composerDisabled = sending || composerUnavailable;
   useEffect(() => {
@@ -849,6 +869,43 @@ export default function CommunityPage() {
     return () => observer.disconnect();
   }, [channel, mobileConversation, needle, requestedMessage, visibleMessages.length > 0]);
 
+  useEffect(() => {
+    const history = historyRef.current;
+    if (!history || blocked || missingProgram || !markDiscussionRead) return;
+    const scope = `${academicScope}:${channel}`;
+    const dialogSelector = '[aria-modal="true"]';
+    let timer, retryTimer, pending = false, disposed = false;
+    function schedule() { clearTimeout(timer); timer = setTimeout(readVisible, 450); }
+    async function readVisible() {
+      if (disposed || pending || document.visibilityState === 'hidden' || navigator.onLine === false || document.querySelector(dialogSelector) || !history.getClientRects().length) return;
+      const bounds = history.getBoundingClientRect();
+      let through = discussionReads.current.get(scope) || 0;
+      for (const node of history.querySelectorAll('[data-message-id]')) {
+        const id = Number(node.dataset.messageId), rect = node.getBoundingClientRect();
+        if (Number.isSafeInteger(id) && id > through && rect.bottom > Math.max(bounds.top, 0) && rect.top < Math.min(bounds.bottom, window.innerHeight)) through = id;
+      }
+      if (!through || through <= (discussionReads.current.get(scope) || 0)) return;
+      pending = true;
+      let succeeded = false;
+      try { await markDiscussionRead(channel, through); discussionReads.current.set(scope, Math.max(through, discussionReads.current.get(scope) || 0)); succeeded = true; }
+      catch { if (!disposed) retryTimer = setTimeout(schedule, 5000); }
+      finally { pending = false; if (succeeded && !disposed) schedule(); }
+    }
+    // Dialogs can live outside this page. Resume only when a dialog is mounted
+    // or removed, without reacting to ordinary message/content mutations.
+    const dialogs = new MutationObserver(records => {
+      if (records.some(record => [...record.addedNodes, ...record.removedNodes].some(node =>
+        node.nodeType === 1 && (node.matches(dialogSelector) || node.querySelector(dialogSelector))))) schedule();
+    });
+    dialogs.observe(document.body, { childList: true, subtree: true });
+    schedule();
+    history.addEventListener('scroll', schedule, { passive: true });
+    document.addEventListener('visibilitychange', schedule);
+    window.addEventListener('online', schedule);
+    window.addEventListener('resize', schedule);
+    return () => { disposed = true; dialogs.disconnect(); clearTimeout(timer); clearTimeout(retryTimer); history.removeEventListener('scroll', schedule); document.removeEventListener('visibilitychange', schedule); window.removeEventListener('online', schedule); window.removeEventListener('resize', schedule); };
+  }, [academicScope, channel, currentMessages.length, mobileConversation, needle, blocked, missingProgram]);
+
   function changeChannel(id) {
     setMobileConversation(true);
     if (id !== channel || requestedMessage) setParams({ channel: id });
@@ -917,6 +974,9 @@ export default function CommunityPage() {
     releaseSessionAttachment(id);
   }
   async function openDeviceAttachment(attachment) {
+    const request = ++previewSequence.current;
+    const scope = currentScope.current;
+    const targetChannel = channel;
     const session = getSessionFile(attachment.id);
     const url = session?.url || attachment.url;
     if (!url) {
@@ -933,9 +993,10 @@ export default function CommunityPage() {
           text = await response.text();
         }
       }
+      if (request !== previewSequence.current || scope !== currentScope.current || targetChannel !== currentChannel.current) return;
       setDevicePreview({ attachment, file: session?.file || { name: attachment.name }, url, text, local: Boolean(session) });
     } catch (error) {
-      notify(error.message || tr("Ce fichier n’a pas pu être ouvert.", "This file could not be opened.", "تعذر فتح هذا الملف."));
+      if (request === previewSequence.current && scope === currentScope.current && targetChannel === currentChannel.current) notify(error.message || tr("Ce fichier n’a pas pu être ouvert.", "This file could not be opened.", "تعذر فتح هذا الملف."));
     }
   }
   async function sendMessage(event) {
@@ -986,8 +1047,8 @@ export default function CommunityPage() {
     requestAnimationFrame(() => composerRef.current?.focus());
   }
   function mention(message) {
-    const username =
-      message.username || message.author.toLowerCase().replace(/\s+/g, ".");
+    const username = message.username;
+    if (!username) return;
     setDraft(
       (previous) =>
         `${previous}${previous && !previous.endsWith(" ") ? " " : ""}@${username} `,
@@ -1028,7 +1089,7 @@ export default function CommunityPage() {
     }
   }
   async function deleteMessage(message) {
-    if (!isOwn(message) && !isAdmin) return;
+    if (!isOwn(message) && !canModerate(message.facultyId, message.filiereId)) return;
     try {
       await removeMessage(message.id);
       if (replyTo?.id === message.id) setReplyTo(null);
@@ -1095,12 +1156,14 @@ export default function CommunityPage() {
         key: "reply",
         label: tr("Répondre", "Reply", "رد"),
         icon: Reply,
+        disabled: composerUnavailable,
         run: () => reply(message),
       },
       {
         key: "mention",
         label: tr("Mentionner", "Mention", "ذكر"),
         icon: AtSign,
+        disabled: composerUnavailable || !message.username,
         run: () => mention(message),
       },
       {
@@ -1115,7 +1178,7 @@ export default function CommunityPage() {
         icon: saved ? Check : Bookmark,
         run: () => saveItem("discussion", message.id),
       },
-      ...(isAdmin
+      ...(canModerate(message.facultyId, message.filiereId)
         ? [
             {
               key: "pin",
@@ -1166,7 +1229,7 @@ export default function CommunityPage() {
           setReportDetails("");
         },
       },
-      ...(isOwn(message) || isAdmin ? [{
+      ...(isOwn(message) || canModerate(message.facultyId, message.filiereId) ? [{
         key: "delete",
         label: tr("Supprimer le message", "Delete message", "حذف الرسالة"),
         icon: Trash2,
@@ -1208,7 +1271,7 @@ export default function CommunityPage() {
                 <Hash size={19} />
                 <span>{channelLabel}</span>
               </h2>
-              <p title={channelDescription}>{channelSummary}</p>
+              <p title={channelDescription}>{channelSummary}</p><ChatPresence channel={channel} blocked={blocked||missingProgram}/>
             </div>
             <div className="community-header-tools">
               <button
@@ -1353,6 +1416,7 @@ export default function CommunityPage() {
                   }
                   action={
                     <Button
+                      disabled={composerUnavailable && !needle}
                       onClick={() => {
                         if (needle) {
                           setQuery("");
@@ -1481,23 +1545,20 @@ export default function CommunityPage() {
                               <div className="community-message-attachment">
                                 <button className="community-attachment-file" type="button" onClick={() => openAttachment(message)}>
                                   <span className="community-attachment-icon"><FileText size={22} /></span>
-                                  <span className="community-attachment-copy">
-                                    <strong dir="auto">{message.attachment.title}</strong>
-                                    <small>{message.attachment.size || "PDF"}</small>
-                                  </span>
+                                  <span className="community-attachment-copy">{message.attachment.module ? <AttachmentClassification attachment={message.attachment} uploader={message.username} /> : <strong dir="auto">{message.attachment.title}</strong>}</span>
                                   <ArrowUpRight size={16} />
                                 </button>
                                 <RouterLink className="community-attachment-context" to={`/app/library?${new URLSearchParams({ semester: String(message.attachment.semester), module: message.attachment.module, category: message.attachment.category })}`}>
                                   <BookOpen size={12} />
-                                  <span dir="auto">{t(message.attachment.category)} · S{message.attachment.semester} · {message.attachment.module}</span>
+                                  <span>{tr('Voir dans la bibliothèque', 'View in library', 'عرض في المكتبة')}</span>
                                   <ArrowUpRight size={12} />
                                 </RouterLink>
                               </div>
                             )}
                             {(message.attachments || []).map(file => <div className="community-message-attachment community-device-attachment" key={file.id}>
-                              <button className="community-attachment-file" type="button" disabled={Boolean(message.deliveryStatus)} onClick={() => openDeviceAttachment(file)}>
+                              <button className="community-attachment-file" type="button" aria-label={tr(`Ouvrir ${file.name || file.title}`, `Open ${file.name || file.title}`, `فتح ${file.name || file.title}`)} disabled={Boolean(message.deliveryStatus)} onClick={() => openDeviceAttachment(file)}>
                                 <span className="community-attachment-icon"><FileText size={22} /></span>
-                                <span className="community-attachment-copy"><strong dir="auto">{file.title || file.name}</strong>{file.title && file.title !== file.name && <small className="community-file-name" dir="auto">{file.name}</small>}<AttachmentClassification attachment={file} /><small>{file.fileType} · {file.size}</small>{file.path?.includes('/') && <small dir="auto">{file.path}</small>}<small className="community-device-availability">{file.url ? tr("Fichier enregistré", "Saved file", "ملف محفوظ") : tr("Fichier sélectionné", "Selected file", "ملف محدد")}</small></span>
+                                <span className="community-attachment-copy">{file.module ? <AttachmentClassification attachment={file} uploader={message.username} /> : <strong dir="auto">{file.title || file.name}</strong>}</span>
                                 <ArrowUpRight size={16} />
                               </button>
                             </div>)}
@@ -1579,7 +1640,7 @@ export default function CommunityPage() {
             {attachments.length > 0 && <div className="community-composer-attachments" aria-label={tr("Fichiers sélectionnés", "Selected files", "الملفات المختارة")}>
               {attachments.map(file => <div className="community-composer-attachment" key={file.id}>
                 <FileText size={19} />
-                <div><button className="community-device-draft-preview" type="button" onClick={() => openDeviceAttachment(file)} aria-label={tr(`Aperçu ${file.name}`, `Preview ${file.name}`, `معاينة ${file.name}`)}><strong dir="auto">{file.title || file.name}</strong>{file.title && file.title !== file.name && <small className="community-file-name" dir="auto">{file.name}</small>}<AttachmentClassification attachment={file} /><small>{file.fileType} · {file.size}</small>{file.path?.includes('/') && <small dir="auto">{file.path}</small>}</button></div>
+                <div><button className="community-device-draft-preview" type="button" onClick={() => openDeviceAttachment(file)} aria-label={tr(`Aperçu ${file.name}`, `Preview ${file.name}`, `معاينة ${file.name}`)}>{file.module ? <AttachmentClassification attachment={file} uploader={user.username} /> : <strong dir="auto">{file.title || file.name}</strong>}</button></div>
                 <button type="button" disabled={sending} onClick={() => removeDeviceAttachment(file.id)} aria-label={tr(`Retirer ${file.name}`, `Remove ${file.name}`, `إزالة ${file.name}`)}><X size={17} /></button>
               </div>)}
             </div>}

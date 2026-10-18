@@ -1,3 +1,4 @@
+import LibraryReport from '../components/LibraryReport';
 import { Select } from "../components/Select";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useSearchParams } from "react-router-dom";
@@ -32,6 +33,9 @@ import {
   orderResourcesByAcademicYear,
   groupResourcesByAcademicYear,
   academicYearOptions,
+  browseResourceDirectory,
+  resourceDirectory,
+  resourceFolderOwner,
 } from "../lib/resources";
 import {
   Button,
@@ -82,6 +86,8 @@ export default function LibraryPage() {
   const location = useLocation();
   const handledResourceLink = useRef(null);
   const resultsHeading = useRef(null);
+  const directoryHeading = useRef(null);
+  const pendingFolderScroll = useRef(false);
   const modulePicker = useRef(null);
   const filterChips = useRef(null);
   const searchInput = useRef(null);
@@ -94,6 +100,8 @@ export default function LibraryPage() {
     ? requestedSemester
     : 1;
   const module = searchParams.has("module") ? searchParams.get("module") : null;
+  const folder = module !== null ? searchParams.get("folder") || "" : "";
+  const folderOwner = folder ? searchParams.get("folderOwner") || "" : "";
   const requestedCategory = searchParams.get("category");
   const category = ["td", "tp"].includes(requestedCategory)
     ? "tdtp"
@@ -123,6 +131,7 @@ export default function LibraryPage() {
       resources.filter(
         (item) =>
           item.libraryVisible !== false &&
+          item.status !== "removed" &&
           semesterNumber(item.semester) === semester &&
           item.facultyId === selection?.facultyId &&
           item.filiereId === selection?.filiereId,
@@ -167,7 +176,15 @@ export default function LibraryPage() {
       });
     });
     return () => cancelAnimationFrame(frame);
-  }, [module, showModulePicker]);
+  }, [module, folder, folderOwner, showModulePicker]);
+  useEffect(() => {
+    if (!pendingFolderScroll.current) return;
+    const frame = requestAnimationFrame(() => {
+      pendingFolderScroll.current = false;
+      directoryHeading.current?.scrollIntoView({ block: "start", behavior: "auto" });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [folder, folderOwner]);
   const authors = useMemo(
     () =>
       [
@@ -223,20 +240,22 @@ export default function LibraryPage() {
     [filteredBase, category, sort, currentAcademicYear, year],
   );
   const folders = useMemo(() => groupResourcesByModule(visible), [visible]);
+  const directory = useMemo(() => browseResourceDirectory(visible, folder, folderOwner), [visible, folder, folderOwner]);
+  const directoryDocuments = module === null ? visible : directory.documents;
   const lastDocumentPage = Math.max(
     0,
-    Math.ceil(visible.length / DOCUMENTS_PER_PAGE) - 1,
+    Math.ceil(directoryDocuments.length / DOCUMENTS_PER_PAGE) - 1,
   );
   const pageNumber = Math.min(documentPage, lastDocumentPage);
   const pageStart = pageNumber * DOCUMENTS_PER_PAGE;
-  const pageDocuments = visible.slice(
+  const pageDocuments = directoryDocuments.slice(
     pageStart,
     pageStart + DOCUMENTS_PER_PAGE,
   );
   const pageYearGroups = groupResourcesByAcademicYear(pageDocuments, currentAcademicYear, year);
   useEffect(
     () => setDocumentPage(0),
-    [semester, module, category, query, sort, author, part, date, year],
+    [semester, module, folder, folderOwner, category, query, sort, author, part, date, year],
   );
   useEffect(
     () => setDocumentPage((page) => Math.min(page, lastDocumentPage)),
@@ -250,9 +269,18 @@ export default function LibraryPage() {
       return;
     }
     if (module === null || handledResourceLink.current === link) return;
-    const index = visible.findIndex(
-      (document) => String(document.id) === target[1],
-    );
+    const linkedDocument = visible.find(document => String(document.id) === target[1]);
+    if (!linkedDocument) return;
+    const targetFolder = resourceDirectory(linkedDocument);
+    const targetOwner = targetFolder ? resourceFolderOwner(linkedDocument) : "";
+    if (folder !== targetFolder || folderOwner !== targetOwner) {
+      const params = new URLSearchParams(searchParams);
+      if (targetFolder) { params.set("folder", targetFolder); params.set("folderOwner", targetOwner); }
+      else { params.delete("folder"); params.delete("folderOwner"); }
+      setSearchParams(params, { replace: true });
+      return;
+    }
+    const index = directoryDocuments.findIndex(document => String(document.id) === target[1]);
     if (index < 0) return;
     const targetPage = Math.floor(index / DOCUMENTS_PER_PAGE);
     if (pageNumber !== targetPage) {
@@ -267,11 +295,13 @@ export default function LibraryPage() {
       }
     });
     return () => cancelAnimationFrame(frame);
-  }, [location.search, location.hash, module, visible, pageNumber]);
+  }, [location.search, location.hash, module, folder, folderOwner, visible, directoryDocuments, pageNumber]);
   const navigateLibrary = (patch, options = {}) => {
     const state = {
       semester,
       module,
+      folder,
+      folderOwner,
       category,
       query,
       sort,
@@ -285,6 +315,8 @@ export default function LibraryPage() {
     params.set("semester", String(state.semester));
     if (state.module === null) params.delete("module");
     else params.set("module", state.module);
+    if (state.module === null || !state.folder) { params.delete("folder"); params.delete("folderOwner"); }
+    else { params.set("folder", state.folder); if (state.folderOwner) params.set("folderOwner", state.folderOwner); else params.delete("folderOwner"); }
     for (const key of ["category", "author", "part", "date", "year"]) {
       if (state[key] === "all") params.delete(key);
       else params.set(key, state[key]);
@@ -299,7 +331,11 @@ export default function LibraryPage() {
     pendingModuleScroll.current = true;
     setShowModulePicker(false);
     setModuleQuery("");
-    navigateLibrary({ module: name });
+    navigateLibrary({ module: name, folder: "", folderOwner: "" });
+  };
+  const openFolder = (path, owner = folderOwner, folderCategory = category) => {
+    pendingFolderScroll.current = true;
+    navigateLibrary({ folder: path, folderOwner: path ? owner : "", category: folderCategory });
   };
   const changeDocumentPage = (page) => {
     setDocumentPage(Math.max(0, Math.min(page, lastDocumentPage)));
@@ -881,9 +917,23 @@ export default function LibraryPage() {
         <details className="library-pdf-search"><summary>{tr('Rechercher dans le texte des PDF','Search inside PDF text','البحث في نص ملفات PDF')}</summary><p className="library-pdf-scope muted">{tr('Cette recherche couvre tous les PDF accessibles, indépendamment du semestre, du module et des filtres ci-dessus.','This search covers all accessible PDFs, independently of the semester, module and filters above.','يشمل هذا البحث جميع ملفات PDF المتاحة، بشكل مستقل عن الفصل والوحدة والفلاتر أعلاه.')}</p><DocumentTextSearch/></details>
       </section>
       {module === null && resultsContext}
-      {visible.length > 0 ? (
+      <LibraryReport resource={directoryDocuments[0]||visible.find(item=>!folder||(String(item.author_id||item.uploaderUsername)===folderOwner&&String(item.path||'').startsWith(folder+'/')))} folder={folder} module={module} category={category}/>
+      {module !== null && <nav ref={directoryHeading} className="library-folder-breadcrumbs" aria-label={tr("Chemin du dossier", "Folder path", "مسار المجلد")}>
+        <button type="button" aria-current={!folder ? "page" : undefined} onClick={() => openFolder("")}>{folderLabel(moduleDisplayName(module))}</button>
+        {folder.split("/").filter(Boolean).map((name, index, segments) => <React.Fragment key={index}><span aria-hidden="true">/</span><button type="button" dir="auto" aria-current={index === segments.length - 1 ? "page" : undefined} onClick={() => openFolder(segments.slice(0, index + 1).join("/"))}>{name}</button></React.Fragment>)}
+        {folder && <Button variant="ghost" icon={ArrowLeft} className="library-parent-folder" onClick={() => openFolder(folder.split("/").slice(0, -1).join("/"))}>{tr("Dossier parent", "Parent folder", "المجلد الأب")}</Button>}
+      </nav>}
+      {visible.length > 0 && (module === null || directory.folders.length > 0 || directoryDocuments.length > 0) ? (
         module === null ? null : (
           <>
+            {directory.folders.length > 0 && <section className="library-uploaded-folders" aria-label={tr("Dossiers partagés", "Shared folders", "المجلدات المشتركة")}>
+              <h3>{tr("Dossiers", "Folders", "المجلدات")}</h3>
+              <div className="library-document-grid">{directory.folders.map(entry => <button type="button" key={entry.key} className="library-uploaded-folder card" onClick={() => openFolder(entry.path, entry.owner, entry.category||category)}>
+                <span className="library-folder-symbol" aria-hidden="true"><Folder size={23} strokeWidth={1.5}/></span>
+                <span className="library-uploaded-folder-copy"><strong dir="auto">{entry.name}</strong>{category==='all'&&entry.category&&<span>{t(entry.category)}</span>}<span>{entry.count} {tr(entry.count === 1 ? "document" : "documents", entry.count === 1 ? "document" : "documents", "وثيقة")}</span>{entry.uploader && <bdi>{entry.uploader}</bdi>}</span>
+                <ArrowRight className="library-folder-arrow" size={17} aria-hidden="true"/>
+              </button>)}</div>
+            </section>}
             <div className="library-year-groups">
               {pageYearGroups.map(group => (
                 <section className="library-year-group" key={group.year || "unknown"} aria-label={group.year || tr("Année inconnue", "Unknown year", "سنة غير معروفة")}>
@@ -909,7 +959,7 @@ export default function LibraryPage() {
                 </section>
               ))}
             </div>
-            {visible.length > DOCUMENTS_PER_PAGE && (
+            {directoryDocuments.length > DOCUMENTS_PER_PAGE && (
               <nav
                 className="library-pagination"
                 aria-label={tr(
@@ -932,8 +982,8 @@ export default function LibraryPage() {
                 </Button>
                 <span className="library-page-position muted" role="status">
                   {pageStart + 1}–
-                  {Math.min(pageStart + DOCUMENTS_PER_PAGE, visible.length)}{" "}
-                  {tr("sur", "of", "من")} {visible.length}
+                  {Math.min(pageStart + DOCUMENTS_PER_PAGE, directoryDocuments.length)}{" "}
+                  {tr("sur", "of", "من")} {directoryDocuments.length}
                 </span>
                 <Button
                   icon={ArrowRight}

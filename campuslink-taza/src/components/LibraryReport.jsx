@@ -1,0 +1,13 @@
+import React,{useRef,useState} from 'react';
+import {Flag} from 'lucide-react';
+import {api} from '../api';
+import {useApp} from '../context';
+import {Button,Field,Modal} from './ui';
+import {Select} from './Select';
+export default function LibraryReport({resource,folder,module,category}){
+ const {tr,notify}=useApp();const [open,setOpen]=useState(false),[kind,setKind]=useState(''),[reason,setReason]=useState(''),[details,setDetails]=useState(''),[error,setError]=useState(''),[busy,setBusy]=useState(false);const pending=useRef(false);
+ if(!resource||!folder&&module===null&&category==='all')return null;
+ const choices=[...(folder?[['folder',tr('Ce dossier','This folder','هذا المجلد')]]:[]),...(module!==null?[['module',tr('Ce module','This module','هذه الوحدة')]]:[]),...(category!=='all'?[['category',tr('Cette catégorie','This category','هذه الفئة')]]:[])];
+ async function submit(event){event.preventDefault();if(pending.current)return;pending.current=true;setBusy(true);setError('');try{await api('/reports',{method:'POST',body:{target_type:kind,target_id:resource.id,folder_path:folder,reason:reason.trim(),details:details.trim()}});setOpen(false);setReason('');setDetails('');notify(tr('Signalement transmis à l’administration.','Report sent to administration.','تم إرسال البلاغ إلى الإدارة.'));}catch(e){setError(e.message);}finally{pending.current=false;setBusy(false);}}
+ return <><Button variant="ghost" icon={Flag} onClick={()=>{setKind(choices[0][0]);setOpen(true);}}>{tr('Signaler ce classement','Report this organization','الإبلاغ عن هذا التصنيف')}</Button>{open&&<Modal title={tr('Signaler un contenu','Report content','الإبلاغ عن محتوى')} onClose={()=>{if(!pending.current)setOpen(false);}}><form className="stack" onSubmit={submit}><Field label={tr('Élément concerné','Reported item','العنصر المعني')}><Select value={kind} onChange={e=>setKind(e.target.value)}>{choices.map(([value,label])=><option key={value} value={value}>{label}</option>)}</Select></Field><p className="muted">{folder||module||category}</p><Field label={tr('Motif','Reason','السبب')}><input required maxLength={150} value={reason} onChange={e=>setReason(e.target.value)}/></Field><Field label={tr('Précisions','Details','تفاصيل')}><textarea maxLength={2000} rows={3} value={details} onChange={e=>setDetails(e.target.value)}/></Field>{error&&<p role="alert">{error}</p>}<p className="muted">{tr('Le contenu reste disponible pendant l’examen du signalement.','The content remains available while this report is reviewed.','يبقى المحتوى متاحاً أثناء مراجعة البلاغ.')}</p><Button type="submit" disabled={busy}>{tr('Envoyer le signalement','Submit report','إرسال البلاغ')}</Button></form></Modal>}</>;
+}

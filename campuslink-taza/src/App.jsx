@@ -1,3 +1,4 @@
+import ConnectionStatus from './components/ConnectionStatus';
 import React,{useEffect} from 'react';
 import {Navigate,Route,Routes,useLocation} from 'react-router-dom';
 import {AlertCircle,Check,X} from 'lucide-react';
@@ -14,6 +15,7 @@ const StudyPage=React.lazy(()=>import('./pages/StudyPage'));
 const ScannerPage=React.lazy(()=>import('./pages/ScannerPage'));
 const CampusPage=React.lazy(()=>import('./pages/CampusPage'));
 const CampusLabs=React.lazy(()=>import('./pages/CampusLabs'));
+const AccessSupportPage=React.lazy(()=>import('./pages/AccessSupportPage'));
 const FeedbackPage=React.lazy(()=>import('./pages/FeedbackPage'));
 const XPPage=React.lazy(()=>import('./pages/XPPage'));
 const PermissionsPage=React.lazy(()=>import('./pages/PermissionsPage'));
@@ -26,10 +28,7 @@ const SavedPage=studentPage('SavedPage');
 const ProfilePage=studentPage('ProfilePage');
 import './styles/interaction-overrides.css';
 
-function SessionStatus(){
- const {loading,connectionError,refreshAccount,tr}=useApp();
- return <main className="public-page" style={{minHeight:'100dvh',display:'grid',placeItems:'center',padding:24}}><div className="panel" style={{padding:28,maxWidth:420,textAlign:'center'}} role="status" aria-live="polite"><strong>CampusLink Taza</strong><p className="muted" style={{margin:'12px 0'}}>{loading?tr('Connexion à votre campus…','Connecting to your campus…','جارٍ الاتصال بفضائك الجامعي…'):connectionError}</p>{!loading&&<button className="btn btn-primary" onClick={()=>refreshAccount().catch(()=>{})}>{tr('Réessayer','Retry','إعادة المحاولة')}</button>}</div></main>;
-}
+function SessionStatus(){return <main className="public-page" style={{minHeight:'100dvh',display:'grid',placeItems:'center',padding:24}}><ConnectionStatus initial/></main>;}
 function Protected(){
  const {user,selection,loading,connectionError}=useApp();
  if(loading||(!user&&connectionError))return <SessionStatus/>;
@@ -41,33 +40,40 @@ function Protected(){
 }
 function ScrollReset(){const location=useLocation();useEffect(()=>{if(location.hash){requestAnimationFrame(()=>document.getElementById(location.hash.slice(1))?.scrollIntoView({behavior:'auto',block:'start'}));}else{window.scrollTo({top:0,behavior:'auto'});}},[location.pathname,location.hash]);return null;}
 function NotificationLifecycle(){
- const location=useLocation();const {user,dialog,resources,announcements,messages,openDocument,openAnnouncement,notificationDestinationViewed,leaveNotificationDestination,tr}=useApp();
+ const location=useLocation();const {user,dialog,resources,announcements,messages,openDocument,openAnnouncement,notificationDestinationViewed,leaveNotificationDestination,activeNotificationId,notificationVisitRevision,tr}=useApp();
  const previous=React.useRef(null);const handled=React.useRef('');
  useEffect(()=>{
   if(!user||requiresPasswordChange(user)){previous.current=null;handled.current='';return;}
   const href=location.pathname+location.search+location.hash;
-  const identity=dialog?dialog.type+':'+dialog.item?.id:href;
-  if(previous.current&&previous.current.identity!==identity)leaveNotificationDestination(previous.current.identity);
-  const state={identity,viewed:false};previous.current=state;
   const params=new URLSearchParams(location.search),documentId=params.get('document');
-  if(documentId&&/^[1-9][0-9]*$/.test(documentId)&&handled.current!==href){const item=resources.find(r=>r.id===documentId)||{id:documentId,title:tr('Document source','Source document','المستند المصدر'),fileType:'PDF',filename:'source.pdf',downloadUrl:'/api/files/'+documentId+'?download=1'};handled.current=href;openDocument({...item,initialPage:params.has('page')?Math.max(1,Number(params.get('page'))||1):undefined,initialVersion:Number(params.get('version'))||undefined});}
   const announcementId=/^#announcement-(\d+)$/.exec(location.hash)?.[1];
+  const identity=dialog?dialog.type+':'+dialog.item?.id:href;
+  const openingLinkedDialog=previous.current?.identity===href&&((dialog?.type==='document'&&String(dialog.item?.id)===documentId)||(dialog?.type==='announcement'&&String(dialog.item?.id)===announcementId));
+  if(previous.current&&previous.current.identity!==identity&&!openingLinkedDialog)leaveNotificationDestination(previous.current.identity);
+  previous.current={identity};
+  if(documentId&&/^[1-9][0-9]*$/.test(documentId)&&handled.current!==href){const item=resources.find(r=>r.id===documentId)||{id:documentId,title:tr('Document source','Source document','المستند المصدر'),fileType:'PDF',filename:'source.pdf',downloadUrl:'/api/files/'+documentId+'?download=1'};handled.current=href;if(dialog?.type!=='document'||dialog.item?.id!==documentId)openDocument({...item,initialPage:params.has('page')?Math.max(1,Number(params.get('page'))||1):undefined,initialVersion:Number(params.get('version'))||undefined});}
   if(announcementId&&!dialog&&handled.current!==href){const item=announcements.find(a=>a.id===announcementId);if(item){handled.current=href;openAnnouncement(item);}}
+  if(!activeNotificationId)return;
+  function visible(node){if(!node?.getClientRects().length)return false;const rect=node.getBoundingClientRect();return rect.bottom>0&&rect.top<window.innerHeight&&rect.right>0&&rect.left<window.innerWidth;}
+  const started=Date.now();
+  const viewed=(kind,target)=>notificationDestinationViewed(kind,target).then(done=>{if(done)clearInterval(timer);});
   const timer=setInterval(()=>{
-   if(dialog){state.viewed=true;return;}
+   if(Date.now()-started>45000){clearInterval(timer);return;}
+   if(document.visibilityState==='hidden'||dialog)return;
    const messageId=params.get('message');
-   if(messageId&&messages.some(m=>m.id===messageId)&&document.getElementById('message-'+messageId)?.getClientRects().length){notificationDestinationViewed('message',messageId);state.viewed=true;}
-   if(location.pathname==='/app/admin'&&document.querySelector('.admin-page[aria-busy="false"]')&&!document.querySelector('.admin-server-error')){notificationDestinationViewed('page',href);state.viewed=true;}
-   if(location.pathname==='/app'){notificationDestinationViewed('page',href);state.viewed=true;}
+   if(messageId&&messages.some(m=>m.id===messageId)&&visible(document.getElementById('message-'+messageId)))viewed('message',messageId);
+   if(location.pathname==='/app/admin'&&visible(document.querySelector('[data-notification-target-ready="true"]')))viewed('page',href);
+   if(location.pathname==='/app')viewed('page',href);
   },400);
   return()=>clearInterval(timer);
- },[user?.id,user?.mustChangePassword,location.pathname,location.search,location.hash,dialog?.type,dialog?.item?.id,resources,announcements,messages]);
+ },[user?.id,user?.mustChangePassword,location.pathname,location.search,location.hash,dialog?.type,dialog?.item?.id,resources,announcements,messages,activeNotificationId,notificationVisitRevision]);
  return null;
 }
 export default function App(){
  const {user,selection,isAdmin,loading,dialog,toast,setToast,t}=useApp(),destination=accountDestination(user,selection,isAdmin);
  return <><ScrollReset/><NotificationLifecycle/><React.Suspense fallback={<PageLoading fullPage/>}><Routes>
   <Route path="/" element={<LandingPage/>}/>
+  <Route path="/support" element={<AccessSupportPage/>}/>
   <Route path="/login" element={loading?<SessionStatus/>:user?<Navigate to={destination} replace/>:<LoginPage/>}/>
   <Route path="/register" element={loading?<SessionStatus/>:user?<Navigate to={destination} replace/>:<RegisterPage/>}/>
   <Route path="/change-password" element={loading?<SessionStatus/>:!user?<Navigate to="/login" replace/>:!requiresPasswordChange(user)?<Navigate to={destination} replace/>:<PasswordChangePage/>}/>

@@ -85,6 +85,10 @@
 .labs-console-output .is-stderr{color:var(--danger)}
 .labs-console-placeholder{margin:0;max-width:520px;font-size:12px;line-height:1.9;color:var(--muted)}
 .labs-console-footer{border-top:1px solid var(--line);padding:8px 13px;display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;color:var(--muted);font-size:10px;background:color-mix(in srgb,var(--surface2) 30%,var(--labs-editor-bg))}
+.labs-sessions-error{display:grid;gap:12px;overflow-wrap:anywhere}
+.labs-sessions-error p{margin:0}
+.labs-sessions-error>.btn{justify-self:start;max-width:100%;min-height:44px}
+.labs-sessions-loading{font-size:12px;line-height:1.8;margin:0 0 16px}
 .labs-sidebar .card{border-color:color-mix(in srgb,var(--accent) 10%,var(--line));background:color-mix(in srgb,var(--surface) 82%,var(--surface2))}
 .labs-xp-choice{padding:12px;border:1px solid var(--line);border-radius:8px;background:color-mix(in srgb,var(--surface2) 50%,var(--surface))}
 @media(min-width:1450px){.labs-code-editor,.labs-code-editor .cm-editor,.labs-code-editor .cm-content,.labs-code-editor .cm-scroller{min-height:390px}}

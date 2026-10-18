@@ -40,6 +40,7 @@ import {
 } from "../lib/resources";
 import { Button, Field, Modal } from "./ui";
 import { Select, Autocomplete } from "./Select";
+import PartSelect from "./PartSelect";
 import "../pages/library.css";
 import "./upload-progress.css";
 
@@ -250,9 +251,9 @@ export default function UploadModal({
     setError(
       skipped
         ? tr(
-            `${skipped} fichier(s) ignoré(s) : format, chemin ou taille invalide (20 Mo par fichier, 1 000 fichiers maximum).`,
-            `${skipped} file(s) skipped: unsupported format, invalid path or size limit (20 MB per file, up to 1,000 files).`,
-            `تم تجاهل ${skipped} ملف: صيغة أو مسار غير صالح أو تجاوز الحد (20 ميغابايت للملف، 1000 ملف كحد أقصى).`,
+            `${skipped} fichier(s) ignoré(s) : format, chemin ou taille invalide (20 Mo par fichier, ${maximumFiles.toLocaleString("fr-FR")} fichiers maximum).`,
+            `${skipped} file(s) skipped: unsupported format, invalid path or size limit (20 MB per file, up to ${maximumFiles.toLocaleString("en-US")} files).`,
+            `تم تجاهل ${skipped} ملف: صيغة أو مسار غير صالح أو تجاوز الحد (20 ميغابايت للملف، ${maximumFiles} ملف كحد أقصى).`,
           )
         : "",
     );
@@ -347,7 +348,7 @@ export default function UploadModal({
     ) {
       setError(
         tr(
-          "Renseignez le classement commun, puis un Part/Chapitre positif ou Complet pour chaque fichier.",
+          "Renseignez le classement commun, puis choisissez Complet ou un Part/Chapitre de 1 à 20 pour chaque fichier.",
           "Complete the shared classification and enter a positive Part/Chapitre or Complete for each file.",
           "أكمل التصنيف المشترك ثم أدخل جزءاً/فصلاً موجباً أو Complet لكل ملف.",
         ),
@@ -455,20 +456,13 @@ export default function UploadModal({
 
   const metadataFields = (meta, change, individual = false, disabled = false) => (
     individual ? (
-      <SuggestedField
-        label={tr("Part/Chapitre *", "Part/Chapitre *", "جزء/فصل *")}
-        value={meta.part}
-        onChange={(value) => change("part", value)}
-        options={["1", "2", "3", "4", "5", "Complet"]}
-        showOnEmpty
-        required
-        disabled={disabled || isSupplement}
-        hint={tr(
-          isSupplement ? "Tous les compléments conservent la partie du document principal." : "Un nombre entier positif sans limite, ou Complet. Un seul fichier par emplacement.",
-          isSupplement ? "All supplements retain the main document’s part." : "Any positive integer, or Complete. One file per slot.",
-          isSupplement ? "تحتفظ جميع الملفات المكمّلة بجزء المستند الرئيسي." : "أي عدد صحيح موجب أو Complet (كامل). ملف واحد لكل جزء.",
-        )}
-      />
+      <Field label={tr("Part/Chapitre *", "Part/Chapter *", "جزء/فصل *")} hint={tr(
+        isSupplement ? "Tous les compléments conservent la partie du document principal." : "Choisissez Complet ou une partie de 1 à 20. Un seul fichier par emplacement.",
+        isSupplement ? "All supplements retain the main document’s part." : "Choose Complete or a part from 1 to 20. One file per slot.",
+        isSupplement ? "تحتفظ جميع الملفات المكمّلة بجزء المستند الرئيسي." : "اختر كامل أو جزءاً من 1 إلى 20. ملف واحد لكل جزء.",
+      )}>
+        <PartSelect className="input" value={meta.part} onChange={event => change("part", event.target.value)} required disabled={disabled || isSupplement} />
+      </Field>
     ) : (
       <div className="upload-metadata-grid">
         <Field label={`${t("semester")} *`}>
