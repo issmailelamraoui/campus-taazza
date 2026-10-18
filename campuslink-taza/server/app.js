@@ -387,7 +387,7 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
   async function removeAnnouncementData(a,note) {
     await lockContentRemoval(a.faculty_id);
     await db.prepare("DELETE FROM saved WHERE type='announcement' AND target_id=?").run(a.id);
-    await db.prepare('UPDATE notifications SET target_deleted=1 WHERE path LIKE ? OR path LIKE ?').run(`%#announcement-${a.id}`,`%#announcement-${a.id}&%`);
+    await db.prepare('DELETE FROM notifications WHERE path LIKE ? OR path LIKE ?').run(`%#announcement-${a.id}`,`%#announcement-${a.id}&%`);
     if(a.message_id)await db.prepare('UPDATE messages SET pinned=0 WHERE id=?').run(a.message_id);
     await db.prepare('DELETE FROM announcements WHERE id=?').run(a.id);
     await resolveTargetReports('announcement',a.id,note);
@@ -402,7 +402,7 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
     await db.prepare('UPDATE announcements SET resource_id=NULL WHERE resource_id=?').run(r.id);
     await db.prepare("DELETE FROM saved WHERE type='resource' AND target_id=?").run(r.id);
     await db.prepare('DELETE FROM history WHERE resource_id=?').run(r.id);
-    await db.prepare('UPDATE notifications SET target_deleted=1 WHERE path LIKE ? OR path LIKE ?').run(`%#resource-${r.id}`,`%#resource-${r.id}&%`);
+    await db.prepare('DELETE FROM notifications WHERE path LIKE ? OR path LIKE ?').run(`%#resource-${r.id}`,`%#resource-${r.id}&%`);
     await resolveTargetReports('resource',r.id,note);
     for(const parent of parents)if(CHANNELS.includes(parent.channel)&&!parent.content?.trim()){
       const attachment=await db.prepare('SELECT 1 FROM message_attachments a JOIN resources r ON r.id=a.resource_id WHERE a.message_id=? AND r.removed=0 LIMIT 1').get(parent.id);
@@ -416,7 +416,7 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
     const pins=await db.prepare('SELECT * FROM announcements WHERE message_id=?').all(m.id);
     for(const pin of pins)await removeAnnouncementData(pin,note);
     await db.prepare("DELETE FROM saved WHERE type='message' AND target_id=?").run(m.id);
-    await db.prepare('UPDATE notifications SET target_deleted=1 WHERE path LIKE ? OR path LIKE ?').run(`%#message-${m.id}`,`%#message-${m.id}&%`);
+    await db.prepare('DELETE FROM notifications WHERE path LIKE ? OR path LIKE ?').run(`%#message-${m.id}`,`%#message-${m.id}&%`);
     await db.prepare('DELETE FROM reactions WHERE message_id=?').run(m.id);
     await db.prepare('UPDATE resources SET message_id=NULL WHERE message_id=?').run(m.id);
     await db.prepare('UPDATE messages SET reply_to=NULL WHERE reply_to=?').run(m.id);
@@ -553,7 +553,7 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
       db.prepare('SELECT * FROM messages WHERE faculty_id=? AND channel=ANY(?) AND removed=0 ORDER BY created_at,id').all(faculty.id,CHANNELS),
       db.prepare('SELECT * FROM resources WHERE faculty_id=? AND filiere_id=ANY(?) AND removed=0 AND library_visible=1 ORDER BY created_at DESC,id DESC').all(faculty.id,accessibleFilieres(req.user)),
       db.prepare('SELECT * FROM announcements WHERE faculty_id=? ORDER BY created_at DESC,id DESC').all(faculty.id),
-      db.prepare("SELECT id,type,title,body,path,created_at,read,target_deleted FROM notifications WHERE user_id=? AND faculty_id=? AND type<>'calendar' AND path NOT LIKE '/app/calendar%' ORDER BY created_at DESC,id DESC LIMIT 200").all(req.user.id,faculty.id),
+      db.prepare("SELECT id,type,title,body,path,created_at,read,target_deleted FROM notifications WHERE user_id=? AND faculty_id=? AND type<>'calendar' AND path NOT LIKE '/app/calendar%' AND target_deleted=0 ORDER BY created_at DESC,id DESC LIMIT 200").all(req.user.id,faculty.id),
       db.prepare('SELECT type,target_id AS id FROM saved WHERE user_id=?').all(req.user.id),
       req.user.filiere_id ? db.prepare('SELECT h.resource_id,h.opened_at FROM history h JOIN resources r ON r.id=h.resource_id WHERE h.user_id=? AND r.faculty_id=? AND r.filiere_id=? AND r.removed=0 ORDER BY h.opened_at DESC LIMIT 20').all(req.user.id,faculty.id,req.user.filiere_id) : [],
     ]);

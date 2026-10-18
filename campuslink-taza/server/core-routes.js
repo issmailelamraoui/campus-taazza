@@ -220,9 +220,26 @@ export function installCoreRoutes(app,{db,requireFaculty,problem,permissions,asI
   app.get('/api/notifications',requireFaculty,async(req,res)=>{
     const limit=req.query.limit===undefined?100:asId(req.query.limit);if(limit>200)throw problem(400,'Limite invalide.');
     const before=req.query.before_id===undefined?null:asId(req.query.before_id);
-    const rows=await db.prepare(`SELECT id,type,title,body,path,created_at,read,target_deleted FROM notifications WHERE user_id=? AND faculty_id=?${before?' AND id<?':''} AND type<>'calendar' AND path NOT LIKE '/app/calendar%' ORDER BY id DESC LIMIT ?`).all(req.user.id,req.user.faculty_id,...(before?[before]:[]),limit+1);
+    const rows=await db.prepare(`SELECT id,type,title,body,path,created_at,read,target_deleted FROM notifications WHERE user_id=? AND faculty_id=?${before?' AND id<?':''} AND type<>'calendar' AND path NOT LIKE '/app/calendar%' AND target_deleted=0 ORDER BY id DESC LIMIT ?`).all(req.user.id,req.user.faculty_id,...(before?[before]:[]),limit+1);
     const count=await db.prepare("SELECT COUNT(*) AS n FROM notifications WHERE user_id=? AND faculty_id=? AND read=0 AND type<>'calendar' AND path NOT LIKE '/app/calendar%'").get(req.user.id,req.user.faculty_id);
     res.json({notifications:await Promise.all(rows.slice(0,limit).map(async n=>({...n,read:!!n.read,target_available:!n.target_deleted&&await authorizeNotificationTarget(req.user,n.path)}))),unread_count:Number(count.n),has_more:rows.length>limit,next_before_id:rows.length>limit?rows[limit-1].id:null});
+  });
+  // A click can acknowledge a stale/forbidden notification without granting
+  // access to its destination or another student's notifications.
+  app.post('/api/notifications/:id/read',requireFaculty,async(req,res)=>{
+    const id=asId(req.params.id);
+    const row=await db.prepare('SELECT id,read FROM notifications WHERE id=? AND user_id=? AND faculty_id=?').get(id,req.user.id,req.user.faculty_id);
+    if(!row)throw problem(404,'Notification introuvable.');
+    if(!row.read){
+      await db.prepare('UPDATE notifications SET read=1 WHERE id=? AND user_id=? AND faculty_id=?').run(id,req.user.id,req.user.faculty_id);
+      await broadcast(req.user.faculty_id);
+    }
+    res.json({ok:true});
+  });
+  // Lightweight fallback for serverless requests handled by different instances.
+  app.get('/api/notifications/state',requireFaculty,async(req,res)=>{
+    const row=await db.prepare("SELECT COUNT(*) AS total,COUNT(*) FILTER (WHERE read=0) AS unread_count,COALESCE(MAX(id),0) AS latest_id FROM notifications WHERE user_id=? AND faculty_id=? AND type<>'calendar' AND path NOT LIKE '/app/calendar%' AND target_deleted=0").get(req.user.id,req.user.faculty_id);
+    res.json({total:Number(row.total),unread_count:Number(row.unread_count),latest_id:Number(row.latest_id)});
   });
   app.post('/api/notifications/:id/viewed',requireFaculty,async(req,res)=>{
     const row=await notification(req);

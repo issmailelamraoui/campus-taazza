@@ -108,13 +108,43 @@ test('private feedback persists administrative replies and exact notifications r
  assert.equal((await request('/notifications/'+row.id+'/departed',{cookie:cookies.sara,method:'POST',body:{visit_token:visit.data.visit_token}})).status,404);
  assert.equal((await request('/notifications/'+row.id+'/departed',{cookie:cookies.yassine,method:'POST',body:{visit_token:visit.data.visit_token}})).status,200);assert.equal((await env.db.prepare('SELECT read FROM notifications WHERE id=?').get(row.id)).read,1);
 });
-test('deleted notification targets preserve unread history and fail destination lifecycle authorization',async()=>{
- const created=await upload(cookies.yassine,{semester:3});assert.equal(created.status,201);const id=created.data.resource.id,path='/app/resources/courses/s3#resource-'+id;
- const notice=await env.db.prepare("INSERT INTO notifications(user_id,faculty_id,type,title,body,path,created_at) VALUES(3,'flaa','resources','History','Retained',?,?) RETURNING *").get(path,new Date().toISOString());
+test('deleted resources remove their notifications for all recipients while preserving unrelated entries',async()=>{
+ const created=await upload(cookies.yassine,{semester:3});assert.equal(created.status,201);
+ const id=created.data.resource.id,path='/app/resources/courses/s3#resource-'+id;
+ const notices=[];
+ for(const user of [3,4])notices.push(await env.db.prepare("INSERT INTO notifications(user_id,faculty_id,type,title,body,path,created_at) VALUES(?,'flaa','resources','Deleted resource','Fixture',?,?) RETURNING *").get(user,path,new Date().toISOString()));
+ const unrelated=await env.db.prepare("INSERT INTO notifications(user_id,faculty_id,type,title,body,path,created_at) VALUES(3,'flaa','admin','Unrelated','Fixture','/app',?) RETURNING *").get(new Date().toISOString());
  assert.equal((await request('/admin/resources/'+id,{cookie:cookies.admin,method:'DELETE'})).status,200);
- const row=await env.db.prepare('SELECT * FROM notifications WHERE id=?').get(notice.id);assert.equal(row.read,0);assert.equal(row.target_deleted,1);
- const boot=await request('/bootstrap',{cookie:cookies.yassine});const retained=boot.data.notifications.find(n=>n.id===notice.id);assert.ok(retained);assert.equal(retained.target_available,false);
- assert.equal((await request('/notifications/'+notice.id+'/viewed',{cookie:cookies.yassine,method:'POST',body:{path}})).status,403);
+ for(const notice of notices){
+  assert.equal(await env.db.prepare('SELECT id FROM notifications WHERE id=?').get(notice.id),undefined);
+  assert.equal((await request('/notifications/'+notice.id+'/viewed',{cookie:cookies.yassine,method:'POST',body:{path}})).status,404);
+ }
+ const bootstrap=await request('/bootstrap',{cookie:cookies.yassine});
+ assert.ok(bootstrap.data.notifications.every(n=>!notices.some(notice=>notice.id===n.id)));
+ assert.ok(bootstrap.data.notifications.some(n=>n.id===unrelated.id));
+ const state=await request('/notifications/state',{cookie:cookies.yassine});
+ assert.equal(state.status,200);assert.equal(state.data.unread_count,bootstrap.data.unread_count);
+});
+test('deleted chat messages remove their linked notifications',async()=>{
+ const created=await request('/messages',{cookie:cookies.yassine,method:'POST',body:{channel:'general',content:'Notification cleanup '+randomUUID()}});
+ assert.equal(created.status,201,JSON.stringify(created.data));
+ const id=created.data.message.id,path='/app/chat/general#message-'+id;
+ const notices=[];
+ for(const user of [3,4])notices.push(await env.db.prepare("INSERT INTO notifications(user_id,faculty_id,type,title,body,path,created_at) VALUES(?,'flaa','mentions','Message deleted','Fixture',?,?) RETURNING *").get(user,path,new Date().toISOString()));
+ assert.equal((await request('/messages/'+id,{cookie:cookies.yassine,method:'DELETE'})).status,200);
+ for(const notice of notices)assert.equal(await env.db.prepare('SELECT id FROM notifications WHERE id=?').get(notice.id),undefined);
+});
+test('legacy deleted targets are hidden and unavailable notices can be marked read by their owner',async()=>{
+ const path='/app/resources/courses/s3#resource-99999999';
+ const legacy=await env.db.prepare("INSERT INTO notifications(user_id,faculty_id,type,title,body,path,created_at,target_deleted) VALUES(3,'flaa','resources','Legacy deleted','Fixture',?,?,1) RETURNING *").get(path,new Date().toISOString());
+ const bootstrap=await request('/bootstrap',{cookie:cookies.yassine});
+ assert.ok(bootstrap.data.notifications.every(n=>n.id!==legacy.id));
+ const notifications=await request('/notifications',{cookie:cookies.yassine});
+ assert.ok(notifications.data.notifications.every(n=>n.id!==legacy.id));
+ assert.equal((await request('/notifications/'+legacy.id+'/read',{cookie:cookies.sara,method:'POST'})).status,404);
+ assert.equal((await request('/notifications/'+legacy.id+'/viewed',{cookie:cookies.yassine,method:'POST',body:{path}})).status,403);
+ assert.equal((await request('/notifications/'+legacy.id+'/read',{cookie:cookies.yassine,method:'POST'})).status,200);
+ assert.equal((await env.db.prepare('SELECT read FROM notifications WHERE id=?').get(legacy.id)).read,1);
 });
 test('balanced faculty ranking gives ties the same rank and caps practice influence',async()=>{
  // This scenario isolates the academic/practice weighting from the file

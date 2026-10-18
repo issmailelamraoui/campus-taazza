@@ -93,15 +93,32 @@ export function AppProvider({children}){
  useEffect(()=>{if(!toast)return;const timer=setTimeout(()=>setToast(null),4200);return()=>clearTimeout(timer);},[toast]);
  useEffect(()=>{
   if(!user?.facultyId||user.accountStatus!=='approved'||requiresPasswordChange(user))return;
+  let active=true;
   const sync=()=>{if(document.visibilityState!=='hidden'&&navigator.onLine!==false)scheduleRefresh();};
   const stream=navigator.onLine!==false&&!user.chatBlocked&&typeof EventSource==='function'?new EventSource('/api/events/stream'):null;
   stream?.addEventListener('open',sync);stream?.addEventListener('error',sync);
   stream?.addEventListener('update',event=>{
    try{const change=JSON.parse(event.data);if(change.registrations||change.adminInbox)setRegistrationRevision(value=>value+1);}catch{}sync();
   });
+  // Refresh notifications sooner than the general fallback, without
+  // fetching the full bootstrap response unless the inbox actually changed.
+  let lastNotificationState=null,checkingNotifications=false;
+  const checkNotifications=async()=>{
+   if(checkingNotifications||document.visibilityState==='hidden'||navigator.onLine===false)return;
+   checkingNotifications=true;
+   try{
+    const state=await api('/notifications/state');
+    if(!active)return;
+    const signature=state.latest_id+':'+state.total+':'+state.unread_count;
+    const newest=current.current.notifications.reduce((max,item)=>Math.max(max,Number(item.id)||0),0);
+    if(state.unread_count!==current.current.unreadCount||state.latest_id>newest||(lastNotificationState!==null&&lastNotificationState!==signature))scheduleRefresh();
+    lastNotificationState=signature;
+   }catch{}finally{checkingNotifications=false;}
+  };
+  const notificationTimer=setInterval(checkNotifications,lowData?30000:15000);
   const timer=setInterval(sync,lowData?90000:30000);
   document.addEventListener('visibilitychange',sync);window.addEventListener('online',sync);window.addEventListener('focus',sync);window.addEventListener('pageshow',sync);window.addEventListener('campus-xp-updated',sync);
-  return()=>{stream?.close();clearInterval(timer);document.removeEventListener('visibilitychange',sync);window.removeEventListener('online',sync);window.removeEventListener('focus',sync);window.removeEventListener('pageshow',sync);window.removeEventListener('campus-xp-updated',sync);};
+  return()=>{active=false;stream?.close();clearInterval(timer);clearInterval(notificationTimer);document.removeEventListener('visibilitychange',sync);window.removeEventListener('online',sync);window.removeEventListener('focus',sync);window.removeEventListener('pageshow',sync);window.removeEventListener('campus-xp-updated',sync);};
  },[user?.id,user?.facultyId,user?.filiereId,user?.accountStatus,user?.chatBlocked,user?.mustChangePassword,scheduleRefresh,lowData]);
  function locked(action,operation){
   if(actionRequests.current.has(action))return actionRequests.current.get(action);
@@ -192,7 +209,16 @@ export function AppProvider({children}){
  }
  function beginNotificationVisit(notification){
   leaveNotificationDestination();
-  if(notification.target_available===false){notify(tr('La destination n’est plus accessible.','The destination is no longer accessible.','لم تعد الوجهة متاحة.'),'error');return false;}
+  if(notification.target_available===false){
+   if(!notification.read){
+    const owner=epoch.current;
+    api('/notifications/'+notification.id+'/read',{method:'POST'}).then(()=>{
+     commit(owner,previous=>({...previous,unreadCount:Math.max(0,(previous.unreadCount||0)-(previous.notifications.some(item=>item.id===notification.id&&!item.read)?1:0)),notifications:previous.notifications.map(item=>item.id===notification.id?{...item,read:true}:item)}));
+     if(owner===epoch.current)scheduleRefresh();
+    }).catch(error=>{if(owner===epoch.current)notify(error.message,'error');});
+   }
+   notify(tr('La destination n’est plus accessible.','The destination is no longer accessible.','لم تعد الوجهة متاحة.'),'error');return false;
+  }
   if(!notification.read)notificationVisit.current={id:notification.id,path:notification.serverPath||notification.path,href:notification.href,epoch:epoch.current,token:null,left:false,viewing:false};
   return true;
  }
