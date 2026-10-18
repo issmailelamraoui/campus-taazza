@@ -8,6 +8,9 @@ let manifestPromise;
 // from an older import. Check actual objects as well as the migration ledger:
 // a copied or manually edited ledger alone does not make a database usable.
 const requiredSchema = {
+  contact_reactions:'reply_id actor_key reaction',
+  realtime_events:'id origin faculty_id filiere_id user_ids change created_at',
+  chat_presence:'id user_id faculty_id filiere_id channel semester expires_at',
   upload_sessions: 'id user_id faculty_id target_path fields filename mime size object_prefix parts state response_status response_body cleanup_pending created_at expires_at',
   schema_migrations: 'name sha256 applied_at',
   faculties: 'id', filieres: 'id faculty_id', semesters: 'id',
@@ -19,15 +22,16 @@ const requiredSchema = {
   resource_versions: 'id resource_id version object_key sha256',
   reactions: 'message_id user_id reaction',
   announcements: 'id title filiere_id kind public_author_label',
-  notifications: 'id target_deleted', events: 'id', channels: 'id faculty_id',
+  notifications: 'id target_deleted registration_user_id', events: 'id', channels: 'id faculty_id',
   saved: 'user_id type target_id', history: 'user_id resource_id opened_at',
-  reports: 'id note', contacts: 'id category updated_at filiere_id',
+  reports: 'id note target_context', contacts: 'id assigned_to accepted_at closed_at recovery_hash client_id category updated_at filiere_id',
   legacy_imports: 'source_sha256', chat_bans: 'user_id',
   message_attachments: 'message_id resource_id position',
   message_module_shares: 'message_id resource_id faculty_id filiere_id semester module',
   platform_owner: 'singleton user_id', scoped_appointments: 'id capabilities revoked_at',
   administrative_audit: 'id actor_id action details', xp_events: 'id user_id event_key status category points',
   notification_visits: 'token notification_id user_id viewed_at departed_at expires_at',
+  discussion_reads: 'user_id faculty_id channel filiere_id semester last_read_id updated_at',
   contact_replies: 'id contact_id author_id', contact_attachments: 'id contact_id object_key',
   reading_positions: 'user_id resource_id document_version page revision',
   reading_position_conflicts: 'user_id resource_id document_version device_id',

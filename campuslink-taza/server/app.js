@@ -1,3 +1,6 @@
+import {installAccessSupport} from './access-support.js';
+import {installPresence} from './presence.js';
+import {createRealtimeBus} from './realtime.js';
 import express from 'express';
 import multer from 'multer';
 import { randomUUID } from 'node:crypto';
@@ -13,6 +16,7 @@ import { moduleName, RESOURCE_MODULE_SQL, resolveModule } from './modules.js';
 import { moduleShareResourceId, attachModuleShare, assertSameModuleShare, moduleSharesFor } from './module-sharing.js';
 import { createPermissions } from './permissions.js';
 import { createRateLimiter } from './rate-limit.js';
+import { createNotificationStore } from './notifications.js';
 import { installUploadSessions, afterUploadCommit } from './upload-sessions.js';
 import { labsWorkerPolicy, pythonFramePolicy } from '../shared/labs-security.js';
 import { detectFile, mayInlineFile } from './files.js';
@@ -71,7 +75,7 @@ function uploadBoolean(value, fallback) {
 }
 
 
-export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: suppliedStorage, connectionString = process.env.DATABASE_URL, schema, migrate = process.env.CAMPUS_DB_MIGRATE !== 'false', seed = process.env.CAMPUS_DB_SEED !== 'false', appOrigin = process.env.APP_ORIGIN } = {}) {
+export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: suppliedStorage, connectionString = process.env.DATABASE_URL, schema, migrate = false, seed = false, appOrigin = process.env.APP_ORIGIN } = {}) {
   const db = suppliedDb || await openDatabase({connectionString,schema,migrate});
   let app,storage=suppliedStorage,auth=suppliedAuth;
   try {
@@ -82,6 +86,7 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
   if (seed) await seedDatabase(db);
   const permissions=await createPermissions(db);
   const {isOwner}=permissions;
+  const notificationStore=createNotificationStore({db,decorate:decorateNotifications,discussionUnread});
   let campusRoutes=null,coreRoutes=null;
   const channelDefaults={general:['Chat général','Échanges autour des cours et de la vie universitaire.'],filiere:['Chats de filière','Échanges de votre filière par semestre.'],important:['Discussions importantes','Informations prioritaires et échéances à retenir.']};
   const addChannel=db.prepare('INSERT INTO channels (id,faculty_id,name,description) VALUES (?,?,?,?) ON CONFLICT (id,faculty_id) DO NOTHING');
@@ -90,6 +95,7 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
   app.disable('x-powered-by');
   app.use(express.json({ limit: '3mb' }));
   const clients = new Map();
+  const supportStreams = new Map();
   const heartbeats = new Set();
   const attempts = createRateLimiter({limit:12,windowMs:900000,message:'Trop de tentatives. Réessayez dans 15 minutes.'});
   const registrationAttempts = createRateLimiter({limit:120,windowMs:900000,message:'Trop de demandes d’inscription. Réessayez dans 15 minutes.'});
@@ -98,9 +104,10 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
   app.locals.db = db;
   app.locals.storage = storage;
   app.locals.auth = auth;
+  const realtime=await createRealtimeBus({db,active:()=>clients.size>0||supportStreams.size>0,deliver:event=>event.ids?broadcastUserUpdateNow(event.ids,event.change):broadcastNow(event.faculty,event.filiereId)});
   let closed=false;
-  app.locals.endStreams = () => { for(const heartbeat of heartbeats)clearInterval(heartbeat);heartbeats.clear();for(const stream of clients.values())for(const res of stream)res.end();clients.clear(); };
-  app.locals.close = async () => {if(closed)return;closed=true;app.locals.endStreams();await Promise.all([db.close(),storage.close?.(),auth.close?.()]);};
+  app.locals.endStreams = () => { for(const set of supportStreams.values())for(const res of set)res.end();supportStreams.clear(); for(const heartbeat of heartbeats)clearInterval(heartbeat);heartbeats.clear();for(const stream of clients.values())for(const res of stream)res.end();clients.clear(); };
+  app.locals.close = async () => {if(closed)return;closed=true;realtime.close();app.locals.endStreams();await Promise.all([db.close(),storage.close?.(),auth.close?.()]);};
 
   app.use('/api', async (req, res, next) => {
     req.body??={};
@@ -121,9 +128,9 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
       if(req.user.disabled)throw problem(403,'Ce compte est désactivé.');
       if(req.user.account_status==='deleted')throw problem(401,'Connectez-vous pour accéder à votre communauté.');
       if(req.user.account_status!=='approved') {
-        if(!['/session','/login','/logout','/register','/registration-options','/health','/contact'].includes(req.path))throw admissionProblem(req.user);
+        if(!req.path.startsWith('/support/')&&!['/session','/login','/logout','/register','/registration-options','/health','/contact'].includes(req.path))throw admissionProblem(req.user);
       } else {
-        if(req.user.password_change_required&&!['/session','/login','/logout','/health','/contact','/password-reset/complete'].includes(req.path))throw Object.assign(problem(403,'Changez votre mot de passe temporaire avant de continuer.'),{code:'PASSWORD_CHANGE_REQUIRED'});
+        if(req.user.password_change_required&&!req.path.startsWith('/support/')&&!['/session','/login','/logout','/health','/contact','/password-reset/complete'].includes(req.path))throw Object.assign(problem(403,'Changez votre mot de passe temporaire avant de continuer.'),{code:'PASSWORD_CHANGE_REQUIRED'});
         req.user.chat_blocked=await isChatBlocked(req.user);
         await db.prepare('UPDATE users SET last_seen=? WHERE id=? AND (last_seen IS NULL OR last_seen<?)').run(now(),req.user.id,new Date(Date.now()-60000).toISOString());
       }
@@ -298,6 +305,7 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
     };
     return {
       readable,
+      get:(table,id)=>rows[table]?.get(id),
       notification:item=>{
         if(item.type==='calendar'||/^\/app\/(?:calendar|chat\/(?:help|life))(?:[/?#]|$)/.test(String(item.path)))return false;
         for(const [table,kind]of [['announcements','announcement'],['messages','message'],['resources','resource']]){const match=String(item.path).match(new RegExp(`#${kind}-(\\d+)`));if(match)return readable(table,rows[table].get(Number(match[1])));}
@@ -306,18 +314,18 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
       saved:item=>{const table={resource:'resources',message:'messages',announcement:'announcements'}[item.type];return !!table&&readable(table,rows[table].get(item.id));},
     };
   }
-  function broadcast(faculty,filiereId=null){return afterUploadCommit(()=>broadcastNow(faculty,filiereId));}
+  function broadcast(faculty,filiereId=null){return afterUploadCommit(async()=>{await realtime.publish({faculty,filiereId});await broadcastNow(faculty,filiereId);});}
   async function broadcastNow(faculty,filiereId=null) {
+    for(const res of supportStreams.get(faculty)||[])if(!res.writableEnded)res.write('event: update\ndata: {}\n\n');
     if(!clients.size)return;
     const recipientIds=[...clients.keys()];
-    const users=await db.prepare('SELECT u.id,u.role,u.faculty_id,u.filiere_id,u.disabled,u.account_status,u.session_version,b.user_id AS chat_banned FROM users u LEFT JOIN chat_bans b ON b.user_id=u.id AND b.faculty_id=u.faculty_id WHERE u.id=ANY(?)').all(recipientIds);
+    const users=await db.prepare('SELECT id,faculty_id,filiere_id,disabled,account_status,session_version FROM users WHERE id=ANY(?)').all(recipientIds);
     const byId=new Map(users.map(u=>[u.id,u]));
     for (const id of recipientIds) {
       const streams=clients.get(id)||[];
       const user = byId.get(id);
-      const blocked=!!user?.chat_banned&&!isOwner(user);
       for (const res of streams) {
-        if (!user || user.disabled || user.account_status!=='approved' || blocked || user.session_version!==res.sessionVersion) {res.end();continue;}
+        if (!user || user.disabled || user.account_status!=='approved' || user.session_version!==res.sessionVersion) {res.end();continue;}
         if (user?.disabled || user?.faculty_id !== faculty) continue;
         if(filiereId&&user?.filiere_id!==filiereId)continue;
         res.write('event: update\ndata: {}\n\n');
@@ -335,29 +343,31 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
       await db.prepare(`INSERT INTO notifications (user_id,faculty_id,type,title,body,path,created_at) VALUES ${batch.map(()=>'(?,?,?,?,?,?,?)').join(',')}`).run(...values);
     }
   }
-  async function notifyRegistration(name) {
-    const administrators=await db.prepare("SELECT id,faculty_id,preferences FROM users WHERE id=(SELECT user_id FROM platform_owner WHERE singleton=TRUE) AND disabled=0 AND account_status='approved'").all();
-    const insert=db.prepare('INSERT INTO notifications (user_id,faculty_id,type,title,body,path,created_at) VALUES (?,?,?,?,?,?,?)');
-    for(const admin of administrators)if(admin.faculty_id&&JSON.parse(admin.preferences).admin!==false)await insert.run(admin.id,admin.faculty_id,'admin','Nouvelle demande d’inscription',name,'/app/admin?tab=registrations',now());
+  async function notifyRegistration(id,name) {
+    const request=await db.prepare('SELECT faculty_id,filiere_id FROM users WHERE id=?').get(id);
+    const administrators=await db.prepare("SELECT u.id,u.faculty_id,u.preferences FROM users u WHERE u.disabled=0 AND u.account_status='approved' AND (u.id=(SELECT user_id FROM platform_owner WHERE singleton=TRUE) OR EXISTS (SELECT 1 FROM scoped_appointments a WHERE a.user_id=u.id AND a.revoked_at IS NULL AND a.faculty_id=? AND (a.filiere_id IS NULL OR a.filiere_id=?) AND a.capabilities @> '[\"student.admit\"]'::jsonb))").all(request.faculty_id,request.filiere_id);
+    const insert=db.prepare('INSERT INTO notifications (user_id,faculty_id,type,title,body,path,created_at,registration_user_id) VALUES (?,?,?,?,?,?,?,?)');
+    for(const admin of administrators)if(admin.faculty_id&&JSON.parse(admin.preferences).admin!==false)await insert.run(admin.id,admin.faculty_id,'admin','Nouvelle demande d’inscription',name,'/app/admin?tab=registrations&registration='+id+'#registration-'+id,now(),id);
   }
   async function notifyAdminInbox(faculty,title,body,path,{reports=false,filiereId=null}={}) {
-    const localRoles=reports?['faculty_admin','moderator']:['faculty_admin'];
-    const recipients=await db.prepare("SELECT id,faculty_id,preferences FROM users WHERE disabled=0 AND account_status='approved' AND (role='global_admin' OR (faculty_id=? AND role=ANY(?)))").all(faculty,localRoles);
+    const capability=reports?'content.moderate':'feedback.manage';
+    const recipients=await db.prepare("SELECT u.id,u.faculty_id,u.preferences FROM users u WHERE u.disabled=0 AND u.account_status='approved' AND (u.id=(SELECT user_id FROM platform_owner WHERE singleton=TRUE) OR EXISTS (SELECT 1 FROM scoped_appointments a WHERE a.user_id=u.id AND a.revoked_at IS NULL AND a.faculty_id=? AND (a.filiere_id IS NULL OR a.filiere_id=?) AND a.capabilities @> ?::jsonb))").all(faculty,filiereId,JSON.stringify([capability]));
     const insert=db.prepare('INSERT INTO notifications (user_id,faculty_id,type,title,body,path,created_at) VALUES (?,?,?,?,?,?,?)');
-    for(const recipient of recipients)if(recipient.faculty_id&&JSON.parse(recipient.preferences).admin!==false&&permissions.can(await permissions.load(recipient),reports?'content.moderate':'feedback.manage',faculty,filiereId))await insert.run(recipient.id,recipient.faculty_id,'admin',title,body.slice(0,240),path,now());
-    return recipients.map(recipient=>recipient.id);
+    const notified=[];
+    for(const recipient of recipients)if(recipient.faculty_id&&JSON.parse(recipient.preferences).admin!==false){await insert.run(recipient.id,recipient.faculty_id,'admin',title,body.slice(0,240),path,now());notified.push(recipient.id);}
+    return notified;
   }
-  function broadcastAdminInbox(ids){return afterUploadCommit(()=>broadcastAdminInboxNow(ids));}
-  async function broadcastAdminInboxNow(ids) {
+  function broadcastUserUpdate(ids,change={}){return afterUploadCommit(async()=>{await realtime.publish({ids,change});await broadcastUserUpdateNow(ids,change);});}
+  function broadcastAdminInbox(ids){return broadcastUserUpdate(ids,{adminInbox:true});}
+  async function broadcastUserUpdateNow(ids,change) {
     const connected=ids.filter(id=>clients.has(id));
     if(!connected.length)return;
-    const recipients=await db.prepare("SELECT id,session_version FROM users WHERE id=ANY(?) AND role IN ('global_admin','faculty_admin','moderator') AND disabled=0 AND account_status='approved'").all(connected);
-    for(const recipient of recipients)for(const stream of clients.get(recipient.id)||[])if(stream.sessionVersion===recipient.session_version)stream.write('event: update\ndata: {"adminInbox":true}\n\n');
+    const recipients=await db.prepare("SELECT id,session_version FROM users WHERE id=ANY(?) AND disabled=0 AND account_status='approved'").all(connected);
+    for(const recipient of recipients)for(const stream of clients.get(recipient.id)||[])if(stream.sessionVersion===recipient.session_version)stream.write('event: update\ndata: '+JSON.stringify(change)+'\n\n');
   }
   async function broadcastRegistrations() {
-    if(!clients.size)return;
-    const recipients=await db.prepare("SELECT id,session_version FROM users WHERE id=ANY(?) AND role='global_admin' AND disabled=0 AND account_status='approved'").all([...clients.keys()]);
-    for(const admin of recipients)for(const stream of clients.get(admin.id)||[])if(stream.sessionVersion===admin.session_version)stream.write('event: update\ndata: {"registrations":true}\n\n');
+    const rows=await db.prepare("SELECT u.id FROM users u WHERE u.disabled=0 AND u.account_status='approved' AND (u.id=(SELECT user_id FROM platform_owner WHERE singleton=TRUE) OR EXISTS (SELECT 1 FROM scoped_appointments a WHERE a.user_id=u.id AND a.revoked_at IS NULL AND a.capabilities @> '[\"student.admit\"]'::jsonb))").all();
+    await broadcastUserUpdate(rows.map(u=>u.id),{registrations:true});
   }
   const transaction = callback => db.transaction(callback);
   async function filterReadable(items, predicate) {const allowed=await Promise.all(items.map(predicate));return items.filter((_item,index)=>allowed[index]);}
@@ -384,10 +394,15 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
     if(!account||account.disabled||account.account_status!=='approved'||account.faculty_id!==req.user.faculty_id)throw problem(403,'Votre accès au compte a changé.');
     return permissions.load(account);
   }
+  async function deleteTargetNotifications(kind,id){
+    const candidates=await db.prepare('SELECT id,path FROM notifications WHERE path LIKE ?').all('%'+id+'%');
+    const ids=candidates.filter(row=>{try{const url=new URL(row.path,'https://campus.invalid');return new RegExp('^#'+kind+'-'+id+'(?:$|[&?])').test(url.hash)||(kind==='resource'&&url.pathname==='/app/library'&&url.searchParams.get('document')===String(id))||(kind==='message'&&url.pathname==='/app/community'&&url.searchParams.get('message')===String(id));}catch{return false;}}).map(row=>row.id);
+    if(ids.length)await db.prepare('DELETE FROM notifications WHERE id=ANY(?)').run(ids);
+  }
   async function removeAnnouncementData(a,note) {
     await lockContentRemoval(a.faculty_id);
     await db.prepare("DELETE FROM saved WHERE type='announcement' AND target_id=?").run(a.id);
-    await db.prepare('DELETE FROM notifications WHERE path LIKE ? OR path LIKE ?').run(`%#announcement-${a.id}`,`%#announcement-${a.id}&%`);
+    await deleteTargetNotifications('announcement',a.id);
     if(a.message_id)await db.prepare('UPDATE messages SET pinned=0 WHERE id=?').run(a.message_id);
     await db.prepare('DELETE FROM announcements WHERE id=?').run(a.id);
     await resolveTargetReports('announcement',a.id,note);
@@ -402,7 +417,7 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
     await db.prepare('UPDATE announcements SET resource_id=NULL WHERE resource_id=?').run(r.id);
     await db.prepare("DELETE FROM saved WHERE type='resource' AND target_id=?").run(r.id);
     await db.prepare('DELETE FROM history WHERE resource_id=?').run(r.id);
-    await db.prepare('DELETE FROM notifications WHERE path LIKE ? OR path LIKE ?').run(`%#resource-${r.id}`,`%#resource-${r.id}&%`);
+    await deleteTargetNotifications('resource',r.id);
     await resolveTargetReports('resource',r.id,note);
     for(const parent of parents)if(CHANNELS.includes(parent.channel)&&!parent.content?.trim()){
       const attachment=await db.prepare('SELECT 1 FROM message_attachments a JOIN resources r ON r.id=a.resource_id WHERE a.message_id=? AND r.removed=0 LIMIT 1').get(parent.id);
@@ -416,7 +431,7 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
     const pins=await db.prepare('SELECT * FROM announcements WHERE message_id=?').all(m.id);
     for(const pin of pins)await removeAnnouncementData(pin,note);
     await db.prepare("DELETE FROM saved WHERE type='message' AND target_id=?").run(m.id);
-    await db.prepare('DELETE FROM notifications WHERE path LIKE ? OR path LIKE ?').run(`%#message-${m.id}`,`%#message-${m.id}&%`);
+    await deleteTargetNotifications('message',m.id);
     await db.prepare('DELETE FROM reactions WHERE message_id=?').run(m.id);
     await db.prepare('UPDATE resources SET message_id=NULL WHERE message_id=?').run(m.id);
     await db.prepare('UPDATE messages SET reply_to=NULL WHERE reply_to=?').run(m.id);
@@ -456,7 +471,7 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
     try {
       id=await transaction(async()=>{
         const inserted=Number((await db.prepare("INSERT INTO users (username,name,email,auth_user_id,role,faculty_id,filiere_id,current_semester,account_status,registered_at) VALUES (?,?,?,?,'student',?,?,?,'pending',?)").run(username,name,email,created.id,faculty,filiere,semester,now())).lastInsertRowid);
-        await notifyRegistration(name);
+        await notifyRegistration(inserted,name);
         return inserted;
       });
     } catch(error) {
@@ -540,6 +555,12 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
   });
 
   function accessibleFilieres(user){return getFilieres(user.faculty_id).filter(f=>f.id===user.filiere_id||permissions.can(user,'resource.manage',user.faculty_id,f.id)||permissions.can(user,'resource.upload',user.faculty_id,f.id)).map(f=>f.id);}
+  async function discussionUnread(user){
+    if(user.chat_blocked)return {count:0,channels:[]};
+    const rows=await db.prepare("SELECT m.channel,CASE WHEN m.channel='filiere' THEN CASE WHEN m.semester IN (1,2) THEN 1 WHEN m.semester IN (3,4) THEN 3 ELSE 5 END ELSE 0 END AS semester,COUNT(*) AS n FROM messages m LEFT JOIN discussion_reads seen ON seen.user_id=? AND seen.faculty_id=m.faculty_id AND seen.channel=m.channel AND seen.filiere_id=CASE WHEN m.channel='filiere' THEN m.filiere_id ELSE '' END AND seen.semester=CASE WHEN m.channel='filiere' THEN CASE WHEN m.semester IN (1,2) THEN 1 WHEN m.semester IN (3,4) THEN 3 ELSE 5 END ELSE 0 END WHERE m.faculty_id=? AND m.channel=ANY(?) AND m.removed=0 AND m.author_id IS DISTINCT FROM ? AND (m.channel<>'filiere' OR m.filiere_id=? AND m.semester BETWEEN 1 AND 6) AND m.id>COALESCE(seen.last_read_id,0) AND m.created_at>=? GROUP BY m.channel,CASE WHEN m.channel='filiere' THEN CASE WHEN m.semester IN (1,2) THEN 1 WHEN m.semester IN (3,4) THEN 3 ELSE 5 END ELSE 0 END").all(user.id,user.faculty_id,CHANNELS,user.id,user.filiere_id,new Date(Date.now()-3*86400000).toISOString());
+    const channels=rows.map(row=>({channel:row.channel,semester:Number(row.semester),count:Number(row.n)}));
+    return {count:channels.reduce((sum,row)=>sum+row.count,0),channels};
+  }
   app.get('/api/bootstrap', requireFaculty, async (req, res) => {
     const [faculty,memberRows,onlineRow]=await Promise.all([
       db.prepare('SELECT * FROM faculties WHERE id=?').get(req.user.faculty_id),
@@ -548,15 +569,16 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
     ]);
     const members=(await publicProfiles(memberRows)).map(({last_seen,...u})=>({...u,online:u.id===req.user.id||!!(last_seen&&Date.parse(last_seen)>Date.now()-300000)}));
     const chatOnline=onlineRow?.n||0;
-    const [channels,messageRows,resourceRows,announcementRows,notificationRows,savedRows,history]=await Promise.all([
+    const [channels,messageRows,resourceRows,announcementRows,notificationPayload,savedRows,history]=await Promise.all([
       db.prepare('SELECT * FROM channels WHERE faculty_id=? AND id=ANY(?)').all(faculty.id,CHANNELS),
       db.prepare('SELECT * FROM messages WHERE faculty_id=? AND channel=ANY(?) AND removed=0 ORDER BY created_at,id').all(faculty.id,CHANNELS),
       db.prepare('SELECT * FROM resources WHERE faculty_id=? AND filiere_id=ANY(?) AND removed=0 AND library_visible=1 ORDER BY created_at DESC,id DESC').all(faculty.id,accessibleFilieres(req.user)),
       db.prepare('SELECT * FROM announcements WHERE faculty_id=? ORDER BY created_at DESC,id DESC').all(faculty.id),
-      db.prepare("SELECT id,type,title,body,path,created_at,read,target_deleted FROM notifications WHERE user_id=? AND faculty_id=? AND type<>'calendar' AND path NOT LIKE '/app/calendar%' AND target_deleted=0 ORDER BY created_at DESC,id DESC LIMIT 200").all(req.user.id,faculty.id),
+      notificationStore.payload(req.user),
       db.prepare('SELECT type,target_id AS id FROM saved WHERE user_id=?').all(req.user.id),
       req.user.filiere_id ? db.prepare('SELECT h.resource_id,h.opened_at FROM history h JOIN resources r ON r.id=h.resource_id WHERE h.user_id=? AND r.faculty_id=? AND r.filiere_id=? AND r.removed=0 ORDER BY h.opened_at DESC LIMIT 20').all(req.user.id,faculty.id,req.user.filiere_id) : [],
     ]);
+    const notificationRows=notificationPayload.notifications;
     const referenced=new Set([...savedRows.filter(item=>item.type==='resource').map(item=>item.id),...history.map(item=>item.resource_id),...notificationRows.map(item=>Number(/#resource-(\d+)/.exec(item.path||'')?.[1])).filter(Number.isSafeInteger)]);
     const existing=new Set(resourceRows.map(item=>item.id)),missing=[...referenced].filter(id=>id>0&&!existing.has(id));
     const extraResources=missing.length?await db.prepare('SELECT * FROM resources WHERE id=ANY(?) AND removed=0').all(missing):[];
@@ -569,10 +591,21 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
       announcementsFor(announcementRows.filter(a=>access.readable('announcements',a))),
     ]);
     res.json({
-      unread_count:Number((await db.prepare("SELECT COUNT(*) AS n FROM notifications WHERE user_id=? AND faculty_id=? AND read=0 AND type<>'calendar' AND path NOT LIKE '/app/calendar%' AND target_deleted=0").get(req.user.id,faculty.id)).n),user:publicUser(req.user),filieres:getFilieres(faculty.id),faculty:{...faculty,members:members.length,online:members.filter(u=>u.online).length,chat_online:chatOnline},
-      channels:channels.map(c=>({...c,read_only:!!c.read_only})),messages,resources,announcements,events:[],
-      notifications:await Promise.all(notificationRows.map(async n=>({...n,read:!!n.read,target_available:!n.target_deleted&&access.notification(n)&&await authorizeNotificationTarget(req.user,n.path)}))),members,saved:savedRows.filter(access.saved),history:history.filter(item=>access.readable('resources',resourceRows.find(row=>row.id===item.resource_id))),
+      ...notificationPayload,user:publicUser(req.user),filieres:getFilieres(faculty.id),faculty:{...faculty,members:members.length,online:members.filter(u=>u.online).length,chat_online:chatOnline},
+      channels:channels.map(c=>({...c,read_only:!!c.read_only})),messages,resources,announcements,events:[],realtimeCapabilities:{presence:true},
+      members,saved:savedRows.filter(access.saved),history:history.filter(item=>access.readable('resources',resourceRows.find(row=>row.id===item.resource_id))),
     });
+  });
+  app.post('/api/messages/read',requireFaculty,requireChat,async(req,res)=>{
+    const channel=req.body.channel;
+    if(!CHANNELS.includes(channel))throw problem(400,'Discussion invalide.');
+    const semester=channel==='filiere'?getChatSemester(semesterValue(req.body.semester)):0;
+    const target=await db.prepare('SELECT * FROM messages WHERE id=?').get(asId(req.body.through_id));
+    if(!canReadMessage(target,req.user)||target.channel!==channel||channel==='filiere'&&getChatSemester(target.semester)!==semester)throw problem(403,'Ce message ne correspond pas à cette discussion.');
+    await db.prepare('INSERT INTO discussion_reads(user_id,faculty_id,channel,filiere_id,semester,last_read_id,updated_at) VALUES(?,?,?,?,?,?,?) ON CONFLICT(user_id,faculty_id,channel,filiere_id,semester) DO UPDATE SET last_read_id=GREATEST(discussion_reads.last_read_id,excluded.last_read_id),updated_at=excluded.updated_at').run(req.user.id,req.user.faculty_id,channel,channel==='filiere'?req.user.filiere_id:'',semester,target.id,now());
+    const unread=await discussionUnread(req.user);
+    await broadcastUserUpdate([req.user.id],{discussionReads:true});
+    res.json({ok:true,discussion_unread_count:unread.count,discussion_unread_counts:unread.channels});
   });
   app.get('/api/messages', requireFaculty, requireChat, async (req,res) => {
     const channel=req.query.channel||'general';
@@ -612,23 +645,29 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
     await db.prepare('DELETE FROM chat_bans WHERE user_id=? AND faculty_id=?').run(user.id,user.faculty_id);
     await broadcast(user.faculty_id);res.json({user_id:user.id,faculty_id:user.faculty_id,chat_blocked:false});
   });
-  app.get('/api/events/stream', requireFaculty, requireChat, (req,res) => {
+  app.get('/api/events/stream', requireFaculty, (req,res) => {
     res.set({'Content-Type':'text/event-stream','Cache-Control':'no-cache','Connection':'keep-alive'});
-    res.flushHeaders(); res.write(': connected\n\n');
+    res.flushHeaders(); res.write('retry: 1000\n\n: connected\n\n');
     res.sessionVersion=req.user.session_version;
     if (!clients.has(req.user.id)) clients.set(req.user.id,new Set());
     clients.get(req.user.id).add(res);
+    let checking=false;
     const heartbeat = setInterval(async ()=>{
+      if(checking||res.destroyed||res.writableEnded)return;
+      checking=true;
       try {
         const current=await auth.authenticate(req);
         const user=current?.user||current;
-        if(!user||user.disabled||user.password_change_required||user.account_status!=='approved'||await isChatBlocked(user)||user.session_version!==res.sessionVersion||user.faculty_id!==req.user.faculty_id)res.end();
+        if(!user||user.disabled||user.password_change_required||user.account_status!=='approved'||user.session_version!==res.sessionVersion||user.faculty_id!==req.user.faculty_id)res.end();
         else res.write(': heartbeat\n\n');
       } catch {res.end();}
+      finally {checking=false;}
     },15000);
     heartbeats.add(heartbeat);
     req.on('close',()=>{ clearInterval(heartbeat);heartbeats.delete(heartbeat); clients.get(req.user.id)?.delete(res); if (!clients.get(req.user.id)?.size) clients.delete(req.user.id); });
   });
+
+  installPresence(app,{db,requireFaculty,requireChat,problem,chatScope,broadcast});
 
   app.post('/api/messages', requireFaculty, requireChat, async (req,res) => {
     const content = string(req.body.content ?? '', 'Message',8000,false);
@@ -839,16 +878,24 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
     await db.prepare('INSERT INTO history (user_id,resource_id,opened_at) VALUES (?,?,?) ON CONFLICT(user_id,resource_id) DO UPDATE SET opened_at=excluded.opened_at').run(req.user.id,target.id,now());
     res.json({ok:true});
   });
-  // Notification state is driven by the successful destination lifecycle.
+  // Only explicit clicks or the voluntary bulk action mark notices as read.
   app.post('/api/reports', requireFaculty, async (req,res) => {
-    const table = {resource:'resources',message:'messages',announcement:'announcements'}[req.body.target_type];
+    const grouped=['folder','module','category'].includes(req.body.target_type);
+    const table = grouped?'resources':{resource:'resources',message:'messages',announcement:'announcements'}[req.body.target_type];
     if (!table) throw problem(400,'Élément à signaler invalide.');
     const target = (await scoped(table,req.body.target_id,req));
+    let context=null;
+    if(grouped){
+      if(target.library_visible===0)throw problem(403,'Ce fichier n’est pas dans la bibliothèque.');
+      const category=['td','tp','correction','corrections'].includes(target.resource_type)?target.resource_type:target.category;
+      context={faculty_id:target.faculty_id,filiere_id:target.filiere_id,semester:target.semester,category,module:target.module,module_id:target.module_id};
+      if(req.body.target_type==='folder'){const path=string(req.body.folder_path,'Dossier',1000);const segments=path.split('/');if(segments.some(p=>!p||p==='.'||p==='..')||!String(target.relative_path||'').startsWith(path+'/'))throw problem(400,'Ce fichier n’appartient pas au dossier indiqué.');context={...context,path,owner_id:target.author_id};}
+    }
     const reason = string(req.body.reason,'Motif',150);
     const details = string(req.body.details||'','Détails',2000,false);
     const {id,recipients}=await transaction(async()=>{
-      const id=Number((await db.prepare('INSERT INTO reports (faculty_id,reporter_id,target_type,target_id,reason,details,created_at) VALUES (?,?,?,?,?,?,?)').run(req.user.faculty_id,req.user.id,req.body.target_type,target.id,reason,details,now())).lastInsertRowid);
-      const recipients=await notifyAdminInbox(req.user.faculty_id,'Nouveau signalement',reason,'/app/admin?tab=reports',{reports:true,filiereId:target.filiere_id});
+      const id=Number((await db.prepare('INSERT INTO reports (faculty_id,reporter_id,target_type,target_id,reason,details,created_at,target_context) VALUES (?,?,?,?,?,?,?,?)').run(req.user.faculty_id,req.user.id,req.body.target_type,target.id,reason,details,now(),context?JSON.stringify(context):null)).lastInsertRowid);
+      const recipients=await notifyAdminInbox(req.user.faculty_id,'Nouveau signalement',reason,'/app/admin?tab=reports&report='+id+'#report-'+id,{reports:true,filiereId:target.filiere_id});
       return {id,recipients};
     });
     await broadcast(req.user.faculty_id);await broadcastAdminInbox(recipients);res.status(201).json({id});
@@ -996,29 +1043,33 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
     const byReporter=new Map(reporters.map(u=>[u.id,studentProfile(u)]));
     const banned=new Set(bans.map(b=>`${b.user_id}:${b.faculty_id}`));
     const targets=new Map([...messageTargets.map(m=>[`message:${m.id}`,m]),...resourceTargets.map(r=>[`resource:${r.id}`,r]),...announcementTargets.map(a=>[`announcement:${a.id}`,a])]);
-    const visibleReport=r=>{const target=targets.get(`${r.target_type}:${r.target_id}`);if(!permissions.can(req.user,'content.moderate',r.faculty_id,target?.filiere_id||null))return false;return !target||r.target_type==='message'?(!target||CHANNELS.includes(target.channel)):r.target_type==='announcement'?(!['help','life'].includes(target.channel)&&(!target.message_id||CHANNELS.includes(bySource.get(target.message_id)?.channel))):true;};
+    const visibleReport=r=>{const target=targets.get(`${r.target_type}:${r.target_id}`);if(!permissions.can(req.user,'content.moderate',r.faculty_id,target?.filiere_id||r.target_context?.filiere_id||null))return false;return !target||r.target_type==='message'?(!target||CHANNELS.includes(target.channel)):r.target_type==='announcement'?(!['help','life'].includes(target.channel)&&(!target.message_id||CHANNELS.includes(bySource.get(target.message_id)?.channel))):true;};
     const protectedAppointments=new Set((await db.prepare('SELECT user_id FROM scoped_appointments WHERE revoked_at IS NULL').all()).map(a=>a.user_id));
     res.json({
       users:users.filter(u=>isOwner(req.user)||permissions.can(req.user,'student.support',u.faculty_id,u.filiere_id)).map(u=>({...publicUser({...u,chat_blocked:!isOwner(u)&&banned.has(`${u.id}:${u.faculty_id}`)}),can_reset_password:global&&basicResetEligibility(u,permissions)&&!protectedAppointments.has(u.id)})),
-      reports:reports.filter(visibleReport).map(r=>({...r,reporter:byReporter.get(r.reporter_id)||{id:r.reporter_id,name:'Utilisateur',username:'',avatar:'',role:'student'},can_remove_target:permissions.can(req.user,r.target_type==='message'?'content.moderate':r.target_type==='resource'?'resource.manage':'announcement.publish',r.faculty_id,targets.get(`${r.target_type}:${r.target_id}`)?.filiere_id||null)})),
-      contacts:contacts.filter(c=>permissions.can(req.user,'feedback.manage',c.faculty_id,c.filiere_id)),faculties,channels:channels.filter(c=>permissions.can(req.user,'channel.manage',c.faculty_id,null)).map(c=>({...c,read_only:!!c.read_only})),resources:resourceDtos.filter(r=>permissions.can(req.user,'resource.manage',r.faculty_id,r.filiere_id)),announcements:announcementDtos.filter(a=>permissions.can(req.user,'announcement.publish',a.faculty_id,a.filiere_id)),events:[],
+      reports:reports.filter(visibleReport).map(r=>({...r,reporter:byReporter.get(r.reporter_id)||{id:r.reporter_id,name:'Utilisateur',username:'',avatar:'',role:'student'},can_remove_target:!r.target_context&&permissions.can(req.user,r.target_type==='message'?'content.moderate':r.target_type==='resource'?'resource.manage':'announcement.publish',r.faculty_id,targets.get(`${r.target_type}:${r.target_id}`)?.filiere_id||null)})),
+      contacts:contacts.filter(c=>permissions.can(req.user,'feedback.manage',c.faculty_id,c.filiere_id)).map(({recovery_hash,client_id,...c})=>c),faculties,channels:channels.filter(c=>permissions.can(req.user,'channel.manage',c.faculty_id,null)).map(c=>({...c,read_only:!!c.read_only})),resources:resourceDtos.filter(r=>permissions.can(req.user,'resource.manage',r.faculty_id,r.filiere_id)),announcements:announcementDtos.filter(a=>permissions.can(req.user,'announcement.publish',a.faculty_id,a.filiere_id)),events:[],
     });
   });
-  app.get('/api/admin/registrations',requireFaculty,role('global_admin'),async(req,res)=>{
+  app.get('/api/admin/registrations',requireFaculty,async(req,res)=>{
     const rows=await db.prepare("SELECT * FROM users WHERE role='student' AND account_status IN ('pending','rejected') ORDER BY registered_at DESC,id DESC").all();
-    res.json({requests:rows.map(publicUser)});
+    if(!isOwner(req.user)&&!req.user.appointments?.some(a=>a.capabilities.includes('student.admit')))throw problem(403,'Permission d’admission requise.');
+    res.json({requests:rows.filter(u=>permissions.can(req.user,'student.admit',u.faculty_id,u.filiere_id)).map(publicUser)});
   });
-  app.patch('/api/admin/users/:id/admission',requireFaculty,role('global_admin'),async(req,res)=>{
+  app.patch('/api/admin/users/:id/admission',requireFaculty,async(req,res)=>{
     const status=req.body.status;
     if(!['approved','rejected'].includes(status))throw problem(400,'Choisissez de valider ou de refuser cette inscription.');
     const target=await transaction(async()=>{
       const user=await db.prepare('SELECT * FROM users WHERE id=? FOR UPDATE').get(asId(req.params.id));
       if(!user||user.account_status==='deleted')throw problem(404,'Utilisateur introuvable.');
+      const actor=await permissions.load(await db.prepare('SELECT * FROM users WHERE id=? FOR SHARE').get(req.user.id));
+      if(!actor||actor.disabled||actor.account_status!=='approved'||!permissions.can(actor,'student.admit',user.faculty_id,user.filiere_id))throw problem(403,'Permission d’admission requise dans ce périmètre.');
       if(user.id===req.user.id||user.role!=='student')throw problem(403,'Ce compte n’est pas une demande d’inscription étudiante.');
-      if(user.account_status===status)return user;
+      if(user.account_status===status){await db.prepare('DELETE FROM notifications WHERE registration_user_id=?').run(user.id);return user;}
       if(user.account_status==='approved')throw problem(409,'Cet étudiant est déjà accepté.');
       if(status==='approved'&&(!hasStudies(user)||!user.faculty_id))throw problem(400,'La faculté et la filière de cette demande sont invalides.');
       const updated=await db.prepare('UPDATE users SET account_status=?,reviewed_at=?,reviewed_by=? WHERE id=? RETURNING *').get(status,now(),req.user.id,user.id);
+      await db.prepare('DELETE FROM notifications WHERE registration_user_id=?').run(user.id);
       if(status==='approved'&&JSON.parse(user.preferences).admin!==false)await db.prepare('INSERT INTO notifications (user_id,faculty_id,type,title,body,path,created_at) VALUES (?,?,?,?,?,?,?)').run(user.id,user.faculty_id,'admin','Inscription acceptée','Votre compte est prêt. Bienvenue dans votre communauté !','/app',now());
       return updated;
     });
@@ -1031,11 +1082,14 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
     const target=await transaction(async()=>{
       const user=await db.prepare('SELECT * FROM users WHERE id=? FOR UPDATE').get(asId(req.params.id));
       if(!user||user.account_status==='deleted')throw problem(404,'Utilisateur introuvable.');
+      const actor=await permissions.load(await db.prepare('SELECT * FROM users WHERE id=? FOR SHARE').get(req.user.id));
+      if(!actor||actor.disabled||actor.account_status!=='approved'||!permissions.can(actor,'student.admit',user.faculty_id,user.filiere_id))throw problem(403,'Permission d’admission requise dans ce périmètre.');
       if(user.id===req.user.id||user.role!=='student')throw problem(403,'Vous pouvez uniquement supprimer un compte étudiant.');
       // Keep this anonymous row because messages and academic files reference it.
       // Revocation and unlinking commit together before any provider round trip.
       await db.prepare("UPDATE users SET account_status='deleted',disabled=1,auth_revoked_at=?,session_version=session_version+1,auth_user_id=NULL,email=NULL,username=?,name='Étudiant supprimé',bio='',avatar='',avatar_object_key=NULL,faculty_id=NULL,filiere_id=NULL,last_seen=NULL,legacy_password_hash=NULL,reviewed_at=?,reviewed_by=? WHERE id=?").run(now(),`deleted-${user.id}-${randomUUID()}`,now(),req.user.id,user.id);
-      for(const table of ['notifications','saved','history','reactions','chat_bans'])await db.prepare(`DELETE FROM ${table} WHERE user_id=?`).run(user.id);
+      for(const table of ['notifications','saved','history','reactions','chat_bans','discussion_reads'])await db.prepare(`DELETE FROM ${table} WHERE user_id=?`).run(user.id);
+      await db.prepare('DELETE FROM notifications WHERE registration_user_id=?').run(user.id);
       await db.prepare("UPDATE contacts SET name='Étudiant supprimé',email=NULL WHERE user_id=?").run(user.id);
       return user;
     });
@@ -1128,7 +1182,7 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
       const targetTable={message:'messages',resource:'resources',announcement:'announcements'}[report.target_type];
       const target=targetTable?await db.prepare(`SELECT * FROM ${targetTable} WHERE id=?`).get(report.target_id):null;
       if(target&&target.faculty_id!==report.faculty_id)throw problem(403,'Contenu d’une autre faculté.');
-      if(!permissions.can(actor,'content.moderate',report.faculty_id,target?.filiere_id||null))throw problem(403,'Ce signalement dépasse vos permissions.');
+      if(!permissions.can(actor,'content.moderate',report.faculty_id,target?.filiere_id||report.target_context?.filiere_id||null))throw problem(403,'Ce signalement dépasse vos permissions.');
       const confirmedFile=report.target_type==='resource'&&req.body.status==='resolved';
       if(confirmedFile&&!permissions.can(actor,'resource.manage',report.faculty_id,target?.filiere_id||null))throw problem(403,'Seule l’administration peut confirmer le signalement d’un fichier et retirer son XP.');
       const note=req.body.note===undefined?report.note:string(req.body.note,'Note',2000,false);
@@ -1177,7 +1231,9 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
     if(!coreRoutes.statuses.includes(req.body.status))throw problem(400,'Statut invalide.');
     if(req.body.reply)await coreRoutes.reply(req,contact,true);
     else await transaction(async()=>{
-      await db.prepare('UPDATE contacts SET status=?,updated_at=? WHERE id=?').run(req.body.status,now(),contact.id);
+      const fresh=await db.prepare('SELECT * FROM contacts WHERE id=? FOR UPDATE').get(contact.id);
+      coreRoutes.assertParticipant(fresh,req.user,true);
+      await db.prepare('UPDATE contacts SET status=?,updated_at=?,closed_at=? WHERE id=?').run(req.body.status,now(),['closed','resolved','done'].includes(req.body.status)?now():null,contact.id);
       await permissions.audit(req.user,'feedback.status','contact',contact.id,{status:req.body.status});
       if(contact.user_id)await notifyDirect(contact.user_id,'admin',`Mise à jour : ${contact.subject}`,req.body.status,`/app/feedback?ticket=${contact.id}#feedback-${contact.id}`);
     });
@@ -1333,22 +1389,72 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
     if(!target||target.disabled||target.account_status!=='approved'||!target.faculty_id||JSON.parse(target.preferences)[type]===false)return;
     await db.prepare('INSERT INTO notifications(user_id,faculty_id,type,title,body,path,created_at) VALUES(?,?,?,?,?,?,?)').run(target.id,target.faculty_id,type,title,String(body).slice(0,240),path,now());
   }
-  async function authorizeNotificationTarget(user,path) {
+  async function decorateNotifications(user,rows) {
+    const ids={contacts:new Set(),registrations:new Set(),reports:new Set()};
+    for(const row of rows){
+      try{
+        const url=new URL(row.path,'https://campuslink.invalid');
+        const contact=url.pathname==='/app/feedback'?url.searchParams.get('ticket'):url.pathname==='/app/admin'?url.searchParams.get('contact'):null;
+        if(Number(contact)>0)ids.contacts.add(Number(contact));
+        if(url.pathname==='/app/admin'){
+          const registration=Number(url.searchParams.get('registration')),report=Number(url.searchParams.get('report'));
+          if(registration>0)ids.registrations.add(registration);
+          if(report>0)ids.reports.add(report);
+        }
+      }catch{}
+    }
+    const [access,contacts,registrations,reports]=await Promise.all([
+      readability(user,{notifications:rows}),
+      ids.contacts.size?db.prepare('SELECT id,user_id,faculty_id,filiere_id FROM contacts WHERE id=ANY(?)').all([...ids.contacts]):[],
+      ids.registrations.size?db.prepare('SELECT id,role,account_status,faculty_id,filiere_id FROM users WHERE id=ANY(?)').all([...ids.registrations]):[],
+      ids.reports.size?notificationReports([...ids.reports]):[],
+    ]);
+    const targets={access,contacts:new Map(contacts.map(row=>[row.id,row])),registrations:new Map(registrations.map(row=>[row.id,row])),reports:new Map(reports.map(row=>[row.id,row]))};
+    const authorization=new Map();
+    return Promise.all(rows.map(async row=>{
+      if(!authorization.has(row.path))authorization.set(row.path,authorizeNotificationTarget(user,row.path,targets));
+      const available=!row.target_deleted&&await authorization.get(row.path);
+      return {...row,read:!!row.read,target_available:available,popup_eligible:!!(available&&row.type==='admin'&&/^\/app\/admin(?:[?#]|$)/.test(row.path))};
+    }));
+  }
+  async function notificationReports(ids) {
+    return db.prepare("SELECT report.id,report.faculty_id,report.target_type,COALESCE(m.filiere_id,r.filiere_id,a.filiere_id) AS filiere_id,COALESCE(m.channel,source.channel,a.channel) AS channel FROM reports report LEFT JOIN messages m ON report.target_type='message' AND m.id=report.target_id LEFT JOIN resources r ON report.target_type='resource' AND r.id=report.target_id LEFT JOIN announcements a ON report.target_type='announcement' AND a.id=report.target_id LEFT JOIN messages source ON source.id=a.message_id WHERE report.id=ANY(?)").all(ids);
+  }
+  async function authorizeNotificationTarget(user,path,targets) {
     if(typeof path!=='string'||!path.startsWith('/app')||path.startsWith('//'))return false;
     try {
-      for(const [table,kind] of [['resources','resource'],['messages','message'],['announcements','announcement']]){
-        const match=path.match(new RegExp('#'+kind+'-(\\d+)(?:$|[&?])'));
-        if(match)return !!await canReadItem(table,await db.prepare(`SELECT * FROM ${table} WHERE id=?`).get(Number(match[1])),user);
-      }
       const url=new URL(path,'https://campuslink.invalid');
+      if(url.origin!=='https://campuslink.invalid'||!/^\/app(?:\/|$)/.test(url.pathname)||url.pathname.includes('\\'))return false;
+      const linked=/^#(resource|message|announcement)-(\d+)(?:$|[&?])/.exec(url.hash);
+      if(linked){
+        const table={resource:'resources',message:'messages',announcement:'announcements'}[linked[1]],id=Number(linked[2]);
+        const item=targets?.access?targets.access.get(table,id):await db.prepare('SELECT * FROM '+table+' WHERE id=?').get(id);
+        if(linked[1]==='resource'&&!/^\/app\/(?:resources(?:\/|$)|library$)/.test(url.pathname))return false;
+        if(linked[1]==='announcement'&&url.pathname!=='/app/announcements')return false;
+        if(linked[1]==='message'&&(!item||url.pathname!=='/app/chat/'+item.channel||item.channel==='filiere'&&getChatSemester(url.searchParams.get('semester'))!==getChatSemester(item.semester)))return false;
+        return targets?.access?targets.access.readable(table,item):!!await canReadItem(table,item,user);
+      }
       if(url.pathname==='/app/feedback'){
         const id=Number(url.searchParams.get('ticket'));
-        return !!await db.prepare('SELECT 1 FROM contacts WHERE id=? AND user_id=?').get(id,user.id);
+        const contact=targets?targets.contacts.get(id):await db.prepare('SELECT user_id FROM contacts WHERE id=?').get(id);
+        return !!contact&&contact.user_id===user.id;
       }
       if(url.pathname==='/app/admin'){
         const tab=url.searchParams.get('tab');
-        if(['contacts','assistance'].includes(tab)){const id=Number(url.searchParams.get('contact'));if(id){const contact=await db.prepare('SELECT faculty_id,filiere_id FROM contacts WHERE id=?').get(id);return !!contact&&permissions.can(user,'feedback.manage',contact.faculty_id,contact.filiere_id);}return permissions.can(user,'feedback.manage',user.faculty_id,user.filiere_id);}
-        if(['registrations','admissions'].includes(tab))return isOwner(user);
+        if(['contacts','assistance'].includes(tab)){const id=Number(url.searchParams.get('contact'));if(id){const contact=targets?targets.contacts.get(id):await db.prepare('SELECT faculty_id,filiere_id FROM contacts WHERE id=?').get(id);return !!contact&&permissions.can(user,'feedback.manage',contact.faculty_id,contact.filiere_id);}return permissions.can(user,'feedback.manage',user.faculty_id,user.filiere_id);}
+        if(['registrations','admissions'].includes(tab)){
+          if(!isOwner(user)&&!user.appointments?.some(a=>a.capabilities.includes('student.admit')))return false;
+          const id=Number(url.searchParams.get('registration'));
+          if(!id)return !url.searchParams.has('registration');
+          const registration=targets?targets.registrations.get(id):await db.prepare('SELECT role,account_status,faculty_id,filiere_id FROM users WHERE id=?').get(id);
+          return !!registration&&permissions.can(user,'student.admit',registration.faculty_id,registration.filiere_id)&&registration.role==='student'&&registration.account_status==='pending'&&(!url.hash||url.hash==='#registration-'+id);
+        }
+        if(tab==='reports'){
+          const id=Number(url.searchParams.get('report'));
+          if(!id)return permissions.can(user,'content.moderate',user.faculty_id,user.filiere_id);
+          const report=targets?targets.reports.get(id):(await notificationReports([id]))[0];
+          return !!report&&(!report.channel||CHANNELS.includes(report.channel))&&permissions.can(user,'content.moderate',report.faculty_id,report.filiere_id);
+        }
         return isOwner(user)||!!user.appointments?.some(a=>a.faculty_id===user.faculty_id&&a.capabilities.some(c=>c!=='resource.upload'));
       }
       if(url.pathname==='/app/campus')return !!await campusRoutes?.authorizeNotificationTarget(user,path);
@@ -1365,8 +1471,9 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
   installForumAttachmentRoutes(app,{db,requireFaculty,permissions,upload,storage,broadcast});
   installLabsRoutes(app,{db,requireFaculty,broadcast});
   campusRoutes=installCampusRoutes(app,{db,requireFaculty,requireUser,problem,assertResource:freshResource,author,notifyDirect,broadcast,auditAdministrative:(actor,action,type,id,details)=>permissions.audit(actor,action,type,id,details),canAdminFaculty:async(user,faculty,filiere=null)=>{const current=await db.prepare('SELECT * FROM users WHERE id=? FOR SHARE').get(user.id);return !!current&&!current.disabled&&current.account_status==='approved'&&current.faculty_id===user.faculty_id&&permissions.can(await permissions.load(current),'content.moderate',faculty,filiere);}});
-  coreRoutes=installCoreRoutes(app,{db,requireFaculty,problem,permissions,asId,string,resource,scoped,broadcast,author,authorizeNotificationTarget,notifyDirect,upload,storage,notifyAdminInbox,broadcastAdminInbox});
+  coreRoutes=installCoreRoutes(app,{db,requireFaculty,problem,permissions,asId,string,resource,scoped,broadcast,broadcastUserUpdate,author,authorizeNotificationTarget,notificationStore,notifyDirect,upload,storage,notifyAdminInbox,broadcastAdminInbox});
 
+  installAccessSupport(app,{db,problem,limiter:contactAttempts,notifyAdminInbox,broadcastAdminInbox,broadcast,ticketDTO:coreRoutes.ticketDTO,supportStreams});
   installPasswordRecovery(app,{db,auth,permissions,requireUser,selfUser,endUserStreams:id=>{for(const stream of clients.get(id)||[])stream.end();}});
   app.use('/api', (_req,_res,next)=>next(problem(404,'Route API introuvable.')));
   const dist=resolve('dist');
