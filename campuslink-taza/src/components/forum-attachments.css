@@ -28,4 +28,4 @@
 .forum-attachment-queue li{border-bottom:1px solid var(--border);padding:8px 0}
 .forum-attachment-queue .icon-btn{flex:none}
 .forum-attachments>p,.forum-attachment-form>p{overflow-wrap:anywhere}
-@media(max-width:600px){.forum-attachments .btn{font-size:11px;min-height:36px}.forum-attachment-name{flex-basis:100%}.forum-attachment-form input[type=file]{padding:8px}.forum-attachment-form>.btn{width:100%}.forum-attachment-queue .icon-btn{width:36px;height:36px}}
+@media(max-width:600px){.forum-attachments .btn{font-size:12px;min-height:44px}.forum-attachment-name{flex-basis:100%}.forum-attachment-form input[type=file]{padding:8px}.forum-attachment-form>.btn{width:100%}.forum-attachment-queue .icon-btn{width:44px;height:44px}}

@@ -311,9 +311,10 @@ hr {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 9px;
-  padding: 10px 16px;
-  min-height: 42px;
+  gap: 7px;
+  padding: 8px 12px;
+  min-height: 40px;
+  min-width: 0;
   line-height: 1.4;
   border-radius: 7px;
   font-weight: 600;
@@ -331,6 +332,7 @@ hr {
   min-width: 0;
   overflow-wrap: anywhere;
 }
+.btn > svg { flex: none; }
 .btn-primary {
   background: var(--accent-solid);
   border-color: var(--accent-solid);
@@ -1431,14 +1433,27 @@ hr {
   padding: 25px;
   overflow: auto;
   min-height: 0;
+  overscroll-behavior: contain;
+  scroll-padding-block: 16px;
 }
 .modal-footer {
-  padding: 16px 24px;
+  padding: 12px 20px;
   border-top: 1px solid var(--line);
   display: flex;
   justify-content: flex-end;
   gap: 10px;
   flex-shrink: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  max-height: calc(var(--modal-viewport-height, 100dvh) * .4);
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+.modal-footer > .btn { flex: 0 1 auto; }
+.modal-body .stack > .btn,.settings-card form.stack > .btn { align-self: flex-start; }
+@media (max-width: 900px), (pointer: coarse) {
+  .btn { min-height: 44px; }
+  .modal-footer { gap: 8px; }
 }
 .toast {
   position: fixed;

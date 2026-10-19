@@ -57,7 +57,7 @@ export default function DocumentRelations({ resource, page = 1, version = resour
   }
   function visit(source) {
     const item = resources.find(item => String(item.id) === String(source.resourceId));
-    if (item && Number(item.version) === Number(source.version)) openDocument({ ...item, initialPage: source.page, initialVersion: source.version });
+    if (item && Number(item.version) === Number(source.version)) openDocument({ ...item, initialPage: source.page, initialVersion: source.version }, {study:true});
     else setError(tr('La source a changé ou est devenue inaccessible. Actualisez la liste.','The source changed or is no longer accessible. Refresh the list.','تغيّر المصدر أو أصبح غير متاح. حدّث القائمة.'));
   }
   const statusLabel = status => ({ proposed: tr('Proposition','Proposal','اقتراح'), verified: tr('Vérifiée','Verified','معتمدة'), rejected: tr('Rejetée','Rejected','مرفوضة') })[status];

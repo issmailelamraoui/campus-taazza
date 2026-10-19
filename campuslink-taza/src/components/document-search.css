@@ -15,4 +15,4 @@
 .pdf-index-control .btn{max-width:100%;white-space:normal;text-align:center}
 .pdf-index-control small{line-height:1.6;overflow-wrap:anywhere;color:var(--muted)}
 .pdf-index-control small[role=alert]{color:var(--danger)}
-@media(max-width:600px){.document-text-search>form>.btn{width:100%}.document-text-matches .search-result{gap:9px;padding:10px}.document-index-picker{gap:10px}.pdf-index-control .btn{min-height:36px}}
+@media(max-width:600px){.document-text-search>form>.btn{width:100%}.document-text-matches .search-result{gap:9px;padding:10px}.document-index-picker{gap:10px}.pdf-index-control .btn{min-height:44px}}

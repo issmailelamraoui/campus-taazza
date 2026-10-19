@@ -113,7 +113,7 @@ async function fixture({ width = 1300, height = 874, language = 'fr', theme = 'd
   activePage = page;
   page.on('pageerror', error => errors.push(error.message));
   const openedAt = Date.now();
-  await page.goto(origin + `/app/library?document=41${startPage ? `&page=${startPage}` : ''}&version=1`);
+  await page.goto(origin + `/app/library?mode=study&document=41${startPage ? `&page=${startPage}` : ''}&version=1`);
   const dialog = page.locator('.study-reader-modal');
   await expect(dialog).toBeVisible();
   const pane = dialog.locator('.reader-pane').first();
@@ -163,7 +163,7 @@ async function fits(f) {
   assert.ok(geometry.reading.top - geometry.modal.top <= topLimit + 1, 'The PDF starts near the reader toolbar: ' + JSON.stringify(geometry));
   assert.ok(geometry.reading.bottom <= geometry.modal.bottom + 1, 'Reading viewport remains inside the modal: ' + JSON.stringify(geometry));
   assert.ok(geometry.canvas.top >= geometry.reading.top - 1 && geometry.canvas.top < geometry.reading.bottom - 80, 'The first PDF page is visible without scrolling the modal: ' + JSON.stringify(geometry));
-  if (f.width < 800) assert.ok(geometry.toolbarHeight <= 48, 'Phone reading controls fit in one compact row: ' + JSON.stringify(geometry));
+  if (f.width < 800) assert.ok(geometry.toolbarHeight <= 56, 'Phone reading controls fit in one row with 44px touch targets: ' + JSON.stringify(geometry));
   assert.equal(geometry.modalBodyScroll, 0, 'The reader toolbar and document must open without modal scrolling.');
   measurements.push({ viewport: `${f.width}x${f.height}`, language: f.language, theme: f.theme, ...geometry });
   return geometry;

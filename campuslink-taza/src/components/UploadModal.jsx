@@ -832,7 +832,7 @@ export default function UploadModal({
               )}
             />
             <div
-              className={`upload-dropzone ${dragging ? "dragging" : ""} ${reading ? "reading" : ""}`}
+              className={`upload-dropzone ${files.length ? "has-files" : ""} ${dragging ? "dragging" : ""} ${reading ? "reading" : ""}`}
               onDragEnter={(event) => {
                 event.preventDefault();
                 dragDepth.current += 1;
@@ -875,14 +875,16 @@ export default function UploadModal({
                 <Button
                   variant="secondary"
                   icon={Plus}
+                  aria-label={tr("Choisir des fichiers", "Choose files", "اختيار ملفات")}
                   disabled={reading}
                   onClick={() => fileInput.current?.click()}
                 >
-                  {tr("Choisir des fichiers", "Choose files", "اختيار ملفات")}
+                  {files.length ? tr("Fichiers", "Files", "ملفات") : tr("Choisir des fichiers", "Choose files", "اختيار ملفات")}
                 </Button>
                 <Button
                   variant="ghost"
                   icon={FolderOpen}
+                  aria-label={directorySupported ? tr("Choisir un dossier", "Choose a folder", "اختيار مجلد") : tr("Ajouter plusieurs fichiers", "Add multiple files", "إضافة عدة ملفات")}
                   disabled={reading}
                   onClick={() =>
                     (directorySupported
@@ -892,7 +894,7 @@ export default function UploadModal({
                   }
                 >
                   {directorySupported
-                    ? tr("Choisir un dossier", "Choose a folder", "اختيار مجلد")
+                    ? files.length ? tr("Dossier", "Folder", "مجلد") : tr("Choisir un dossier", "Choose a folder", "اختيار مجلد")
                     : tr(
                         "Ajouter plusieurs fichiers",
                         "Add multiple files",

@@ -7,6 +7,7 @@ import {getFiliere, filiereBelongsToFaculty} from './data/studies.js';
 import {translations} from './i18n.js';
 import {chatRequest, isAdministrator, normalizeAnnouncement, normalizeBootstrap, normalizeMessage, normalizeResource, normalizeUser, requiresPasswordChange} from './lib/backend.js';
 import {normalizePart} from './lib/resources.js';
+import {nativePDFUrl} from './lib/document-open.js';
 import {saveOfflineSession,loadOfflineSession} from './lib/offline-session.js';
 // Session cleanup must be registered even when no reader/study route is loaded.
 import './lib/offline-documents.js';
@@ -223,12 +224,22 @@ export function AppProvider({children}){
    finishOptimistic(owner,action,apply(result.saved));if(owner===epoch.current)notify(t(result.saved?'savedSuccess':'removedSuccess'));return result.saved;
   }catch(error){finishOptimistic(owner,action,apply(wasSaved));if(owner===epoch.current)notify(error.message,'error');return false;}
  });}
- function openDocument(item){
-  if(!item)return;setDialog({type:'document',item});const owner=epoch.current;
+ function openDocument(item,{study=false,nativeOpened=false,inPlace=false}={}){
+  if(!item)return;
+  const nativeUrl=!study&&navigator.onLine!==false&&nativePDFUrl(item);
+  if(nativeUrl){
+   setDialog(null);
+   if(inPlace)window.location.replace(nativeUrl);
+   else if(!nativeOpened){
+    const tab=window.open(nativeUrl,'_blank');
+    if(tab)tab.opener=null;else window.location.assign(nativeUrl);
+   }
+  }else setDialog({type:'document',item});
+  const owner=epoch.current;
   locked('history:'+item.id,async()=>{const original=current.current.history,action='history:'+item.id,id=String(item.id);
    const apply=previous=>({...previous,history:[id,...previous.history.filter(target=>target!==id)].slice(0,20)});
    beginOptimistic(owner,action,apply);
-   try{await api('/history',{method:'POST',body:{resource_id:id}});finishOptimistic(owner,action,apply);}
+   try{await api('/history',{method:'POST',body:{resource_id:id},keepalive:inPlace});finishOptimistic(owner,action,apply);}
    catch(error){finishOptimistic(owner,action,previous=>({...previous,history:previous.history.filter(target=>target!==id).concat(original.includes(id)?[id]:[])}));if(owner===epoch.current)notify(error.message,'error');}
   });
  }
@@ -272,7 +283,7 @@ export function AppProvider({children}){
   const params=new URLSearchParams((notification.href||'').split('?')[1]?.split('#')[0]);
   if(notification.type==='document'){
    const resource=current.current.resources.find(item=>item.id===notification.targetId);
-   if(resource)openDocument({...resource,initialPage:params.has('page')?Math.max(1,Number(params.get('page'))||1):undefined,initialVersion:Number(params.get('version'))||undefined});
+   if(resource&&!params.has('document'))openDocument({...resource,initialPage:params.has('page')?Math.max(1,Number(params.get('page'))||1):undefined,initialVersion:Number(params.get('version'))||undefined});
   }else if(notification.type==='announcement'){
    const announcement=current.current.announcements.find(item=>item.id===notification.targetId);if(announcement)openAnnouncement(announcement);
   }

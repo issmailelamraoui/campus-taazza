@@ -13,4 +13,4 @@
 button.supplemental-file-name:hover strong{text-decoration:underline;text-underline-offset:3px}
 span.supplemental-file-name{color:var(--muted);cursor:default;overflow-wrap:anywhere}
 .supplemental-files-body p,.supplemental-files-body>small{overflow-wrap:anywhere}
-@media(max-width:700px){.supplemental-files .btn{font-size:11px;min-height:36px}.supplemental-file-name strong{font-size:12px}}
+@media(max-width:700px){.supplemental-files .btn{font-size:12px;min-height:44px}.supplemental-file-name strong{font-size:12px}}

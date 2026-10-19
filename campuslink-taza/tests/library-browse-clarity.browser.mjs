@@ -320,9 +320,9 @@ try {
       await expect(page.locator('.document-card')).toHaveCount(5);
       await moduleRetained(page);
 
-      // Opening a card must still request the intended document, not a folder
-      // or a different result after filtering, and paint the real PDF canvas.
-      await page.locator('#resource-101 .document-main').focus(); await page.keyboard.press('Enter');
+      // Optional study tools must still use the selected document after filtering.
+      // Ordinary native PDF opening is verified by responsive-native-pdf.browser.mjs.
+      await page.locator('#resource-101 .document-secondary-actions .icon-btn').first().focus(); await page.keyboard.press('Enter');
       const reader = page.locator('.study-reader-modal');
       await expect(reader).toBeVisible();
       await expect(reader.locator('canvas[aria-label="Page 1"]')).toBeVisible();
@@ -339,7 +339,7 @@ try {
       }), { message: 'The selected document actually paints visible text on its PDF canvas.' }).toBe(true);
       await page.keyboard.press('Escape');
       await expect(reader).toHaveCount(0);
-      await expect(page.locator('#resource-101 .document-main')).toBeFocused();
+      await expect(page.locator('#resource-101 .document-secondary-actions .icon-btn').first()).toBeFocused();
       await moduleRetained(page);
       assert.ok(f.writes.every(write => write.path === '/api/history' || /^\/api\/reading\/101\/position$/.test(write.path)), 'Only reading/history fixture writes are permitted.');
       assert.deepEqual(f.errors, []);

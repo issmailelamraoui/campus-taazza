@@ -20,4 +20,4 @@
 .document-relation-status{line-height:1.5}
 .relation-rejected .document-relation-status{color:var(--danger);border-color:color-mix(in srgb,var(--danger) 40%,var(--border));background:color-mix(in srgb,var(--danger) 8%,var(--surface))}
 .document-relations textarea{resize:vertical}
-@media(max-width:700px){.document-relations .btn{font-size:11px;min-height:36px}.document-relation-source strong{font-size:12px}.document-relations-tools{max-width:100%}}
+@media(max-width:700px){.document-relations .btn{font-size:12px;min-height:44px}.document-relation-source strong{font-size:12px}.document-relations-tools{max-width:100%}}

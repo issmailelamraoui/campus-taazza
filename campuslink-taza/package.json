@@ -72,7 +72,10 @@
     "test:audit-ui": "node tests/audit-next.browser.mjs",
     "preview:isolated": "node scripts/preview-isolated.mjs",
     "test:live-admin": "node --test tests/backend-live-admin.test.mjs tests/backend-notifications.test.mjs tests/notifications.test.mjs",
-    "test:live-admin-ui": "node tests/live-admin.browser.mjs"
+    "test:live-admin-ui": "node tests/live-admin.browser.mjs",
+    "test:feedback-deletion": "node --test tests/backend-feedback-deletion.test.mjs",
+    "test:feedback-deletion-ui": "node tests/feedback-deletion.browser.mjs",
+    "test:responsive-native-pdf": "node tests/responsive-native-pdf.browser.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1146.0",

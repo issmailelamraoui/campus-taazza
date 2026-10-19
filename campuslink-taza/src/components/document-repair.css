@@ -8,4 +8,4 @@
 .repair-upload-form input[type=file]{padding:10px;border:1px dashed var(--border);border-radius:8px;background:var(--surface2);color:var(--text)}
 .repair-upload-form input[type=file]::file-selector-button{border:1px solid var(--border);border-radius:6px;padding:7px 10px;margin-inline-end:10px;background:var(--surface);color:var(--text);font:inherit;cursor:pointer}
 .repair-upload-form input[type=file]:disabled::file-selector-button{cursor:default}
-@media(max-width:600px){.repair-card-actions .btn{font-size:11px;min-height:36px}.repair-description,.repair-quota{font-size:11px}.repair-upload-form input[type=file]{padding:8px}.repair-status{max-width:100%;white-space:normal}}
+@media(max-width:600px){.repair-card-actions .btn{font-size:12px;min-height:44px}.repair-description,.repair-quota{font-size:11px}.repair-upload-form input[type=file]{padding:8px}.repair-status{max-width:100%;white-space:normal}}

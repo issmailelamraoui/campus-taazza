@@ -27,6 +27,7 @@ export function installCoreRoutes(app,{db,requireFaculty,problem,permissions,asI
     return row;
   }
   async function ticketDTO(row,viewer=null){
+    if(!row)throw problem(404,'Demande introuvable.');
     const {recovery_hash,client_id,...safe}=row;
     const restricted=viewer&&viewer.id!==row.user_id&&row.assigned_to&&viewer.id!==row.assigned_to&&!permissions.isOwner(viewer);
     const actorKey=viewer?'user:'+viewer.id:'guest:'+row.id;
@@ -44,7 +45,7 @@ export function installCoreRoutes(app,{db,requireFaculty,problem,permissions,asI
     const administrativeIdentity=person=>privateOwner&&person&&permissions.isOwner(person)?{id:null,name:'Administration',username:'',avatar:''}:person;
     const assigned=administrativeIdentity(byId.get(row.assigned_to))||null;
     if(privateOwner&&row.assigned_to&&permissions.isOwner({id:row.assigned_to}))safe.assigned_to='administration';
-    return {...safe,username:requester?.username||'',assigned,title:row.subject,description:row.message,restricted:!!restricted,attachments:attachments.map(r=>({...r,url:`/api/feedback/attachments/${r.id}/file`})),replies:replies.map(r=>({id:r.id,content:r.content,created_at:r.created_at,administrative:!!r.administrative,author:(r.administrative?administrativeIdentity(byId.get(r.author_id)):byId.get(r.author_id))||{id:null,name:row.name,username:''},my_reactions:reactions.filter(x=>x.reply_id===r.id&&x.mine).map(x=>x.reaction),reactions:Object.fromEntries(reactions.filter(x=>x.reply_id===r.id).map(x=>[x.reaction,Number(x.count)]))}))};
+    return {...safe,can_delete:!!viewer&&permissions.can(viewer,'feedback.manage',row.faculty_id,row.filiere_id)&&(row.assigned_to===viewer.id||permissions.isOwner(viewer)),username:requester?.username||'',assigned,title:row.subject,description:row.message,restricted:!!restricted,attachments:attachments.map(r=>({...r,url:`/api/feedback/attachments/${r.id}/file`})),replies:replies.map(r=>({id:r.id,content:r.content,created_at:r.created_at,administrative:!!r.administrative,author:(r.administrative?administrativeIdentity(byId.get(r.author_id)):byId.get(r.author_id))||{id:null,name:row.name,username:''},my_reactions:reactions.filter(x=>x.reply_id===r.id&&x.mine).map(x=>x.reaction),reactions:Object.fromEntries(reactions.filter(x=>x.reply_id===r.id).map(x=>[x.reaction,Number(x.count)]))}))};
   }
   function assertParticipant(row,actor,administrative){
     if(!row.assigned_to)throw problem(409,'Cette demande attend d’être acceptée par un administrateur.');
@@ -70,7 +71,9 @@ export function installCoreRoutes(app,{db,requireFaculty,problem,permissions,asI
   app.post('/api/admin/feedback/:id/close',requireFaculty,async(req,res)=>{
     const row=await db.transaction(async()=>{
       const actor=await activeActor(req),fresh=await ticket({...req,user:actor},req.params.id,true);
-      await db.prepare('SELECT id FROM contacts WHERE id=? FOR UPDATE').get(fresh.id);
+      const locked=await db.prepare('SELECT * FROM contacts WHERE id=? FOR UPDATE').get(fresh.id);
+      if(!locked)throw problem(404,'Demande introuvable.');
+      Object.assign(fresh,locked);
       assertParticipant(fresh,actor,true);
       if(fresh.closed_at||fresh.status==='closed')return fresh;
       const updated=await db.prepare("UPDATE contacts SET status='closed',closed_at=?,updated_at=? WHERE id=? RETURNING *").get(now(),now(),fresh.id);
@@ -80,12 +83,67 @@ export function installCoreRoutes(app,{db,requireFaculty,problem,permissions,asI
     });
     await Promise.all([broadcast(row.faculty_id),broadcastUserUpdate([row.user_id,row.assigned_to].filter(Boolean),{support:true})]);res.json({ticket:await ticketDTO(row,req.user)});
   });
+  app.delete('/api/admin/feedback/:id',requireFaculty,async(req,res)=>{
+    const id=asId(req.params.id);
+    async function lockedTicket(){
+      const row=await db.prepare('SELECT * FROM contacts WHERE id=? FOR UPDATE').get(id);
+      if(!row)throw problem(404,'Demande introuvable.');
+      const actor=await activeActor(req);
+      if(!permissions.can(actor,'feedback.manage',row.faculty_id,row.filiere_id))throw problem(403,'Permission d’assistance requise.');
+      if(!permissions.isOwner(actor))assertParticipant(row,actor,true);
+      return {row,actor};
+    }
+    // Closing is committed before object removal. A storage outage leaves a
+    // closed, retryable ticket with every object key, never an orphaned upload
+    // or a conversation that can receive more replies during its deletion.
+    const closed=await db.transaction(async()=>{
+      const {row}=await lockedTicket();
+      if(row.closed_at&&['closed','resolved','done'].includes(row.status))return row;
+      return db.prepare("UPDATE contacts SET status='closed',closed_at=?,updated_at=? WHERE id=? RETURNING *").get(now(),now(),id);
+    });
+    let result;
+    try{result=await db.transaction(async()=>{
+      const {row,actor}=await lockedTicket();
+      if(!row.closed_at)throw problem(409,'La conversation a été rouverte. Rechargez avant de la supprimer.');
+      const files=await db.prepare('SELECT object_key FROM contact_attachments WHERE contact_id=? ORDER BY id').all(id);
+      for(const key of new Set(files.map(file=>file.object_key))){
+        try{await storage.delete(key);}catch(error){if(error.status!==404)throw problem(502,'Le nettoyage des fichiers est temporairement indisponible.');}
+      }
+      // Match exact request IDs in both current and historical destinations.
+      const notices=await db.prepare('SELECT id,user_id,path FROM notifications WHERE path LIKE ?').all('%'+id+'%');
+      const noticeIds=notices.filter(notice=>{
+        try{
+          const url=new URL(notice.path,'https://campuslink.invalid');
+          if(url.origin!=='https://campuslink.invalid')return false;
+          return url.pathname==='/app/feedback'&&(url.searchParams.has('ticket')?Number(url.searchParams.get('ticket'))===id:url.hash==='#feedback-'+id)||url.pathname==='/app/admin'&&['contacts','assistance'].includes(url.searchParams.get('tab'))&&Number(url.searchParams.get('contact'))===id;
+        }catch{return false;}
+      }).map(notice=>notice.id);
+      if(noticeIds.length)await db.prepare('DELETE FROM notifications WHERE id=ANY(?)').run(noticeIds);
+      const replies=await db.prepare('DELETE FROM contact_replies WHERE contact_id=?').run(id);
+      await db.prepare('DELETE FROM contact_attachments WHERE contact_id=?').run(id);
+      await db.prepare('DELETE FROM contacts WHERE id=?').run(id);
+      // Keep a single content-free deletion receipt instead of all per-message
+      // administrative audit entries for a conversation that no longer exists.
+      await db.prepare("DELETE FROM administrative_audit WHERE target_type='contact' AND target_id=?").run(String(id));
+      await permissions.audit(actor,'feedback.delete','contact',id,{messages:replies.changes,attachments:files.length});
+      const administrators=await db.prepare("SELECT DISTINCT user_id AS id FROM scoped_appointments WHERE revoked_at IS NULL AND faculty_id=? AND (filiere_id IS NULL OR filiere_id=?) AND capabilities @> '[\"feedback.manage\"]'::jsonb UNION SELECT user_id AS id FROM platform_owner").all(row.faculty_id,row.filiere_id);
+      return {row,recipients:[...new Set([row.user_id,row.assigned_to,actor.id,...administrators.map(a=>a.id)].filter(Boolean))]};
+    });}catch(error){
+      await Promise.allSettled([broadcast(closed.faculty_id,null,{support:true}),broadcastUserUpdate([closed.user_id,closed.assigned_to].filter(Boolean),{support:true})]);
+      if(error.status===502||error.status===503)throw problem(error.status,'La suppression n’a pas pu être terminée. La conversation est clôturée ; réessayez pour terminer le nettoyage des fichiers.');
+      throw error;
+    }
+    await Promise.all([broadcast(result.row.faculty_id,null,{support:true}),broadcastUserUpdate(result.recipients,{support:true,adminInbox:true,removedFeedbackId:id})]);
+    res.json({ok:true,deleted_id:id});
+  });
   app.post('/api/feedback/:id/replies/:reply/reactions',requireFaculty,async(req,res)=>{
     const reaction=req.body.reaction;
     if(!['like','heart'].includes(reaction)||typeof req.body.active!=='boolean')throw problem(400,'Réaction invalide.');
     const row=await db.transaction(async()=>{
       const actor=await activeActor(req),row=await ticket({...req,user:actor},req.params.id,req.body.administrative===true);
-      await db.prepare('SELECT id FROM contacts WHERE id=? FOR UPDATE').get(row.id);
+      const locked=await db.prepare('SELECT * FROM contacts WHERE id=? FOR UPDATE').get(row.id);
+      if(!locked)throw problem(404,'Demande introuvable.');
+      Object.assign(row,locked);
       assertParticipant(row,actor,req.body.administrative===true);
       const target=await db.prepare('SELECT id FROM contact_replies WHERE id=? AND contact_id=?').get(asId(req.params.reply),row.id);
       if(!target)throw problem(404,'Message introuvable.');

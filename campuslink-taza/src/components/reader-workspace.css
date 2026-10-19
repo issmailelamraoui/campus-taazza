@@ -1,8 +1,8 @@
 /* The document owns the available height; secondary actions share one sidebar. */
 .study-reader-modal {
   width: min(1420px, calc(100vw - 24px));
-  height: min(1000px, calc(100dvh - 24px));
-  max-height: calc(100dvh - 24px);
+  height: min(1000px, calc(var(--modal-viewport-height, 100dvh) - 24px));
+  max-height: calc(var(--modal-viewport-height, 100dvh) - 24px);
 }
 .study-reader-modal .modal-header { padding: 10px 18px; min-height: 54px; }
 .study-reader-modal .modal-header h2 { font-size: 15px; line-height: 1.5; }
@@ -14,7 +14,7 @@
   padding: 0;
   overflow: hidden;
 }
-.study-reader-modal.fullscreen { height: 100dvh; max-height: 100dvh; width: 100vw; }
+.study-reader-modal.fullscreen { height: var(--modal-viewport-height, 100dvh); max-height: var(--modal-viewport-height, 100dvh); width: 100%; }
 .study-reader-modal .reader-document-meta {
   flex: none;
   gap: 8px 14px;
@@ -105,7 +105,7 @@
 }
 @media (max-width: 700px) {
   .modal-backdrop:has(.study-reader-modal) { padding: 0; }
-  .study-reader-modal { width: 100vw; height: 100dvh; max-height: 100dvh; border-radius: 0; border: 0; }
+  .study-reader-modal { width: 100%; height: var(--modal-viewport-height, 100dvh); max-height: var(--modal-viewport-height, 100dvh); border-radius: 0; border: 0; }
   .study-reader-modal .modal-header { min-height: 48px; padding: 7px 12px; }
   .study-reader-modal .modal-header h2 { font-size: 13px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
   .study-reader-modal .reader-document-meta { padding: 5px 10px; gap: 4px 8px; }
@@ -224,4 +224,7 @@
 @media (max-width: 700px) {
   .reader-status-bar { padding-bottom: max(4px, env(safe-area-inset-bottom, 0px)); }
   .reader-page-error { padding: 18px 12px; font-size: 12px; }
+  .reader-tools .btn,.reader-notes .btn,.reader-selection-tools .btn,.reader-controls .btn,.reader-comfort .btn,.study-reader-modal .reader-document-actions .btn { min-height: 44px; }
+  .reader-controls :is(.reader-notes-toggle,.reader-tools-toggle),.reader-controls .icon-btn { width: 44px; }
+  .reader-note-actions :is(button,a) { min-height: 44px; display: inline-flex; align-items: center; padding-inline: 4px; }
 }

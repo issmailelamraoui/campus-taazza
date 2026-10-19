@@ -44,7 +44,7 @@ try{
   await page.goto(origin+'/app/library');await page.locator('.library-module-folder').first().click();const card=page.locator('.document-card').first();await expect(card).toBeVisible();
   const cardId=await card.getAttribute('id');await card.locator('.save-btn').click();await expect(card.locator('.save-btn')).toHaveAttribute('aria-pressed','true');await expect(card.locator('.save-btn')).toBeEnabled();
   const document=(await json(page,'/bootstrap')).resources.find(item=>'resource-'+item.id===cardId);assert.ok(document);
-  await card.locator('.document-main').click();await expect(page.locator('.preview-modal')).toBeVisible();await expect(page.locator('.preview-modal')).toContainText(document.title);
+  await card.locator('.document-secondary-actions .icon-btn').first().click();await expect(page.locator('.preview-modal')).toBeVisible();await expect(page.locator('.preview-modal')).toContainText(document.title);
   const bytes=await page.request.get(origin+'/api/files/'+document.id);assert.equal(bytes.status(),200);assert.ok((await bytes.body()).subarray(0,4).equals(Buffer.from('%PDF')));
   await page.keyboard.press('Escape');await page.reload();await expect(page.locator('#'+cardId).locator('.save-btn')).toHaveAttribute('aria-pressed','true');
   assert.ok((await json(page,'/bootstrap')).history.some(item=>item.resource_id===document.id));await context.close();

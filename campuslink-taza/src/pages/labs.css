@@ -130,3 +130,5 @@
 .labs-completion-tooltip .cm-completionMatchedText{color:var(--accent-ink);text-decoration:none;font-weight:600}
 @media(max-width:650px){.labs-code-editor{font-size:14px;line-height:1.7}.labs-code-editor .cm-gutters{min-width:30px}.labs-code-editor .cm-gutterElement{padding-inline:5px}.labs-editor-status{padding:7px 8px;gap:6px}.labs-editor-tools{width:100%}.labs-editor-tools button{flex:1;min-height:38px;font-size:10px}.labs-code-editor .cm-search{font-size:12px}.labs-code-editor .cm-search .cm-textfield{flex-basis:100%;width:100%}}
 @media(pointer:coarse){.labs-code-editor .cm-content,.labs-code-editor .cm-search .cm-textfield{font-size:16px}.labs-editor-tools button{min-height:40px}}
+
+@media(max-width:900px){.labs-toolbar>.btn,.labs-actions .btn,.labs-source-hint .btn{min-height:44px}.labs-console-toolbar>div{flex-wrap:wrap;justify-content:flex-end;gap:6px}}

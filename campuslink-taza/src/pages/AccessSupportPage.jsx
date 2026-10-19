@@ -19,7 +19,7 @@ export default function AccessSupportPage({embedded=false}) {
  useEffect(()=>{live.current=true;api('/support/session').then(r=>{if(live.current)setTicket(r.ticket);}).catch(e=>{if(live.current&&e.status!==401)setError(e.message);}).finally(()=>{if(live.current)setLoading(false);});return()=>{live.current=false;};},[]);
  useEffect(()=>{
   if(!ticket)return;let active=true,reading=false;
-  async function refresh(){if(reading||document.visibilityState==='hidden')return;reading=true;const epoch=readEpoch.current;try{const r=await api('/support/session');if(active&&epoch===readEpoch.current&&!request.current){setTicket(r.ticket);setError('');}}catch(e){if(active){setError(e.message);if(e.status===401)setTicket(null);}}finally{reading=false;}}
+  async function refresh(){if(reading||document.visibilityState==='hidden')return;reading=true;const epoch=readEpoch.current;try{const r=await api('/support/session');if(active&&epoch===readEpoch.current&&!request.current){setTicket(r.ticket);setError('');}}catch(e){if(active){setError(e.message);if(e.status===401){setTicket(null);setKey('');setCode('');setDraft('');createKey.current=null;messageId.current=null;}}}finally{reading=false;}}
   const stream=typeof EventSource==='function'?new EventSource('/api/support/stream'):null;
   stream?.addEventListener('open',refresh);stream?.addEventListener('update',refresh);
   const timer=setInterval(refresh,15000);

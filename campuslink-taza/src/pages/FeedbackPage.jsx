@@ -3,11 +3,11 @@ import {getFiliere} from '../data/studies';
 import PageLoading from '../components/PageLoading';
 import React, { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
-import { MessageSquare, Plus, Send, ArrowLeft, Lock, Paperclip, Download, RefreshCw, ThumbsUp, Heart } from 'lucide-react';
+import { MessageSquare, Plus, Send, ArrowLeft, Lock, Paperclip, Download, RefreshCw, ThumbsUp, Heart, Trash2 } from 'lucide-react';
 import { api } from '../api';
 import { formatDate } from '../i18n';
 import { useApp } from '../context';
-import { PageHeader, Button, Field, EmptyState, Badge, Avatar } from '../components/ui';
+import { PageHeader, Button, Field, EmptyState, Badge, Avatar, Modal } from '../components/ui';
 import { Select } from '../components/Select';
 import { SUPPORTED_FILE_ACCEPT, MAX_UPLOAD_FILE_BYTES, isSupportedFile } from '../lib/files';
 import './campus.css';
@@ -34,6 +34,7 @@ export default function FeedbackPage() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [create, setCreate] = useState(false);
+  const [confirmDelete,setConfirmDelete]=useState(false),[deletedDestination,setDeletedDestination]=useState(null),[deleteError,setDeleteError]=useState('');
   const [revision, setRevision] = useState(0);
   const [category, setCategory] = useState('bug');
   const [title, setTitle] = useState('');
@@ -46,7 +47,10 @@ export default function FeedbackPage() {
   const replyRequest=useRef(null),createRequest=useRef(null);
   const fileInput = useRef(null);
   const data = payload?.destination === destination ? payload.data : null;
-  const ticket = ticketId ? data?.ticket : null;
+  const ticketRemoved=deletedDestination===destination;
+  const ticket = ticketId&&!ticketRemoved ? data?.ticket : null;
+  const closed=!!ticket?.closed_at||['closed','resolved','done'].includes(ticket?.status);
+  const canDelete=administrative&&ticket?.can_delete===true;
   useEffect(()=>{
     const match=/^#reply-(\d+)$/.exec(location.hash);
     const key=`${destination}:${location.hash}:${notificationVisitRevision}`;
@@ -68,6 +72,7 @@ export default function FeedbackPage() {
     setAttachmentError('');
     setUploadName('');
     if (ticketId) setCreate(false);
+    setConfirmDelete(false);
     return () => { mutation.current = null; };
   }, [destination]);
 
@@ -93,7 +98,8 @@ export default function FeedbackPage() {
         }
       })
       .catch(e => {
-        if (live && !controller.signal.aborted) {
+        if (live && !controller.signal.aborted && version===mutationVersion.current) {
+          if(e.status===404&&ticketId){setDeletedDestination(destination);setPayload(null);setError('');return;}
           if ([401, 403, 404, 410].includes(e.status)) setPayload(null);
           setError(e.message);
         }
@@ -103,7 +109,14 @@ export default function FeedbackPage() {
   }, [destination, revision]);
 
   useEffect(() => {
-    const update=event=>{const change=event?.detail;if(change?.presence||change?.messageIds||change?.discussionReads)return;if(document.visibilityState!=='hidden')setRevision(value=>value+1);};
+    const update=event=>{
+      const change=event?.detail;if(change?.presence||change?.messageIds||change?.discussionReads)return;
+      if(ticketId&&String(change?.removedFeedbackId)===ticketId){
+        if(mutation.current?.removing)return;
+        mutationVersion.current++;mutation.current=null;setBusy(false);setConfirmDelete(false);setDeletedDestination(destination);setPayload(null);setReply('');setError('');return;
+      }
+      if(document.visibilityState!=='hidden')setRevision(value=>value+1);
+    };
     window.addEventListener('campus-live-update',update);
     const timer=setInterval(update,15000);
     return()=>{window.removeEventListener('campus-live-update',update);clearInterval(timer);};
@@ -145,6 +158,18 @@ export default function FeedbackPage() {
     const operation=beginMutation();if(!operation)return;
     try{const result=await api(suffix.startsWith('/')?suffix:`${prefix}/${ticketId}/${suffix}`,{method:'POST',body});if(currentMutation(operation)){setPayload({destination,data:result});setStatus(result.ticket.status);}}
     catch(e){if(currentMutation(operation))setError(e.message);}finally{endMutation(operation);}
+  }
+  async function deleteConversation(){
+    if(!canDelete)return;
+    const operation=beginMutation();if(!operation)return;operation.removing=true;setError('');setDeleteError('');
+    try{
+      try{await api(`/admin/feedback/${ticketId}`,{method:'DELETE'});}catch(failure){if(failure.status!==404)throw failure;}
+      if(!currentMutation(operation))return;
+      setConfirmDelete(false);setPayload(null);setReply('');
+      notify(tr('Conversation et fichiers supprimés.','Conversation and files deleted.','تم حذف المحادثة وملفاتها.'));
+      navigate('/app/admin?tab=assistance');
+    }catch(failure){if(currentMutation(operation)){setDeleteError(failure.message);setRevision(value=>value+1);}}
+    finally{endMutation(operation);}
   }
   async function submit(event) {
     event.preventDefault();
@@ -220,7 +245,7 @@ export default function FeedbackPage() {
       <Field label={tr('Description', 'Description', 'الوصف')}><textarea required rows={5} maxLength={6000} value={description} onChange={event => setDescription(event.target.value)} /></Field>
       <Button type="submit" variant="primary" disabled={busy || !title.trim() || !description.trim()} icon={Send}>{busy ? tr('Envoi…', 'Sending…', 'جارٍ الإرسال…') : tr('Envoyer', 'Send', 'إرسال')}</Button>
     </form>}
-    {loading && !data ? <PageLoading label={tr('Chargement…', 'Loading…', 'جارٍ التحميل…')}/> : ticket ? <article className="card campus-detail feedback-detail" id={`feedback-${ticket.id}`} aria-busy={loading}>
+    {ticketRemoved&&ticketId?<div className="card feedback-removed" role="status"><EmptyState icon={MessageSquare} title={tr('Cette conversation n’est plus disponible','This conversation is no longer available','هذه المحادثة لم تعد متاحة')} description={tr('Vous pouvez revenir aux demandes ou en créer une nouvelle.','Return to your requests or create a new one.','يمكنك الرجوع إلى الطلبات أو إنشاء طلب جديد.')}/></div>:loading && !data ? <PageLoading label={tr('Chargement…', 'Loading…', 'جارٍ التحميل…')}/> : ticket ? <article className="card campus-detail feedback-detail" id={`feedback-${ticket.id}`} aria-busy={loading}>
       <header className="feedback-ticket-header">
         <div className="feedback-ticket-labels"><span>#{ticket.id}</span>{ticket.category && <span>{categoryLabel(ticket.category)}</span>}<Badge className={`feedback-status feedback-status-${ticket.status}`}>{statusLabel(ticket.status)}</Badge></div>
         <h2 dir="auto">{ticket.title}</h2><p className="feedback-refresh">{ticket.username&&`@${ticket.username} · `}{ticket.faculty_id?.toUpperCase()}{ticket.filiere_id&&` · ${getFiliere(ticket.filiere_id)?.name||ticket.filiere_id}`}</p>
@@ -250,7 +275,9 @@ export default function FeedbackPage() {
         {attachmentError && <p className="field-error" role="alert">{attachmentError}</p>}
         {administrative&&<Button disabled={busy} onClick={()=>ticketAction('close')}>{tr('Clôturer la conversation','Close conversation','إغلاق المحادثة')}</Button>}
       </form>}
+      {canDelete&&<div className="feedback-delete-actions"><p>{tr('Une fois le problème résolu, supprimez la demande, ses messages et ses fichiers.','Once the issue is resolved, delete the request, its messages and files.','بعد حل المشكلة، احذف الطلب ورسائله وملفاته.')}</p><Button icon={Trash2} className="feedback-delete-button" disabled={busy} onClick={()=>{setDeleteError('');setConfirmDelete(true);}}>{closed?tr('Supprimer la conversation','Delete conversation','حذف المحادثة'):tr('Terminer et supprimer','Finish and delete','إنهاء المحادثة وحذفها')}</Button></div>}
       {loading && <p className="feedback-refresh" role="status">{tr('Actualisation…', 'Refreshing…', 'جارٍ التحديث…')}</p>}
     </article> : !error && data ? <div className="campus-cards feedback-tickets">{tickets.length ? tickets.map(item => <button className="card campus-entry feedback-ticket" key={item.id} onClick={() => setParams({ ticket: item.id })}><div className="feedback-ticket-labels"><span>#{item.id}</span><Badge className={`feedback-status feedback-status-${item.status}`}>{statusLabel(item.status)}</Badge></div><strong dir="auto">{item.title}</strong><p dir="auto">{item.description?.slice(0, 180)}</p><small>{categoryLabel(item.category)}{item.created_at && <> · <time dateTime={item.created_at}>{dateLabel(item.created_at)}</time></>}</small></button>) : <EmptyState icon={MessageSquare} title={tr('Aucune demande', 'No requests yet', 'لا توجد طلبات بعد')} description={tr('Créez une demande pour échanger avec l’administration.', 'Create a request to speak with administration.', 'أنشئ طلباً للتواصل مع الإدارة.')} />}</div> : null}
+    {confirmDelete&&canDelete&&<Modal className="feedback-delete-modal" title={tr('Supprimer définitivement cette conversation ?','Permanently delete this conversation?','حذف هذه المحادثة نهائياً؟')} onClose={()=>{if(!busy)setConfirmDelete(false);}} footer={<><Button disabled={busy} onClick={()=>setConfirmDelete(false)}>{tr('Annuler','Cancel','إلغاء')}</Button><Button icon={Trash2} className="feedback-delete-button" disabled={busy} aria-busy={busy} onClick={deleteConversation}>{busy?tr('Suppression…','Deleting…','جارٍ الحذف…'):tr('Supprimer définitivement','Delete permanently','حذف نهائياً')}</Button></>}><p>{tr('Cette action termine la session et efface la demande, tous ses messages, ses réactions, ses fichiers et ses notifications. Elle ne peut pas être annulée.','This ends the session and removes the request, all messages, reactions, files and notifications. This cannot be undone.','سينهي هذا الإجراء الجلسة ويحذف الطلب وجميع رسائله وتفاعلاته وملفاته وإشعاراته. لا يمكن التراجع عنه.')}</p>{deleteError&&<p role="alert" className="notice">{deleteError}</p>}</Modal>}
   </div>;
 }

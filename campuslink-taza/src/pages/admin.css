@@ -153,6 +153,23 @@ html[data-input-modality="keyboard"] .admin-search-field input:focus-visible { o
 .admin-detail-list > div { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; border-top: 1px solid var(--line); padding: 14px 0; font-size: 12px; line-height: 1.8; }
 .admin-detail-list dt { color: var(--muted); flex-shrink: 0; }
 .admin-detail-list dd { margin: 0; text-align: end; }
+.admin-account-tools { margin-top: 16px; border-top: 1px solid var(--line); }
+.admin-account-tools > summary { cursor: pointer; padding-block: 12px; color: var(--muted); font-size: 12px; line-height: 1.5; min-height: 44px; }
+.admin-account-secondary-actions { display: grid; gap: 6px; padding-top: 4px; }
+.admin-account-secondary-actions .btn { justify-content: flex-start; text-align: start; background: transparent; border-color: transparent; font-weight: 500; }
+.admin-account-secondary-actions .btn:hover { background: var(--surface2); border-color: var(--line); }
+.admin-account-secondary-actions .btn-danger { color: var(--danger); }
+.admin-account-modal .modal-footer { justify-content: flex-end; }
+.admin-account-modal .admin-account-review { display: grid; grid-template-columns: 48px minmax(0, 1fr); gap: 4px 12px; margin: 0 0 16px; }
+.admin-account-modal .admin-account-review > .avatar { grid-row: 1 / 4; width: 48px; height: 48px; }
+.admin-account-modal .admin-account-review > h3 { margin: 0; font-size: 16px; }
+.admin-account-modal .admin-account-review > p { margin: 0; }
+.admin-account-modal .admin-account-review > .admin-status { justify-self: start; }
+.admin-account-modal .admin-detail-list > div { display: grid; grid-template-columns: minmax(70px, .7fr) minmax(0, 1.3fr); gap: 10px; padding-block: 10px; }
+.admin-account-modal .admin-detail-list dd { min-width: 0; }
+.admin-report-modal .modal-footer { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: stretch; }
+.admin-report-modal .modal-footer .btn { font-size: 12px; padding-inline: 10px; }
+.admin-report-modal .admin-modal-error { grid-column: 1 / -1; }
 .admin-resource-review-title { display: flex; gap: 13px; align-items: center; margin-bottom: 24px; }
 .admin-resource-review-title > div { flex: 1; min-width: 0; }
 .admin-resource-review-title h3 { margin: 0; font-size: 16px; font-weight: 550; line-height: 1.7; }
@@ -341,7 +358,7 @@ html[data-input-modality="keyboard"] .admin-search-field input:focus-visible { o
 }
 
 @media (max-width: 600px) {
-  .admin-accounts-section > .admin-section-header > .btn { width: 100%; min-height: 44px; }
+  .admin-accounts-section > .admin-section-header > .btn { min-height: 44px; }
   .admin-accounts-section .admin-toolbar { gap: 8px; margin-bottom: 14px; }
 }
 
@@ -366,3 +383,5 @@ html[data-input-modality="keyboard"] .admin-search-field input:focus-visible { o
 .copy-value { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 7px; min-width: 0; }
 .copy-value bdi { overflow-wrap: anywhere; }
 .copy-value small { color: var(--accent-ink); }
+
+@media(max-width:900px){.admin-report-row>.btn,.admin-resource-row>.btn,.admin-assistance-row>.btn,.admin-admission-actions .btn{min-height:44px}}

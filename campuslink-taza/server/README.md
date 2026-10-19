@@ -112,3 +112,13 @@ Public `/api/support/request` requires name, email and faculty; a signed-in appr
 Folder/module/category reports store their exact academic scope and, for folders, uploader and relative path in `reports.target_context`. They never trigger bulk deletion. Existing per-file reports remain supported. Matching folder names in different categories or by different uploaders remain separate logical directories.
 
 Tests: `npm run test:audit-backend` and, after `npm run build`, `npm run test:audit-ui`. Their helper creates a random `campuslink_test_<uuid>` schema, injects test identity/storage implementations, and drops only the guarded temporary schema in cleanup. Do not run migration/seed against the ordinary schema as part of tests.
+
+### Suppression d’une session Campus Feedback
+
+`DELETE /api/admin/feedback/:id` termine et supprime une demande explicitement choisie. L’administrateur assigné doit conserver `feedback.manage` dans son périmètre ; le propriétaire peut également nettoyer les anciennes demandes sans assignation. Le simple bouton **Clôturer** conserve toujours l’historique.
+
+La suppression retire les fichiers détenus par le stockage de l’application, les messages et réactions, les métadonnées des pièces jointes, les notifications et leurs visites, puis la demande. Les anciens événements d’audit du ticket sont remplacés par un seul reçu sans contenu (identifiant, acteur, nombres de messages et de fichiers). Les autres demandes et comptes ne sont pas modifiés.
+
+La clôture est validée avant le nettoyage des fichiers. Si ce nettoyage échoue, la demande reste clôturée avec ses clés de stockage pour permettre de réessayer ; le serveur ne renvoie pas de réussite avant la suppression complète. Les règles de protection des objets importés restent appliquées par le stockage. Aucune migration supplémentaire n’est nécessaire.
+
+Vérification isolée : `npm run test:feedback-deletion`, puis `npm run build && npm run test:feedback-deletion-ui`.

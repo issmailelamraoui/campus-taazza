@@ -67,12 +67,15 @@ export function installAccessSupport(app,{db,problem,limiter,notifyAdminInbox,br
   await Promise.all([broadcast(row.faculty_id),broadcastUserUpdate([row.assigned_to].filter(Boolean),{support:true})]);res.json({ticket:await ticketDTO(row)});
  });
  app.post('/api/support/reactions',async(req,res)=>{
-  const row=await current(req),reaction=req.body.reaction;
-  if(!row.assigned_to||!['like','heart'].includes(reaction)||typeof req.body.active!=='boolean')throw problem(400,'Réaction invalide.');
-  const reply=await db.prepare('SELECT id FROM contact_replies WHERE id=? AND contact_id=?').get(Number(req.body.reply_id)||0,row.id);
-  if(!reply)throw problem(404,'Message introuvable.');
-  if(req.body.active)await db.prepare('INSERT INTO contact_reactions(reply_id,actor_key,reaction) VALUES(?,?,?) ON CONFLICT DO NOTHING').run(reply.id,'guest:'+row.id,reaction);
-  else await db.prepare('DELETE FROM contact_reactions WHERE reply_id=? AND actor_key=? AND reaction=?').run(reply.id,'guest:'+row.id,reaction);
+  const row=await db.transaction(async()=>{
+   const row=await current(req,true),reaction=req.body.reaction;
+   if(!row.assigned_to||!['like','heart'].includes(reaction)||typeof req.body.active!=='boolean')throw problem(400,'Réaction invalide.');
+   const reply=await db.prepare('SELECT id FROM contact_replies WHERE id=? AND contact_id=?').get(Number(req.body.reply_id)||0,row.id);
+   if(!reply)throw problem(404,'Message introuvable.');
+   if(req.body.active)await db.prepare('INSERT INTO contact_reactions(reply_id,actor_key,reaction) VALUES(?,?,?) ON CONFLICT DO NOTHING').run(reply.id,'guest:'+row.id,reaction);
+   else await db.prepare('DELETE FROM contact_reactions WHERE reply_id=? AND actor_key=? AND reaction=?').run(reply.id,'guest:'+row.id,reaction);
+   return row;
+  });
   await Promise.all([broadcast(row.faculty_id),broadcastUserUpdate([row.assigned_to].filter(Boolean),{support:true})]);res.json({ticket:await ticketDTO(row)});
  });
 }

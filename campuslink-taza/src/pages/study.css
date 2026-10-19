@@ -37,11 +37,16 @@
 .study-resume>div>button:hover{border-color:var(--accent-solid)}
 @media(max-width:650px){
  .study-toolbar{gap:8px}
- .study-card-actions .btn{min-height:38px;font-size:11px}
+ .study-card-actions .btn{min-height:44px;font-size:12px}
  .study-review-filter{width:100%}
  .study-review-filter button{flex:1}
- .study-collection-entry-controls .icon-btn{width:34px;height:34px}
+ .study-collection-entry-controls .icon-btn{width:44px;height:44px}
  .study-collection-entry-source{min-width:0;flex-basis:100%}
  .study-collection-entry-controls{margin-inline-start:auto}
  .study-resume>div>button{padding:12px}
+}
+@media(max-width:900px){
+ .study-review-filter button,.study-grade{min-height:44px}
+ .study-editor-actions{gap:8px}
+ .study-editor-actions .btn{flex:0 1 auto;min-height:44px}
 }

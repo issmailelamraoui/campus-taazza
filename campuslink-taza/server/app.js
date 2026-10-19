@@ -1251,6 +1251,7 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
     if(req.body.reply)await coreRoutes.reply(req,contact,true);
     else await transaction(async()=>{
       const fresh=await db.prepare('SELECT * FROM contacts WHERE id=? FOR UPDATE').get(contact.id);
+      if(!fresh)throw problem(404,'Demande introuvable.');
       const actor=await activeContentActor(req);
       if(!permissions.can(actor,'feedback.manage',fresh.faculty_id,fresh.filiere_id))throw problem(403,'Demande privée.');
       coreRoutes.assertParticipant(fresh,actor,true);

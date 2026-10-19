@@ -65,3 +65,14 @@
 .access-support input,.access-support textarea { max-width: 100%; }
 
 .feedback-message:target { outline: 2px solid var(--accent); outline-offset: 4px; scroll-margin-block: 80px; }
+
+.feedback-delete-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 24px; border-top: 1px solid var(--line); }
+.feedback-delete-actions p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.6; max-width: 440px; }
+.feedback-delete-button { color: var(--danger, #c24c42); border-color: color-mix(in srgb, var(--danger, #c24c42) 45%, var(--line)); }
+.feedback-delete-button:disabled { opacity: .6; }
+.feedback-delete-modal p { line-height: 1.7; overflow-wrap: anywhere; }
+@media (max-width: 600px) {
+ .feedback-delete-actions { padding: 16px; flex-direction: column; align-items: stretch; gap: 10px; }
+ .feedback-delete-actions .btn { width: 100%; white-space: normal; min-height: 44px; }
+ .feedback-delete-modal .modal-footer { flex-wrap: wrap; }
+}

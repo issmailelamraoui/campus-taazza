@@ -99,7 +99,7 @@ ${fault === 'delayedpage' ? `const fixtureOriginalRender = PDFPageProxy.prototyp
   const page = await context.newPage();
   activePage = page;
   page.on('pageerror', error => errors.push(error.message));
-  await page.goto(origin + '/app/library?document=41&page=1&version=1');
+  await page.goto(origin + '/app/library?mode=study&document=41&page=1&version=1');
   const dialog = page.locator('.study-reader-modal');
   await expect(dialog).toBeVisible();
   const pane = dialog.locator('.reader-pane').first();

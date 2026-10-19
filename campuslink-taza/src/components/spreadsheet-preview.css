@@ -9,3 +9,5 @@
 .spreadsheet-search input{min-width:0}
 .spreadsheet-caption,.spreadsheet-navigation [role=status]{overflow-wrap:anywhere;line-height:1.6}
 @media(max-width:650px){.spreadsheet-toolbar>label:first-child{flex:1}.spreadsheet-toolbar>label:first-child .custom-select{flex:1;width:0;max-width:none}.spreadsheet-navigation .btn{font-size:11px;min-height:36px}}
+
+@media(max-width:700px){.spreadsheet-navigation .btn{min-height:44px}}

@@ -38,7 +38,7 @@ async function fixture({ width = 390, manager = false, changed = false } = {}) {
     return route.fulfill({ json: {} });
   });
   const page = await context.newPage(); activePage = page; page.on('pageerror', error => errors.push(error.message));
-  await page.goto(origin + '/app/library?document=41&page=1&version=1');
+  await page.goto(origin + '/app/library?mode=study&document=41&page=1&version=1');
   await expect(page.locator('.reader-pane-active canvas')).toBeVisible();
   await page.locator('.reader-pane-active .reader-tools-toggle').click();
   const panel = page.locator('.document-relations').first(); await panel.locator('summary').click(); await expect(panel.locator('.document-relation-suggestions')).toBeVisible();

@@ -97,7 +97,9 @@ async function check(page, label, path) {
 const routes = ['/app', '/app/library', '/app/library?module=M%C3%A9thodologie+universitaire', '/app/community', '/app/announcements', '/app/notifications', '/app/saved', '/app/profile', '/app/study', '/app/study?tab=flashcard', '/app/study?tab=checklist', '/app/study?tab=collection', '/app/study?tab=roadmap', '/app/study?tab=exam', '/app/scanner', '/app/campus', '/app/campus?tab=forum&question=101', '/app/campus?tab=rooms', '/app/campus?tab=groups', '/app/campus?tab=match', '/app/campus?tab=market', '/app/campus?tab=moderation', '/app/labs', '/app/feedback', '/app/feedback?ticket=91', '/app/xp', '/app/permissions', ...['overview', 'accounts', 'organization', 'resources', 'announcements', 'reports', 'community', 'assistance'].map(tab => '/app/admin?tab=' + tab)];
 let activePage;
 try {
-  for (const config of publicOnly ? [] : [{ width: 1440, height: 900, theme: 'dark', language: 'fr' }, { width: 1440, height: 900, theme: 'light', language: 'fr' }, { width: 768, height: 1024, theme: 'light', language: 'en' }, { width: 320, height: 640, theme: 'dark', language: 'fr' }, { width: 390, height: 844, theme: 'light', language: 'ar' }]) {
+  const additional=process.env.CAMPUS_DESIGN_SCOPE==='additional';
+  for (const config of publicOnly ? [] : additional ? [{width:1024,height:768,theme:'dark',language:'fr'},{width:1920,height:1080,theme:'light',language:'fr'},{width:390,height:844,theme:'dark',language:'fr'}] : [{ width: 1440, height: 900, theme: 'dark', language: 'fr' }, { width: 1440, height: 900, theme: 'light', language: 'fr' }, { width: 768, height: 1024, theme: 'light', language: 'en' }, { width: 320, height: 640, theme: 'dark', language: 'fr' }, { width: 390, height: 844, theme: 'light', language: 'ar' }]) {
+    if(process.env.CAMPUS_DESIGN_WIDTHS&&!process.env.CAMPUS_DESIGN_WIDTHS.split(',').includes(String(config.width)))continue;
     const { context, page } = await fixture(config); activePage = page;
     const prefix = `${config.width}-${config.theme}-${config.language}`;
     for (const route of routes) {
@@ -117,7 +119,7 @@ try {
     await context.close();
     console.log(`PASS ${prefix}: ${routes.length} destinations and sidebar navigation`);
   }
-  for (const config of [{ width: 1440, height: 900, theme: 'dark', language: 'fr' }, { width: 320, height: 640, theme: 'light', language: 'fr' }, { width: 390, height: 844, theme: 'dark', language: 'ar' }]) {
+  for (const config of additional ? [] : [{ width: 1440, height: 900, theme: 'dark', language: 'fr' }, { width: 320, height: 640, theme: 'light', language: 'fr' }, { width: 390, height: 844, theme: 'dark', language: 'ar' }]) {
     for (const [state, paths] of [['guest', ['/', '/login', '/register']], ['pending', ['/account-review']], ['onboarding', ['/onboarding']], ['password', ['/change-password']]]) {
       const { context, page } = await fixture({ ...config, state }); activePage = page;
       for (const path of paths) {
@@ -141,7 +143,7 @@ try {
   }
   assert.deepEqual(errors, [], 'Browser runtime errors');
   assert.deepEqual(unexpected, [], 'Unexpected fixture requests');
-  writeFileSync(`test-results/frontend-consistency/${publicOnly ? 'public-report' : 'report'}.json`, JSON.stringify({ checked: reports.length, reports }, null, 2));
+  writeFileSync(`test-results/frontend-consistency/${publicOnly ? 'public-report' : additional ? 'additional-report' : 'report'}.json`, JSON.stringify({ checked: reports.length, reports }, null, 2));
   console.log(`PASS ${reports.length} responsive page checks (${publicOnly ? 'public pages' : 'all pages, both themes, French/English/Arabic'})`);
 } catch (error) {
   console.error('Runtime errors:', errors, 'Unmocked requests:', [...new Set(unexpected)]);
