@@ -17,6 +17,7 @@ const scenarios = [
   { width: 320, height: 700, language: 'fr', theme: 'dark' },
   { width: 320, height: 568, language: 'ar', theme: 'dark' },
   { width: 390, height: 844, language: 'ar', theme: 'light' },
+  { width: 640, height: 360, language: 'fr', theme: 'dark' },
   { width: 768, height: 1024, language: 'fr', theme: 'light' },
   { width: 844, height: 390, language: 'fr', theme: 'light' },
   { width: 1024, height: 900, language: 'ar', theme: 'dark' },
@@ -124,6 +125,22 @@ try {
     const history = page.locator('.community-message-history');
     try {
       await fits(page);
+      if (width <= 760) {
+        const historyHeight = await history.evaluate(node => node.clientHeight);
+        assert.ok(historyHeight >= height - 126, 'The idle conversation reserves almost all the phone screen for messages');
+        await expect(page.locator('.app-header')).toBeHidden();
+        await expect(page.locator('.mobile-bottom-nav')).toBeHidden();
+        await textarea.fill('Brouillon conservé entre la conversation et les canaux');
+        await page.locator('.community-mobile-back').tap();
+        await expect(page.locator('.community-channel-panel')).toBeVisible();
+        await expect(page.locator('.app-header')).toBeVisible();
+        await expect(page.locator('.mobile-bottom-nav')).toBeVisible();
+        await page.locator('.community-channel-button[aria-current="page"]').tap();
+        await expect(textarea).toHaveValue('Brouillon conservé entre la conversation et les canaux');
+        await expect(page.locator('.mobile-bottom-nav')).toBeHidden();
+        await textarea.fill('');
+        await fits(page);
+      }
       await activate(page, textarea, width < 1100);
       await textarea.fill('Premier message pendant la saisie');
       await page.evaluate(height => window.__keyboardViewport(height), keyboardHeight);
@@ -188,12 +205,12 @@ try {
       await fits(page);
 
       // An ordinary outside tap can dismiss typing; no queued send callback
-      // should reopen it. Resizing back restores normal navigation and height.
+      // should reopen it. Resizing back restores the full conversation height.
       await activate(page, page.locator('.community-chat-heading'), width < 1100);
       await expect(textarea).not.toBeFocused();
       await page.evaluate(() => window.__keyboardViewport(null));
       await fits(page);
-      if (width <= 760) await expect(page.locator('.mobile-bottom-nav')).toBeVisible();
+      if (width <= 760) await expect(page.locator('.mobile-bottom-nav')).toBeHidden();
       await page.screenshot({ path: `${output}/${label}-closed.png` });
 
       // Pinch zoom must keep the workspace size stable and leave panning to
@@ -226,6 +243,7 @@ try {
       await fits(page);
 
       // A route change must release all viewport sizing and keyboard state.
+      if (width <= 760) await page.locator('.community-mobile-back').tap();
       await page.evaluate(() => { document.querySelector('.skip-link').focus(); });
       await page.locator('a[href="/app/library"]').filter({ visible: true }).first().click();
       await expect(page.locator('.library-page')).toBeVisible();

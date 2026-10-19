@@ -89,7 +89,7 @@ try {
         const menuBox = await page.getByRole('menu').boundingBox();
         const navBox = await page.locator('.mobile-bottom-nav').boundingBox();
         assert.ok(menuBox.x >= 0 && menuBox.x + menuBox.width <= viewport.width + 1);
-        assert.ok(menuBox.y >= 0 && menuBox.y + menuBox.height <= navBox.y + 1, 'Menu must fit above mobile navigation.');
+        assert.ok(menuBox.y >= 0 && menuBox.y + menuBox.height <= (navBox?.y ?? viewport.height) + 1, 'Menu must fit within the usable phone viewport.');
         await compatibilityClicks(page, writes);
         await page.getByRole('menuitem', { name: 'Copier le message', exact: true }).tap();
         await expect(page.getByRole('menu')).toHaveCount(0);

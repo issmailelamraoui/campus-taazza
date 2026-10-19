@@ -1629,12 +1629,39 @@ html[data-input-modality="keyboard"] .community-composer-input textarea:focus-vi
   .community-chat-header { gap: 8px; }
 }
 @media (max-width: 760px) {
-  .community-chat-header { min-height: 54px; padding-block: 4px; }
+  /* The channel list keeps app navigation; an open chat owns the phone screen. */
+  .app-shell--community:has(.community-page[data-mobile-view="conversation"])
+    :is(.app-header, .academic-context-bar, .mobile-bottom-nav) { display: none; }
+  .app-shell--community:has(.community-page[data-mobile-view="conversation"]) .app-main {
+    padding-bottom: 0;
+  }
+  .community-chat-header {
+    min-height: 52px;
+    padding-block: max(4px, env(safe-area-inset-top, 0px)) 4px;
+  }
+  .community-mobile-back { width: 44px; }
   .community-chat-heading { display: flex; flex-direction: row; align-items: center; gap: 6px; }
   .community-chat-heading .community-chat-title p { display: none; }
-  .community-chat-heading h2 { margin: 0; }
+  .community-chat-heading h2 { margin: 0; font-size: 15px; }
   .community-chat-heading .chat-presence { max-width: 54px; }
   .community-chat-heading .chat-presence .presence-label { display: none; }
+  .community-message-history { padding-bottom: 12px; }
+  .community-composer { padding: 6px 8px max(6px, env(safe-area-inset-bottom, 0px)); }
+  .community-composer-input { padding: 2px; }
+  .community-composer-help {
+    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+    overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0;
+  }
+  .community-composer-reply { margin-bottom: 5px; padding: 2px 6px; }
+  .community-composer-reply > div { display: flex; align-items: center; gap: 6px; }
+  .community-composer-reply span {
+    flex: 0 1 45%; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+  }
+  .community-composer-reply p { flex: 1; margin: 0; }
+  .community-composer-attachments {
+    max-height: min(96px, calc(var(--community-viewport-height, 100dvh) / 5));
+    margin-bottom: 5px;
+  }
 }
 
 .chat-presence .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
