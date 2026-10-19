@@ -1,3 +1,4 @@
+import { chooseOption } from './ui.helpers.mjs';
 import { chromium, expect } from '@playwright/test';
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
@@ -94,7 +95,7 @@ try {
     await expect(page.locator('.community-composer-attachment')).toHaveCount(0);
     const modal = await choose(page, text);
     await shared(modal, ' méthodologie ', 'Dr. Chat');
-    await (await editor(modal, 0)).getByLabel(/^Part\/Chapitre/).fill('1');
+    await chooseOption((await editor(modal, 0)).getByLabel(/^Part\/Chapitre/), '1');
     // This slot already exists in Library. Sharing it in a discussion remains valid.
     await attach(modal);
     const draft = page.locator('.community-composer-attachment');
@@ -131,11 +132,11 @@ try {
     await expect(modal.locator('.upload-file-path').filter({ hasText: 'nested' }).first()).toBeVisible();
     await expect(modal.locator('.upload-batch').getByLabel(/^Part\/Chapitre/)).toHaveCount(0);
     await shared(modal, 'Module de discussion');
-    for (let index = 0; index < 3; index++) await (await editor(modal, index)).getByLabel(/^Part\/Chapitre/).fill(index < 2 ? '1' : '99999999999999999999999999999999');
+    for (let index = 0; index < 3; index++) await chooseOption((await editor(modal, index)).getByLabel(/^Part\/Chapitre/), index < 2 ? '1' : '20');
     await modal.getByRole('button', { name: /^Vérifier/ }).click();
     await expect(modal.locator('.upload-error')).toContainText('Conflit');
     await expect(page.locator('.community-composer-attachment')).toHaveCount(0);
-    await (await editor(modal, 1)).getByLabel(/^Part\/Chapitre/).fill('Complet');
+    await chooseOption((await editor(modal, 1)).getByLabel(/^Part\/Chapitre/), 'complete');
     await modal.getByRole('button', { name: /^Vérifier/ }).click();
     await expect(modal.locator('.upload-review-list')).toBeVisible();
     await fit(page, 'Mobile classification review');
@@ -154,21 +155,21 @@ try {
     // A new file cannot reuse a slot already occupied by a pending draft file.
     const pending = await choose(page, second);
     await shared(pending, 'Module de discussion');
-    await (await editor(pending, 0)).getByLabel(/^Part\/Chapitre/).fill('1');
+    await chooseOption((await editor(pending, 0)).getByLabel(/^Part\/Chapitre/), '1');
     await pending.getByRole('button', { name: /^Vérifier/ }).click();
     await expect(pending.locator('.upload-error')).toContainText('Conflit');
     await pending.getByRole('button', { name: 'Annuler', exact: true }).click();
     await expect(page.locator('.community-composer-attachment')).toHaveCount(3);
     await page.getByRole('button', { name: 'Envoyer le message', exact: true }).click();
     const stored = await page.evaluate(prefix => JSON.parse(localStorage.getItem(prefix + 'messages')).find(message => message.attachments?.length === 3), prefix);
-    assert.deepEqual(stored.attachments.map(file => file.part), ['1', 'complete', '99999999999999999999999999999999']);
+    assert.deepEqual(stored.attachments.map(file => file.part), ['1', 'complete', '20']);
     assert.ok(stored.attachments.some(file => file.path.includes('/nested/')));
     await page.evaluate(prefix => localStorage.setItem(prefix + 'language', JSON.stringify('ar')), prefix);
     await page.reload();
     const sent = page.locator('.community-message').filter({ has: page.locator('.community-device-attachment') });
     await expect(sent.locator('.community-device-attachment')).toHaveCount(3);
     await expect(sent).toContainText('Module de discussion');
-    await expect(sent).toContainText('99999999999999999999999999999999');
+    await expect(sent).toContainText('20');
     await expect(sent.locator('.community-device-availability').first()).toContainText('الملف غير متاح');
     await fit(page, 'Arabic mobile classified messages');
     await page.screenshot({ path: join(output, 'chat-classification-mobile-arabic.png'), animations: 'disabled' });

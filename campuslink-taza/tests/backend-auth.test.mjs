@@ -329,3 +329,9 @@ test('failed account provisioning cleans only its fresh unlinked provider user',
   await assert.rejects(linked.cleanup(),{code:'AUTH_PROFILE_LINKED'});assert.equal(managedUsers.has(linked.id),true);
 });
 
+
+
+test('provider origin rejection is a configuration failure, never incorrect credentials',async()=>{
+ const {auth}=await fixture({appOrigin:'https://wrong.example.invalid',trustedOrigin:origin});
+ await assert.rejects(auth.signIn(request(),response(),{email:'student@example.com',password:'Temporary2026!',expectedAuthUserId:subject}),{status:503,code:'AUTH_CONFIGURATION'});
+});

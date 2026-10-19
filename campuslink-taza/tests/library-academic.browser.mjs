@@ -79,7 +79,7 @@ async function startUpload(page, entries = [{ name: 'notes.py', mimeType: 'text/
 async function setPart(modal, index, value) {
   const row = modal.locator('.upload-file').nth(index);
   await row.getByRole('button', { name: /^Modifier / }).click();
-  await row.getByLabel(/^Part\/Chapitre/).fill(value);
+  await chooseOption(row.getByLabel(/^Part\/Chapitre/), /^(complet|complete)$/i.test(value) ? 'complete' : value);
 }
 async function options(page, trigger) {
   await trigger.click();
@@ -104,13 +104,13 @@ try {
       await expect(f.page.locator('.document-card')).toHaveCount(24);
       await f.page.getByRole('button', { name: 'Documents suivants', exact: true }).click();
       await expect(f.page.locator('.library-year-heading h3')).toHaveText(['2026/2027', '2025/2026', '2024/2025', 'Année inconnue']);
-      await expect(f.page.locator('.library-year-group').last().locator('.document-filename')).toHaveText('cours-1.pdf');
+      await expect(f.page.locator('.library-year-group').last().locator('.document-card')).toHaveAttribute('id', 'resource-1');
       await chooseOption(f.page.getByLabel('Année universitaire d’utilisation'), '2024/2025');
       await expect(f.page.locator('.library-year-heading h3')).toHaveText(['2024/2025']);
       await expect(f.page.locator('.document-card')).toHaveCount(2);
       assert.equal(await f.page.locator('#resource-80').count(), 1);
       await chooseOption(f.page.getByLabel('Année universitaire d’utilisation'), 'unknown');
-      await expect(f.page.locator('.document-filename')).toHaveText('cours-1.pdf');
+      await expect(f.page.locator('.document-card')).toHaveAttribute('id', 'resource-1');
       assert.deepEqual(f.errors, []);
     } finally { await f.context.close(); }
   });

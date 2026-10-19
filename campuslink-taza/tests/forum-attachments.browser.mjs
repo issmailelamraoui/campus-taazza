@@ -39,6 +39,7 @@ async function fixture({canUpload=true,initial=[],failSecond=false,knownFailed=f
   return route.fulfill({json:{}});
  });
  const page=await context.newPage();activePage=page;page.on('pageerror',error=>errors.push(error.message));await page.goto(origin+'/app/campus?tab=forum&question=81');
+ await page.locator('.forum-attachments').waitFor({timeout:30000});
  const panel=page.getByRole('region',{name:'Pièces jointes de la question',exact:true});await expect(panel.getByRole('button',{name:'Actualiser les fichiers',exact:true})).toBeEnabled();
  return {context,page,panel,items,writes,imageRequests,errors,deny:()=>{denied=true;}};
 }

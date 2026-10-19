@@ -3,3 +3,11 @@
 .page-loading-indicator { width: 20px; height: 20px; flex: 0 0 20px; border: 2px solid var(--line); border-top-color: var(--accent); border-radius: 50%; animation: page-loading-spin .8s linear infinite; }
 @keyframes page-loading-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .page-loading-indicator { animation: none; } }
+
+.page-loading { flex-wrap: wrap; align-content: center; }
+.loading-placeholders { flex: 0 0 100%; display: grid; gap: 12px; max-width: 560px; margin-inline: auto; }
+.loading-placeholders i { height: 14px; border-radius: 7px; background: var(--line); animation: loading-pulse 1.5s ease-in-out infinite; }
+.loading-placeholders i:nth-child(2) { width: 82%; animation-delay: .15s; }
+.loading-placeholders i:nth-child(3) { width: 63%; animation-delay: .3s; }
+@keyframes loading-pulse { 50% { opacity: .4; } }
+@media (prefers-reduced-motion: reduce) { .loading-placeholders i { animation: none; } }

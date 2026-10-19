@@ -8,6 +8,8 @@
     "build": "vite build",
     "preview": "vite preview --host 0.0.0.0 --port 5180",
     "test": "node --test --test-concurrency=2 tests/*.test.mjs",
+    "test:notifications": "node --test tests/notifications.test.mjs tests/backend-notifications.test.mjs",
+    "test:notifications-ui": "node tests/notifications.browser.mjs",
     "test:browser": "node tests/integration.browser.mjs",
     "test:community": "node tests/community.browser.mjs",
     "test:community-reference": "node tests/community-reference.browser.mjs",
@@ -65,7 +67,12 @@
     "test:labs-editor": "node tests/labs-editor.browser.mjs",
     "test:xp-contribution": "node tests/xp-contribution.browser.mjs",
     "test:labs-runtime": "node tests/labs-runtime.browser.mjs",
-    "test:module-sharing": "node tests/module-sharing.browser.mjs"
+    "test:module-sharing": "node tests/module-sharing.browser.mjs",
+    "test:audit-backend": "node --test tests/backend-audit-next.test.mjs tests/identifiers.test.mjs",
+    "test:audit-ui": "node tests/audit-next.browser.mjs",
+    "preview:isolated": "node scripts/preview-isolated.mjs",
+    "test:live-admin": "node --test tests/backend-live-admin.test.mjs tests/backend-notifications.test.mjs tests/notifications.test.mjs",
+    "test:live-admin-ui": "node tests/live-admin.browser.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1146.0",

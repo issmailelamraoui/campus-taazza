@@ -207,13 +207,15 @@ try {
       const categories = page.locator('.library-category-tabs [role="tab"]');
       await expect(categories).toHaveCount(7);
       for (const tab of await categories.all()) await usable(tab, `${label}: category`);
-      await readable(page.locator('#resource-101 .document-copy h3'), `${label}: complete document title`);
+      await readable(page.locator('#resource-101 .document-copy h3'), `${label}: full module name`);
       await expect(page.locator('#resource-101 .document-main')).toHaveAttribute('aria-label', `${ar ? 'فتح المستند' : 'Ouvrir le document'} : ${f.items[0].title}`);
       await expect(page.locator('#resource-101 .document-open-label')).toHaveText(ar ? 'فتح المستند' : 'Ouvrir le document');
       await usable(page.locator('#resource-101 .save-btn'), `${label}: save document`);
-      for (const selector of ['.document-filename', '.document-meta bdi', '.document-author bdi', '.document-uploader bdi', '.part-label']) {
+      for (const selector of ['.document-copy h3', '.document-uploader bdi', '.part-label']) {
         await readable(page.locator(`#resource-101 ${selector}`), `${label}: ${selector}`);
       }
+      await expect(page.locator('#resource-101 .document-filename,#resource-101 .document-author,#resource-101 .document-filiere,#resource-101 .document-category,#resource-101 .document-date,#resource-101 .document-file-details')).toHaveCount(0);
+      await expect(page.locator('#resource-101 .document-uploader bdi')).toHaveText('@library-fixture');
       await page.screenshot({ path: `${directory}/${label}-module.png`, fullPage: true });
       const pdfSearch = page.locator('.library-pdf-search'), pdfSummary = pdfSearch.locator('summary');
       await usable(pdfSummary, `${label}: advanced PDF search disclosure`);
@@ -300,7 +302,7 @@ try {
       assert.deepEqual([...urlState(page).keys()].sort(), ['module', 'semester', 'sort']);
       await choose(page, year, 'unknown');
       await expect(page.locator('.document-card')).toHaveCount(1);
-      await expect(page.locator('.document-filename')).toHaveText('document-104.pdf');
+      await expect(page.locator('.document-card')).toHaveAttribute('id', 'resource-104');
       await page.locator('.library-filter-chips button[data-filter="year"]').click();
       await expect(page.locator('.library-filter-chips button[data-filter="year"]')).toHaveCount(0);
       await expect(search).not.toBeFocused();
@@ -312,7 +314,7 @@ try {
       await expect(page.locator('.empty-state')).toBeVisible();
       for (const key of ['author', 'part', 'date']) await expect(page.locator(`.library-active-filters [data-filter="${key}"]`)).toBeVisible();
       await remove(page, 'date');
-      await expect(page.locator('.document-filename')).toHaveText('document-104.pdf');
+      await expect(page.locator('.document-card')).toHaveAttribute('id', 'resource-104');
       await page.locator('.library-clear-filters').focus(); await page.keyboard.press('Enter');
       await expect(search).toBeFocused();
       await expect(page.locator('.document-card')).toHaveCount(5);

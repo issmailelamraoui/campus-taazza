@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {validatePosition,validateAnchors,validateKnowledge,validateStudyTool} from '../server/reading.js';
-import {parseCSV,sourcePath,referenceText,normalizeSelection,createPositionSync,beginStudySession,clearStudyCache,studyCache,writeStudyCache,loadKnowledge,loadStudyTools,saveKnowledge,syncStudyQueue} from '../src/lib/reading.js';
+import {parseCSV,sourcePath,referenceText,normalizeSelection,createPositionSync,beginStudySession,clearStudyCache,studyCache,writeStudyCache,loadKnowledge,loadStudyTools,saveKnowledge,syncStudyQueue,checklistItemsFromLines} from '../src/lib/reading.js';
 const pos={page:18,version:2,scrollRatio:.6,zoom:1.2,expectedRevision:3,deviceId:'device-fixture',operationId:'operation-fixture',preferences:{tone:'night',brightness:.6}};
 test('position validation rejects manipulated coordinates, revisions and viewer preferences',()=>{
  assert.deepEqual(validatePosition(pos),pos);
@@ -10,6 +10,16 @@ test('position validation rejects manipulated coordinates, revisions and viewer 
 test('highlights retain normalized page rectangles and reject out-of-bounds anchors',()=>{const rectangles=[{x:.1,y:.2,width:.3,height:.05}];assert.deepEqual(validateAnchors(rectangles),rectangles);assert.throws(()=>validateAnchors([{x:.9,y:0,width:.2,height:.1}]));assert.throws(()=>validateAnchors([{x:0,y:0,width:NaN,height:.1}]));const scaled=normalizeSelection([{left:20,top:60,width:80,height:20}],{left:0,top:20,right:200,bottom:420,width:200,height:400});assert.deepEqual(scaled,[{x:.1,y:.1,width:.4,height:.05}]);});
 test('personal notes keep inert user text and only bounded raster crops',()=>{const note=validateKnowledge({kind:'highlight',title:'Definition',selectedText:'<script>alert(1)</script>',anchor:[{x:0,y:0,width:.1,height:.2}]});assert.equal(note.selectedText,'<script>alert(1)</script>');assert.throws(()=>validateKnowledge({kind:'region',title:'unsafe',imageData:'data:image/svg+xml;base64,AAAA'}));assert.throws(()=>validateKnowledge({kind:'reference',title:'x',tags:Array(13).fill('tag')}));});
 test('checklists and collections enforce bounded, unique references',()=>{assert.deepEqual(validateStudyTool({kind:'collection',title:'Semester',data:{resourceIds:[2,2,4]}}).data.resourceIds,[2,4]);assert.throws(()=>validateStudyTool({kind:'checklist',title:'Plan',data:{items:[{id:'item-one',text:'Read'},{id:'item-one',text:'Repeat'}]}}));});
+test('editing repeated checklist wording preserves each task identity and completion independently',()=>{
+ const existing=[{id:'task-read-first',text:'Read',done:true},{id:'task-read-second',text:'Read',done:false},{id:'task-discussion',text:'Discuss',done:true}];
+ const edited=checklistItemsFromLines(' Read\nDiscuss\nRead\nNew task\nRead\n',existing);
+ assert.deepEqual(edited.slice(0,3),[existing[0],existing[2],existing[1]]);
+ assert.deepEqual(edited.slice(3).map(item=>({text:item.text,done:item.done})),[{text:'New task',done:false},{text:'Read',done:false}]);
+ assert.equal(new Set(edited.map(item=>item.id)).size,5);
+ assert.doesNotThrow(()=>validateStudyTool({kind:'checklist',title:'Edited plan',data:{items:edited}}));
+ assert.deepEqual(checklistItemsFromLines('Discuss\nRead',existing),[existing[2],existing[0]],'Removing or reordering a task keeps matching ids and completion states');
+ assert.deepEqual(existing.map(item=>item.done),[true,false,true],'Editing leaves the original tasks intact');
+});
 test('CSV preserves commas, escaped quotes and multiline cells without evaluating formulas',()=>{assert.deepEqual(parseCSV('Name,Note\r\n"a,b","first\nsecond"\r\n"a""b",=cmd()'),[['Name','Note'],['a,b','first\nsecond'],['a"b','=cmd()']]);assert.equal(parseCSV('a\nb\nc',2).length,2);});
 test('exact page references include version and never invent author or year',()=>{assert.equal(sourcePath(12,18,3),'/app/library?document=12&page=18&version=3#resource-12');const reference=referenceText({source:{title:'Lecture'},resourceId:12,page:18,version:3,selectedText:'Quote'});assert.match(reference,/Lecture — p\. 18/);assert.ok(!reference.includes('2026'));});
 function localFixture(){const original=globalThis.localStorage;const values=new Map();globalThis.localStorage={getItem:key=>values.get(key)||null,setItem:(key,value)=>values.set(key,value),removeItem:key=>values.delete(key),key:index=>[...values.keys()][index],get length(){return values.size;}};return{values,close(){clearStudyCache();if(original)globalThis.localStorage=original;else delete globalThis.localStorage;}};}

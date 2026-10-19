@@ -1,3 +1,4 @@
+import { chooseOption } from './ui.helpers.mjs';
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { mkdir, writeFile } from 'node:fs/promises';
@@ -78,7 +79,7 @@ async function uploadThroughUI(page, user, number) {
   await batch.getByRole('button', { name: /Appliquer aux/ }).click();
   const row = modal.locator('.upload-file').first();
   if (!(await row.locator('.upload-file-editor').count())) await row.getByRole('button', { name: /^Modifier / }).click();
-  await row.getByLabel(/^Part\/Chapitre/).fill(String(number));
+  await chooseOption(row.getByLabel(/^Part\/Chapitre/), String(number));
   await modal.getByRole('button', { name: /^Vérifier/ }).click();
   await modal.getByRole('button', { name: 'Confirmer le partage', exact: true }).click();
   await expect(modal.getByRole('heading', { name: 'Documents ajoutés', exact: true })).toBeVisible();

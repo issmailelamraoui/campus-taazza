@@ -31,6 +31,7 @@ try {
       if (bootstrapCount === 2) { heldBootstrap = () => route.fulfill({ contentType: 'application/json', body }); return; }
       return route.fulfill({ contentType: 'application/json', body });
     }
+    if(path==='/api/live')return route.fulfill({json:{...payload(),messages_complete:true}});
     if (path === '/api/saved') {
       const body = route.request().postDataJSON();
       assert.equal(body.type, 'resource');

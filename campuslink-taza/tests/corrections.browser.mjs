@@ -148,7 +148,7 @@ try {
 
   }
   if (process.env.CAMPUSLINK_TEST_SCOPE !== 'community') {
-  await scenario('Required single-file classification, freely typed module and unlimited chapter', async () => {
+  await scenario('Required single-file classification, freely typed module and fixed chapter choices', async () => {
     const { context, page } = await setup();
     await page.goto(`${baseURL}/app/library`);
     await expect(page.locator('.semester-choice')).toHaveCount(6);
@@ -168,13 +168,13 @@ try {
     await expect(modal.locator('.upload-error')).toBeVisible();
     const fields = await editor(modal, 0);
     await expect(fields.getByLabel(/^Module/)).toHaveValue('Nouveau module libre');
-    await expect(fields.getByLabel(/^Part\/Chapitre/)).toHaveValue('');
-    await fields.getByLabel(/^Part\/Chapitre/).fill('999999999999999999999999999999999999999');
+    await expect(fields.getByLabel(/^Part\/Chapitre/)).toContainText('Choisir une partie');
+    await chooseOption(fields.getByLabel(/^Part\/Chapitre/), '20');
     await confirm(modal);
-    const card = page.locator('.document-card').filter({ hasText: text.name });
+    const card = page.locator('.document-card').filter({ has: page.locator('.document-main[aria-label*='+JSON.stringify(text.name.replace(/\.[^.]+$/, ''))+']') });
     await expect(card).toHaveCount(1);
-    await expect(card).toContainText('999999999999999999999999999999999999999');
-    await expect(card).toContainText('TXT');
+    await expect(card).toContainText('20');
+    await expect(card.locator('.document-file-details')).toHaveCount(0);
     await card.locator('.document-main').click();
     await expect(page.locator('.preview-modal')).toContainText(text.name);
     await expect(page.locator('.preview-modal')).toContainText('Device text preview — actual file contents.');
@@ -183,12 +183,12 @@ try {
     await capture(page, 'text-details'); await close(page);
     const second = await upload(page, png);
     await shared(second, ' nouveau   MODULE libre ');
-    await (await editor(second, 0)).getByLabel(/^Part\/Chapitre/).fill('999999999999999999999999999999999999999');
+    await chooseOption((await editor(second, 0)).getByLabel(/^Part\/Chapitre/), '20');
     await second.getByRole('button', { name: /^Vérifier/ }).click();
     await expect(second.locator('.upload-error')).toBeVisible();
-    await (await editor(second, 0)).getByLabel(/^Part\/Chapitre/).fill('Complet');
+    await chooseOption((await editor(second, 0)).getByLabel(/^Part\/Chapitre/), 'complete');
     await confirm(second);
-    const imageCard = page.locator('.document-card').filter({ hasText: png.name });
+    const imageCard = page.locator('.document-card').filter({ has: page.locator('.document-main[aria-label*='+JSON.stringify(png.name.replace(/\.[^.]+$/, ''))+']') });
     await expect(imageCard).toContainText('Complet');
     await imageCard.locator('.document-main').click();
     await expect(page.locator('.preview-modal img')).toBeVisible();
@@ -200,8 +200,8 @@ try {
     await expect.poll(() => autocompleteValues(typed)).toHaveLength(1);
     await close(page);
     await page.reload();
-    await expect(page.locator('.document-card').filter({ hasText: text.name })).toHaveCount(0);
-    await expect(page.locator('.document-card').filter({ hasText: png.name })).toHaveCount(0);
+    await expect(page.locator('.document-card').filter({ has: page.locator('.document-main[aria-label*='+JSON.stringify(text.name.replace(/\.[^.]+$/, ''))+']') })).toHaveCount(0);
+    await expect(page.locator('.document-card').filter({ has: page.locator('.document-main[aria-label*='+JSON.stringify(png.name.replace(/\.[^.]+$/, ''))+']') })).toHaveCount(0);
     await context.close();
   });
 
@@ -215,7 +215,7 @@ try {
     await expect(modal.locator('.upload-batch').getByLabel(/^Part\/Chapitre/)).toHaveCount(0);
     for (let index = 0; index < extensions.length; index++) {
       const fields = await editor(modal, index);
-      await fields.getByLabel(/^Part\/Chapitre/).fill(index < 4 ? '1' : String(index));
+      await chooseOption(fields.getByLabel(/^Part\/Chapitre/), index < 4 ? '1' : String(index));
       if (index < 4) await chooseOption(fields.getByLabel(/^Catégorie/), ['courses', 'exercises', 'exams', 'rattrapage'][index]);
     }
     const duplicate = await editor(modal, 1);
@@ -242,7 +242,8 @@ try {
     for (const label of ['Cours', 'Exercices', 'Examens', 'Rattrapages']) {
       await page.getByRole('tab', { name: new RegExp(`^${label}`) }).click();
       await expect(page.locator('.document-card')).not.toHaveCount(0);
-      await expect(page.locator('.document-category')).toHaveText(Array(await page.locator('.document-card').count()).fill(label));
+      await expect(page.locator('.document-category')).toHaveCount(0);
+      await expect(page.getByRole('tab', { name: new RegExp(`^${label}`) })).toHaveAttribute('aria-selected', 'true');
     }
     await fit(page, 'Mobile resource metadata'); await capture(page, 'resource-categories-mobile-light'); await context.close();
   });

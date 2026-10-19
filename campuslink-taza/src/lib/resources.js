@@ -94,6 +94,33 @@ export function groupResourcesByModule(resources) {
   return [...groups.values()].sort((a, b) => a.name.localeCompare(b.name));
 }
 
+// Relative paths describe the uploaded hierarchy. Keep each uploader's tree
+// separate when two people upload folders with the same name.
+export function resourceDirectory(resource) {
+  return String(resource?.path || resource?.relative_path || resource?.originalName || '')
+    .split('/').filter(Boolean).slice(0, -1).join('/');
+}
+export function resourceFolderOwner(resource) {
+  return String(resource?.author_id || resource?.uploaderUsername || resource?.uploader_username || resource?.uploader || '');
+}
+export function browseResourceDirectory(resources, path = '', owner = '') {
+  const folders = new Map(), documents = [];
+  const prefix = path ? `${path}/` : '';
+  for (const resource of resources) {
+    if (resource.status === 'removed' || (owner && resourceFolderOwner(resource) !== owner)) continue;
+    const directory = resourceDirectory(resource);
+    if (directory === path) { documents.push(resource); continue; }
+    if (path && !directory.startsWith(prefix)) continue;
+    const name = directory.slice(prefix.length).split('/')[0];
+    if (!name) continue;
+    const folderOwner = resourceFolderOwner(resource), folderPath = prefix + name;
+    const key = JSON.stringify([folderPath, folderOwner, resource.category||'']);
+    if (!folders.has(key)) folders.set(key, { key, name, category:resource.category||'', path: folderPath, owner: folderOwner, uploader: resource.uploaderUsername ? `@${resource.uploaderUsername.replace(/^@/, '')}` : resource.uploader || '', count: 0 });
+    folders.get(key).count++;
+  }
+  return { folders: [...folders.values()].sort((a, b) => a.name.localeCompare(b.name) || a.owner.localeCompare(b.owner)), documents };
+}
+
 // Suggestions come exclusively from classified resources in the selected
 // program and semester, including files added in the current frontend session.
 export function moduleSuggestions(resources, scope, query = '') {

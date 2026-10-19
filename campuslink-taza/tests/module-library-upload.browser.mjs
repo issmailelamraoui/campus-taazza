@@ -119,7 +119,7 @@ async function chapter(modal, index, value) {
   await expect(fields.locator('input,textarea,[role="combobox"]')).toHaveCount(1);
   await expect(fields.getByLabel(/^Part\/Chapitre/)).toBeVisible();
   await expect(fields.getByLabel(/^(Titre|Module|Semestre|Catégorie|Professeur)/)).toHaveCount(0);
-  await fields.getByLabel(/^Part\/Chapitre/).fill(value);
+  await chooseOption(fields.getByLabel(/^Part\/Chapitre/), /^(complet|complete)$/i.test(value) ? 'complete' : String(Number(value)));
 }
 async function complete(modal) {
   await modal.getByRole('button', { name: /^Vérifier/ }).click();
@@ -152,8 +152,8 @@ try {
       await folder(page, 'XML').click();
       await expect(page).toHaveURL(url => url.searchParams.get('module')?.toUpperCase() === 'XML');
       await expect(page.locator('.document-card')).toHaveCount(4);
-      assert.deepEqual((await page.locator('.document-filename').allTextContents()).sort(), ['legacy-first.pdf', 'legacy-fourth.pdf', 'legacy-second.pdf', 'legacy-third.pdf'].sort());
-      await expect(page.locator('.document-card').filter({ hasText: 'database-only.pdf' })).toHaveCount(0);
+      assert.deepEqual((await page.locator('.document-card').evaluateAll(nodes => nodes.map(node => node.id))).sort(), ['resource-101', 'resource-102', 'resource-103', 'resource-104']);
+      await expect(page.locator('#resource-201')).toHaveCount(0);
       await expect(page.locator('.library-results-heading h2')).toHaveText('XML');
       await page.goBack();
       await expect(page).toHaveURL(url => url.pathname === '/app/library' && !url.searchParams.has('module'));
@@ -172,7 +172,7 @@ try {
       await expect(folder(page, 'XML').locator('.library-module-count')).toContainText('1 document');
       await folder(page, 'XML').click();
       await expect(page.locator('.document-card')).toHaveCount(1);
-      await expect(page.locator('.document-card')).toContainText('legacy-second.pdf');
+      await expect(page.locator('.document-card')).toHaveAttribute('id', 'resource-102');
       await page.goto(`${baseURL}/app/library?module=xMl`);
       await expect(page.locator('.document-card')).toHaveCount(4);
       await allModules(page);
@@ -189,15 +189,15 @@ try {
         await page.screenshot({ path: 'test-results/module-library-search-failure.png' });
         throw error;
       });
-      await expect(page.locator('.document-card h3')).toHaveText('Original title 103');
+      await expect(page.locator('.document-card .document-main')).toHaveAttribute('aria-label', /Original title 103/);
       await page.reload();
       await expect(search).toHaveValue('legacy-third.pdf');
       await expect(page).toHaveURL(url => url.searchParams.get('q') === 'legacy-third.pdf');
       await expect(page.locator('.document-card')).toHaveCount(1);
-      await expect(page.locator('.document-card h3')).toHaveText('Original title 103');
+      await expect(page.locator('.document-card .document-main')).toHaveAttribute('aria-label', /Original title 103/);
       await page.goto(`${baseURL}/app/library?semester=2&module=xml`);
       await expect(page.locator('.document-card')).toHaveCount(1);
-      await expect(page.locator('.document-filename')).toHaveText('semester-two.pdf');
+      await expect(page.locator('.document-card')).toHaveAttribute('id', 'resource-301');
       await fits(page, 'Desktop module library');
       assert.deepEqual(f.errors, []);
       assert.deepEqual(f.uploads, []);
@@ -223,7 +223,7 @@ try {
       await expect(previous).toBeDisabled();
       for (let index = 0; index < 6; index++) {
         await expect(page.locator('.document-card')).toHaveCount(index < 5 ? 24 : 5);
-        for (const filename of await page.locator('.document-filename').allTextContents()) {
+        for (const filename of await page.locator('.document-card').evaluateAll(nodes => nodes.map(node => node.id))) {
           assert.ok(!seen.has(filename), 'Pagination must never repeat a document.');
           seen.add(filename);
         }
@@ -237,7 +237,7 @@ try {
       await expect(page.locator('.library-page-position')).toHaveText('97–120 sur 125');
       await page.getByLabel('Rechercher des documents', { exact: true }).fill('original-125.pdf');
       await expect(page.locator('.document-card')).toHaveCount(1);
-      await expect(page.locator('.document-filename')).toHaveText('original-125.pdf');
+      await expect(page.locator('.document-card')).toHaveAttribute('id', 'resource-125');
       await expect(pagination).toHaveCount(0);
       await page.screenshot({ path: 'test-results/module-library-mobile-320-dark.png' });
       await page.goto(`${baseURL}/app/library?module=xml#resource-110`);
@@ -307,8 +307,8 @@ try {
       await page.reload();
       await expect(page.locator('.document-card')).toHaveCount(6);
       const titles = await page.locator('.document-card h3').allTextContents();
-      assert.equal(titles.filter(title => title === 'XML').length, 2);
-      for (const name of ['legacy-first.pdf', 'legacy-second.pdf', 'legacy-third.pdf', 'legacy-fourth.pdf', 'new-first.pdf', 'new-second.pdf']) await expect(page.locator('.document-filename').filter({ hasText: new RegExp(`^${name.replace('.', '\\.')}$`) })).toHaveCount(1);
+      assert.equal(titles.filter(title => title === 'XML').length, 6);
+      assert.deepEqual((await page.locator('.document-card').evaluateAll(nodes => nodes.map(node => node.id))).sort(), ['resource-1000', 'resource-1001', 'resource-101', 'resource-102', 'resource-103', 'resource-104']);
       assert.deepEqual(f.errors, []);
     } finally { await f.context.close(); }
   });
@@ -331,10 +331,10 @@ try {
       await chapter(modal, 1, 'COMPLETE');
       await modal.getByRole('button', { name: /^Vérifier/ }).click();
       await expect(modal.locator('.upload-error')).toContainText('Conflit');
-      await chapter(modal, 1, '999999999999999999999999999999999999');
+      await chapter(modal, 1, '20');
       await modal.getByRole('button', { name: /^Vérifier/ }).click();
       await expect(modal.locator('.upload-review-list')).toBeVisible();
-      await expect(modal.locator('.upload-review-list')).toContainText('999999999999999999999999999999999999');
+      await expect(modal.locator('.upload-review-list')).toContainText('20');
       assert.deepEqual(f.uploads, []);
       await modal.getByRole('button', { name: 'Annuler', exact: true }).click();
       assert.deepEqual(f.errors, []);
@@ -356,8 +356,8 @@ try {
       assert.equal(f.uploads[0].filename, 'individual-original.pdf');
       await expect(folder(f.page, 'NEW AUTOMATIC MODULE').locator('.library-module-count')).toContainText('1 document');
       await folder(f.page, 'NEW AUTOMATIC MODULE').click();
-      await expect(f.page.locator('.document-card h3')).toHaveText('A preserved custom title');
-      await expect(f.page.locator('.document-filename')).toHaveText('individual-original.pdf');
+      await expect(f.page.locator('.document-card h3')).toHaveText('NEW AUTOMATIC MODULE');
+      await expect(f.page.locator('.document-card .document-main')).toHaveAttribute('aria-label', /A preserved custom title/);
       assert.deepEqual(f.errors, []);
     } finally { await f.context.close(); }
   });
@@ -393,7 +393,7 @@ try {
       await expect(folder(page, 'XML').locator('.library-module-count')).toContainText('4 documents');
       await folder(page, 'XML').tap();
       await expect(page.locator('.document-card')).toHaveCount(4);
-      await expect(page.locator('.document-filename').filter({ hasText: /^chat-/ })).toHaveCount(0);
+      await expect(page.locator('#resource-1000,#resource-1001')).toHaveCount(0);
       assert.deepEqual(f.errors, []);
     } finally { await f.context.close(); }
   });
@@ -444,26 +444,26 @@ try {
       assert.deepEqual((await page.locator('.library-module-name').allTextContents()).sort(), ['ALL', 'STRASSE', 'Sans module'].sort());
       await folder(page, 'STRASSE').click();
       await expect(page.locator('.document-card')).toHaveCount(1);
-      await expect(page.locator('.document-filename')).toHaveText('german-case.pdf');
+      await expect(page.locator('.document-card')).toHaveAttribute('id', 'resource-501');
       await expect(page).toHaveURL(url => url.searchParams.get('module') === 'straße');
       await allModules(page);
       await page.getByRole('button', { name: 'Choisir un module', exact: true }).click();
       await page.locator('.library-modules').getByRole('button', { name: 'STRASSE', exact: true }).click();
       await expect(page.locator('.document-card')).toHaveCount(1);
-      await expect(page.locator('.document-filename')).toHaveText('german-case.pdf');
+      await expect(page.locator('.document-card')).toHaveAttribute('id', 'resource-501');
       await allModules(page);
       await folder(page, 'Sans module').click();
       await expect(page).toHaveURL(url => url.searchParams.has('module') && url.searchParams.get('module') === '');
       await expect(page.locator('.document-card')).toHaveCount(1);
-      await expect(page.locator('.document-filename')).toHaveText('unclassified-original.pdf');
+      await expect(page.locator('.document-card')).toHaveAttribute('id', 'resource-502');
       await allModules(page);
       await folder(page, 'ALL').click();
       await expect(page).toHaveURL(url => url.searchParams.get('module') === 'all');
       await expect(page.locator('.document-card')).toHaveCount(1);
-      await expect(page.locator('.document-filename')).toHaveText('literal-all-module.pdf');
+      await expect(page.locator('.document-card')).toHaveAttribute('id', 'resource-503');
       await page.goto(`${baseURL}/app/library?module=all`);
       await expect(page.locator('.document-card')).toHaveCount(1);
-      await expect(page.locator('.document-filename')).toHaveText('literal-all-module.pdf');
+      await expect(page.locator('.document-card')).toHaveAttribute('id', 'resource-503');
       assert.deepEqual(f.errors, []);
     } finally { await f.context.close(); }
   });

@@ -25,7 +25,7 @@ export async function classifyChatFiles(page, module = 'Module des fichiers du m
   for (let index = 0; index < await modal.locator('.upload-file').count(); index++) {
     const row = modal.locator('.upload-file').nth(index);
     if (!(await row.locator('.upload-file-editor').count())) await row.getByRole('button', { name: /^Modifier / }).click();
-    await row.locator('.upload-file-editor').getByLabel(/^Part\/Chapitre/).fill(String(index + 1));
+    await chooseOption(row.locator('.upload-file-editor').getByLabel(/^Part\/Chapitre/), String(index + 1));
   }
   await modal.getByRole('button', { name: /^Vérifier/ }).click();
   await expect(modal.locator('.upload-review-list')).toBeVisible();

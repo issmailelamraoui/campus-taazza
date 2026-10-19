@@ -1,3 +1,4 @@
+import {requestId} from './identifiers.js';
 import {UPLOAD_CHUNK_THRESHOLD,chunkUploadTarget} from '../../shared/upload-transport.js';
 
 // Private file handles are page-local. A retry of the same file and metadata
@@ -37,7 +38,7 @@ export async function uploadInChunks(path,body,{signal,headers,generation}){
   let current=known.get(signature);
   if(current){try{current=await control('/upload-sessions/'+current.id);}catch(error){if(![404,410].includes(error.status))throw error;known.delete(signature);current=null;}}
   if(!current){
-   const clientId=crypto.randomUUID();
+   const clientId=requestId();
    // Retain the identity even if all creation responses disappear. The next
    // explicit retry can GET the same session instead of consuming another slot.
    known.set(signature,{id:clientId});

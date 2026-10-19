@@ -34,7 +34,7 @@ createRoot(document.getElementById('root')).render(
       <AppProvider>
         <InstallAppProvider>
           <App />
-          <Analytics />
+          {import.meta.env.CAMPUS_ANALYTICS_ENABLED && <Analytics />}
         </InstallAppProvider>
       </AppProvider>
     </BrowserRouter>

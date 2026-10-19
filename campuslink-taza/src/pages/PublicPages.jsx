@@ -1,5 +1,5 @@
 import { Select } from '../components/Select';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Link, Navigate, useNavigate } from 'react-router-dom';
 import { ArrowRight, ArrowUpRight, Atom, BookOpen, Check, ChevronLeft, Eye, EyeOff, FileText, GraduationCap, Languages, LockKeyhole, Mail, Megaphone, Moon, Scale, ShieldCheck, Sparkles, Sun, TrendingUp, Users, LogOut } from 'lucide-react';
 import { useApp } from '../context';
@@ -7,7 +7,7 @@ import { api } from '../api';
 import { Button, Field, Badge, Logo } from '../components/ui';
 import { FACULTIES } from '../data/mock';
 import { getFilieres } from '../data/studies';
-import {requiresPasswordChange} from '../lib/backend';
+import { isAdministrator, requiresPasswordChange } from '../lib/backend';
 import './public.css';
 
 const facultyIcons = { fsa: Atom, flaa: BookOpen, feg: TrendingUp, fsjp: Scale };
@@ -62,21 +62,23 @@ export function LoginPage() {
   const [errors, setErrors] = useState({});
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const request = useRef(false);
   if (user) return <Navigate to={accountPath(user,selection)} replace />;
   const submit = async e => {
     e.preventDefault();
+    if (request.current) return;
     const nextErrors = {};
     if (!username.trim()) nextErrors.username = tr('Indiquez votre nom d’utilisateur.', 'Enter your username.', 'أدخل اسم المستخدم.');
     if (!password) nextErrors.password = tr('Indiquez votre mot de passe.', 'Enter your password.', 'أدخل كلمة المرور.');
     setErrors(nextErrors); setError('');
     if (Object.keys(nextErrors).length) { document.getElementById(nextErrors.username ? 'login-username' : 'login-password')?.focus(); return; }
-    setBusy(true);
+    request.current = true; setBusy(true);
     try {
       const result = await login(username.trim(), password);
       if (!result.ok) { setError(result.error || tr('Ces identifiants sont incorrects. Réessayez.', 'These credentials are incorrect. Try again.', 'بيانات الدخول غير صحيحة. حاول مجدداً.')); return; }
       navigate(accountPath(result.user,result.selection), { replace: true });
     } catch(error) { setError(error.message || tr('La connexion a échoué. Réessayez.', 'Sign-in failed. Please try again.', 'تعذر تسجيل الدخول. حاول مجددًا.')); }
-    finally { setBusy(false); }
+    finally { request.current = false; setBusy(false); }
   };
 
   return <div className="public-page login-page"><PublicHeader /><main className="login-main"><aside className="login-story"><div className="landing-eyebrow"><span className="public-accent-dot" />CAMPUSLINK TAZA</div><h1>{tr('Un lien de plus.\nUn pas en avant.', 'One more connection.\nOne step forward.', 'رابط جديد.\nخطوة إلى الأمام.')}</h1><p>{tr('Le cours qu’il vous manquait. La réponse à votre question. Les étudiants qui vous comprennent.', 'The course you needed. The answer to your question. Students who understand you.', 'الدرس الذي تحتاجه. الإجابة عن سؤالك. طلبة يفهمونك.')}</p><div className="login-story-art"><svg viewBox="0 0 340 220" fill="none" aria-hidden="true"><ellipse cx="170" cy="174" rx="139" ry="28" stroke="currentColor" opacity=".2"/><path d="M65 58 167 22l109 39-104 40L65 58Z" stroke="currentColor" strokeWidth="1.4"/><path d="m77 92 91-33 94 33-92 37-93-37ZM89 125l79-29 84 30-81 33-82-34Z" stroke="currentColor" strokeWidth="1.4"/><path d="M65 58v37l104 40 107-41V61M77 92v36l93 37 92-36V92M89 125v34l82 34 81-35v-32" stroke="currentColor" strokeWidth="1.4"/><path d="M168 101v34M170 129v36M171 159v34" stroke="currentColor"/><path d="M295 35v18m-9-9h18M41 135v14m-7-7h14" stroke="currentColor" opacity=".5"/><circle cx="44" cy="64" r="3" fill="currentColor" opacity=".4"/></svg></div><span className="login-story-caption"><BookOpen size={16} />{tr('Votre prochaine découverte commence ici.', 'Your next discovery starts here.', 'اكتشافك القادم يبدأ هنا.')}</span></aside><section className="login-form-wrap"><Link className="public-back-link" to="/"><ChevronLeft size={16} />{tr('Retour à l’accueil', 'Back to home', 'العودة إلى الرئيسية')}</Link><div className="login-form-heading"><Badge>{tr('BIENVENUE SUR VOTRE CAMPUS', 'WELCOME TO YOUR CAMPUS', 'مرحبًا بك في جامعتك')}</Badge><h2>{tr('Ravi de vous retrouver.', 'Good to see you again.', 'سعداء بعودتك.')}</h2><p>{tr('Connectez-vous avec les identifiants fournis par votre administration.', 'Sign in with the credentials provided by your administrator.', 'سجّل الدخول بالبيانات التي قدمتها لك الإدارة.')}</p></div><form onSubmit={submit} noValidate className="login-form"><Field label={tr('Nom d’utilisateur', 'Username', 'اسم المستخدم')} error={errors.username}><input className="input" id="login-username" name="username" value={username} autoComplete="username" autoCapitalize="none" spellCheck={false} placeholder={tr('Votre nom d’utilisateur','Your username','اسم المستخدم')} aria-invalid={Boolean(errors.username)} aria-label={tr('Nom d’utilisateur', 'Username', 'اسم المستخدم')} disabled={busy} onChange={e => { setUsername(e.target.value); setErrors(v => ({ ...v, username: '' })); setError(''); }} /></Field><Field label={tr('Mot de passe', 'Password', 'كلمة المرور')} error={errors.password}><div className="password-field"><input className="input" id="login-password" name="password" type={visible ? 'text' : 'password'} value={password} autoComplete="current-password" placeholder={tr('Votre mot de passe', 'Your password', 'كلمة المرور')} aria-invalid={Boolean(errors.password)} aria-label={tr('Mot de passe', 'Password', 'كلمة المرور')} disabled={busy} onChange={e => { setPassword(e.target.value); setErrors(v => ({ ...v, password: '' })); setError(''); }} /><button type="button" onClick={() => setVisible(v => !v)} aria-label={tr(visible ? 'Masquer le mot de passe' : 'Afficher le mot de passe', visible ? 'Hide password' : 'Show password', visible ? 'إخفاء كلمة المرور' : 'عرض كلمة المرور')} aria-pressed={visible}>{visible ? <EyeOff size={19} /> : <Eye size={19} />}</button></div></Field><button type="button" className="login-forgot" onClick={() => setDialog({ type: 'contact' })}>{tr('Mot de passe oublié ?', 'Forgot your password?', 'نسيت كلمة المرور؟')}</button>{error && <p className="public-form-error" role="alert">{error}</p>}<Button variant="primary" type="submit" icon={ArrowRight} disabled={busy} className="login-submit" aria-busy={busy}>{busy ? tr('Connexion…', 'Signing in…', 'جارٍ الاتصال…') : tr('Se connecter', 'Sign in', 'تسجيل الدخول')}</Button></form><div className="login-demo-box"><div><Users size={16}/><strong>{tr('Pas encore de compte ?','Don’t have an account?','ليس لديك حساب بعد؟')}</strong></div><p>{tr('Inscrivez-vous pour rejoindre votre faculté. Votre demande sera examinée par l’administration.','Register to join your faculty. Administration will review your application.','سجّل للانضمام إلى كليتك. تراجع الإدارة طلبك.')}</p><Link className="text-link" to="/register">{tr('Créer un compte étudiant','Create a student account','إنشاء حساب طالب')}<ArrowUpRight size={14}/></Link></div><p className="login-admin-help"><Mail size={15} />{tr('Besoin d’aide pour votre compte ?', 'Need help with your account?', 'تحتاج إلى مساعدة بشأن حسابك؟')}<button onClick={() => setDialog({ type: 'contact' })}>{tr('Contacter l’administration', 'Contact the administrator', 'التواصل مع الإدارة')}</button></p><p className="login-local-note">{tr('Votre connexion et vos données sont protégées dans votre espace universitaire.', 'Your account and data are protected in your campus space.', 'حسابك وبياناتك محفوظة في فضاءك الجامعي.')}</p></section></main><PublicFooter /></div>;
@@ -91,29 +93,30 @@ export function OnboardingPage() {
   const [semester, setSemester] = useState(user?.semester || 1);
   const [confirmed, setConfirmed] = useState(false);
   const [busy, setBusy] = useState(false);
+  const request = useRef(false);
   const [error, setError] = useState('');
   const faculty = FACULTIES.find(f => f.id === facultyId);
   const filiere = getFilieres(facultyId).find(f => f.id === filiereId);
   useEffect(() => { document.getElementById('onboarding-heading')?.focus(); }, [step]);
   if (!user) return <Navigate to="/login" replace />;
   if (selection) return <Navigate to={accountPath(user,selection)} replace />;
-  if (['global_admin','faculty_admin','moderator'].includes(user.role)) return <Navigate to="/app/admin" replace />;
+  if (isAdministrator(user)) return <Navigate to="/app/admin" replace />;
   const titles = [tr('Votre faculté,\nvotre point de départ.', 'Your faculty,\nyour starting point.', 'كليتك،\nنقطة انطلاقك.'), tr('Retrouvez\nvotre filière.', 'Find\nyour programme.', 'اختر\nمسلكك.'), tr('Tout est prêt.\nÀ vous de confirmer.', 'Everything is ready.\nConfirm your choice.', 'كل شيء جاهز.\nأكد اختيارك.')];
   const finish = async () => {
-    if (!confirmed || !faculty || !filiere) return;
-    setBusy(true); setError('');
+    if (request.current || !confirmed || !faculty || !filiere) return;
+    request.current = true; setBusy(true); setError('');
     try { const ok = await completeOnboarding({ facultyId, filiereId, semester: Number(semester) }); if (ok) { notify(tr('Bienvenue dans votre espace CampusLink.', 'Welcome to your CampusLink space.', 'مرحبًا بك في فضاء كامبوس لينك.')); navigate('/app', { replace: true }); } else setError(tr('Vérifiez votre sélection et réessayez.', 'Check your selection and try again.', 'تحقق من اختيارك وحاول مجددًا.')); }
     catch(error) { setError(error.message || tr('Votre choix n’a pas pu être enregistré. Réessayez.', 'Your selection could not be saved. Try again.', 'تعذر حفظ اختيارك. حاول مجددًا.')); }
-    finally { setBusy(false); }
+    finally { request.current = false; setBusy(false); }
   };
   return <div className="public-page onboarding-page"><PublicHeader /><main className="onboarding-main"><div className="onboarding-progress" aria-label={tr('Étapes de configuration', 'Setup steps', 'خطوات الإعداد')}>{[tr('Établissement', 'Faculty', 'الكلية'), tr('Filière', 'Programme', 'المسلك'), tr('Confirmation', 'Confirmation', 'التأكيد')].map((name, i) => <div key={i} className={`${step === i + 1 ? 'active' : ''} ${step > i + 1 ? 'done' : ''}`} aria-current={step === i + 1 ? 'step' : undefined}><span>{step > i + 1 ? <Check size={15} /> : `0${i + 1}`}</span><b>{name}</b>{i < 2 && <i />}</div>)}</div><header className="onboarding-heading"><span className="landing-eyebrow">{tr('UN ESPACE QUI VOUS RESSEMBLE', 'A SPACE THAT FITS YOU', 'فضاء يناسبك')}</span><h1 id="onboarding-heading" tabIndex={-1}>{titles[step - 1]}</h1><p>{step === 1 ? tr('Choisissez votre établissement pour accéder à sa communauté et à ses ressources.', 'Choose your faculty to access its community and resources.', 'اختر كليتك للوصول إلى مجتمعها ومواردها.') : step === 2 ? tr('Seules les filières de votre faculté sont affichées. Sélectionnez votre parcours et votre semestre.', 'Only programmes in your faculty are shown. Select your programme and semester.', 'تظهر مسالك كليتك فقط. اختر مسلكك وفصلك الدراسي.') : tr('Prenez un instant pour vérifier votre parcours. Il définira votre espace étudiant.', 'Take a moment to check your programme. It will define your student space.', 'تحقق من مسارك للحظة. سيحدد فضاءك الطلابي.')}</p></header>
     {step === 1 && <><div className="onboarding-faculties">{FACULTIES.map(f => { const Icon = facultyIcons[f.id] || GraduationCap; return <button key={f.id} className={`onboarding-faculty ${facultyId === f.id ? 'selected' : ''}`} disabled={Boolean(user?.facultyId) && user.facultyId !== f.id} onClick={() => { setFacultyId(f.id); setFiliereId(''); }} aria-pressed={facultyId === f.id}><div className="onboarding-faculty-top"><span className="onboarding-faculty-icon"><Icon size={27} strokeWidth={1.5} /></span><span className="selection-radio">{facultyId === f.id && <Check size={13} />}</span></div><small>{f.code}</small><h2>{f.name}</h2><p dir="rtl" lang="ar">{f.arabic}</p></button>; })}</div><div className="onboarding-lock-note"><LockKeyhole size={20} /><p>{tr('Le choix de votre établissement est définitif et ne pourra être modifié qu’avec l’aide de l’administration.', 'Your faculty choice is final and can only be changed with help from the administration.', 'اختيار كليتك نهائي ولا يمكن تغييره إلا بمساعدة الإدارة.')}</p></div></>}
     {step === 2 && <div className="onboarding-programme"><div className="onboarding-chosen-faculty"><GraduationCap size={22} /><div><small>{tr('VOTRE ÉTABLISSEMENT', 'YOUR FACULTY', 'كليتك')}</small><strong>{faculty?.name}</strong></div><Badge>{faculty?.code}</Badge></div><div className="onboarding-filieres" aria-label={tr('Choisissez votre filière', 'Choose your programme', 'اختر مسلكك')}>{getFilieres(facultyId).map(f => <button key={f.id} className={filiereId === f.id ? 'selected' : ''} onClick={() => setFiliereId(f.id)} aria-pressed={filiereId === f.id}><span className="selection-radio">{filiereId === f.id && <Check size={13} />}</span><span dir="auto">{f.name}</span></button>)}</div><Field label={tr('Votre semestre actuel', 'Your current semester', 'فصلك الدراسي الحالي')} hint={tr('Vos ressources restent accessibles pour les six semestres.', 'Resources remain available for all six semesters.', 'تظل موارد الفصول الستة متاحة لك.')}><Select className="input" value={semester} onChange={e => setSemester(Number(e.target.value))} aria-label={tr('Votre semestre actuel', 'Your current semester', 'فصلك الدراسي الحالي')}>{[1, 2, 3, 4, 5, 6].map(s => <option key={s} value={s}>{tr('Semestre', 'Semester', 'الفصل الدراسي')} {s} · S{s}</option>)}</Select></Field></div>}
     {step === 3 && <div className="onboarding-confirmation"><div className="onboarding-confirm-symbol"><GraduationCap size={30} strokeWidth={1.5} /></div><h2>{tr('Voici votre espace étudiant.', 'Here is your student space.', 'هذا فضاءك الطلابي.')}</h2><div className="onboarding-summary"><div><span>{tr('Établissement', 'Faculty', 'الكلية')}</span><strong>{faculty?.name}</strong></div><div><span>{tr('Filière', 'Programme', 'المسلك')}</span><strong dir="auto">{filiere?.name}</strong></div><div><span>{tr('Semestre actuel', 'Current semester', 'الفصل الدراسي الحالي')}</span><strong>S{semester}</strong></div></div><label className="onboarding-consent"><input type="checkbox" checked={confirmed} onChange={e => setConfirmed(e.target.checked)} /><span><strong>{tr('Je confirme que ces informations sont correctes.', 'I confirm that these details are correct.', 'أؤكد أن هذه المعلومات صحيحة.')}</strong><small>{tr('Le choix de votre établissement est définitif et ne pourra être modifié qu’avec l’aide de l’administration.', 'Your faculty choice is final and can only be changed with help from the administration.', 'اختيار كليتك نهائي ولا يمكن تغييره إلا بمساعدة الإدارة.')}</small></span></label></div>}
-    {error && <p className="public-form-error" role="alert">{error}</p>}<div className="onboarding-actions">{step > 1 ? <Button variant="ghost" icon={ChevronLeft} onClick={() => { setStep(v => v - 1); setConfirmed(false); setError(''); }}>{tr('Retour', 'Back', 'رجوع')}</Button> : <span>{tr('Étape 1 sur 3', 'Step 1 of 3', 'الخطوة 1 من 3')}</span>}{step < 3 ? <Button variant="primary" icon={ArrowRight} disabled={step === 1 ? !facultyId : !filiereId} onClick={() => setStep(v => v + 1)}>{tr('Continuer', 'Continue', 'متابعة')}</Button> : <Button variant="primary" icon={LockKeyhole} disabled={!confirmed || busy} aria-busy={busy} onClick={finish}>{busy ? tr('Préparation…', 'Preparing…', 'جارٍ الإعداد…') : tr('Confirmer mon choix', 'Confirm my choice', 'تأكيد اختياري')}</Button>}</div><p className="onboarding-local-note">{tr('Votre choix sera enregistré dans votre compte universitaire.', 'Your selection will be saved to your campus account.', 'يُحفظ اختيارك في حسابك الجامعي.')}</p></main><PublicFooter /></div>;
+    {error && <p className="public-form-error" role="alert">{error}</p>}<div className="onboarding-actions">{step > 1 ? <Button variant="ghost" icon={ChevronLeft} disabled={busy} onClick={() => { setStep(v => v - 1); setConfirmed(false); setError(''); }}>{tr('Retour', 'Back', 'رجوع')}</Button> : <span>{tr('Étape 1 sur 3', 'Step 1 of 3', 'الخطوة 1 من 3')}</span>}{step < 3 ? <Button variant="primary" icon={ArrowRight} disabled={step === 1 ? !facultyId : !filiereId} onClick={() => setStep(v => v + 1)}>{tr('Continuer', 'Continue', 'متابعة')}</Button> : <Button variant="primary" icon={LockKeyhole} disabled={!confirmed || busy} aria-busy={busy} onClick={finish}>{busy ? tr('Préparation…', 'Preparing…', 'جارٍ الإعداد…') : tr('Confirmer mon choix', 'Confirm my choice', 'تأكيد اختياري')}</Button>}</div><p className="onboarding-local-note">{tr('Votre choix sera enregistré dans votre compte universitaire.', 'Your selection will be saved to your campus account.', 'يُحفظ اختيارك في حسابك الجامعي.')}</p><p className="public-support-link"><Link to="/support">{tr('Un problème d’accès ? Contacter l’administration','Access trouble? Contact administration','مشكلة في الدخول؟ تواصل مع الإدارة')}</Link></p></main><PublicFooter /></div>;
 }
 
-const accountPath = (user, selection) => requiresPasswordChange(user) ? '/change-password' : user && (user.accountStatus || user.account_status || 'approved') !== 'approved' ? '/account-review' : ['global_admin','faculty_admin','moderator'].includes(user?.role) ? '/app/admin' : selection ? '/app' : '/onboarding';
+const accountPath = (user, selection) => requiresPasswordChange(user) ? '/change-password' : user && (user.accountStatus || user.account_status || 'approved') !== 'approved' ? '/account-review' : isAdministrator(user) ? '/app/admin' : selection ? '/app' : '/onboarding';
 
 export function RegisterPage() {
   const { tr, register, user, selection } = useApp();
@@ -125,6 +128,7 @@ export function RegisterPage() {
   const [error, setError] = useState('');
   const [visible, setVisible] = useState(false);
   const [retry, setRetry] = useState(0);
+  const request = useRef(false);
   useEffect(() => {
     const controller = new AbortController(); setLoading(true); setError('');
     api('/registration-options', { signal:controller.signal })
@@ -137,9 +141,9 @@ export function RegisterPage() {
   const field = (key,value) => setForm(previous => ({ ...previous, [key]:value, ...(key==='faculty_id'?{filiere_id:''}:{}) }));
   const filieres = faculties.find(faculty=>faculty.id===form.faculty_id)?.filieres || getFilieres(form.faculty_id);
   const submit = async event => {
-    event.preventDefault(); if(busy||loading)return; setBusy(true); setError('');
+    event.preventDefault(); if(request.current||loading||!form.faculty_id||!form.filiere_id)return; request.current=true; setBusy(true); setError('');
     try { await register({...form,name:form.name.trim(),username:form.username.trim(),email:form.email.trim(),current_semester:Number(form.current_semester)}); navigate('/account-review',{replace:true}); }
-    catch(error){setError(error.message);}finally{setBusy(false);}
+    catch(error){setError(error.message);}finally{request.current=false;setBusy(false);}
   };
   return <div className="public-page login-page register-page"><PublicHeader/><main className="login-main"><aside className="login-story"><div className="landing-eyebrow"><span className="public-accent-dot"/>CAMPUSLINK TAZA</div><h1>{tr('Apprendre. Partager.\nGrandir ensemble.','Learn. Share.\nGrow together.','نتعلم ونشارك.\nنتقدم معًا.')}</h1><p>{tr('Rejoignez les étudiants de votre faculté. L’administration examinera votre demande avant l’ouverture de votre espace.','Join students in your faculty. Administration will review your application before opening your campus space.','انضم إلى طلبة كليتك. تراجع الإدارة طلبك قبل فتح فضاءك.')}</p><CampusArtwork/></aside><section className="login-form-wrap"><Link className="public-back-link" to="/login"><ChevronLeft size={16}/>{tr('Retour à la connexion','Back to sign in','العودة إلى تسجيل الدخول')}</Link><div className="login-form-heading"><Badge>{tr('INSCRIPTION ÉTUDIANTE','STUDENT REGISTRATION','تسجيل الطلبة')}</Badge><h2>{tr('Créer un compte','Create an account','إنشاء حساب')}</h2><p>{tr('Votre inscription doit être acceptée par l’administration.','Your registration must be approved by administration.','يتطلب تسجيلك موافقة الإدارة.')}</p></div><form className="login-form" onSubmit={submit} aria-busy={busy}>
     <Field label={tr('Nom complet','Full name','الاسم الكامل')}><input className="input" id="register-name" name="name" required maxLength={100} autoComplete="name" autoCapitalize="words" placeholder={tr('Votre nom complet','Your full name','اسمك الكامل')} value={form.name} disabled={busy} onChange={event=>field('name',event.target.value)}/></Field>
@@ -150,13 +154,21 @@ export function RegisterPage() {
     <Field label={tr('Filière','Program','المسلك')}><Select className="input" id="register-filiere" name="filiere_id" required disabled={!form.faculty_id||loading||busy} value={form.filiere_id} onChange={event=>field('filiere_id',event.target.value)}><option value="">{tr('Choisissez votre filière','Choose your program','اختر مسلكك')}</option>{filieres.map(filiere=><option key={filiere.id} value={filiere.id}>{filiere.name}</option>)}</Select></Field>
     <Field label={tr('Semestre actuel','Current semester','الفصل الحالي')}><Select className="input" id="register-semester" name="current_semester" value={form.current_semester} disabled={busy} onChange={event=>field('current_semester',event.target.value)}>{[1,2,3,4,5,6].map(semester=><option key={semester} value={semester}>S{semester}</option>)}</Select></Field>
     {error&&<p className="public-form-error" role="alert">{error}</p>}{!loading&&!faculties.length&&<Button type="button" onClick={()=>setRetry(previous=>previous+1)}>{tr('Réessayer','Retry','إعادة المحاولة')}</Button>}<Button className="login-submit" type="submit" variant="primary" icon={ArrowRight} disabled={busy||loading||!form.faculty_id||!form.filiere_id}>{busy?tr('Envoi de la demande…','Submitting application…','جارٍ إرسال الطلب…'):tr('Créer un compte','Create an account','إنشاء حساب')}</Button>
-  </form></section></main><PublicFooter/></div>;
+  </form></section><p className="public-support-link"><Link to="/support">{tr('Un problème d’accès ? Contacter l’administration','Access trouble? Contact administration','مشكلة في الدخول؟ تواصل مع الإدارة')}</Link></p></main><PublicFooter/></div>;
 }
 
 export function AccountReviewPage() {
   const { tr,user,selection,refreshAccount,logout,setDialog }=useApp();
   const navigate=useNavigate();
   const [busy,setBusy]=useState(false),[error,setError]=useState(''),[checked,setChecked]=useState(false);
+  const refreshRef=useRef(refreshAccount);refreshRef.current=refreshAccount;
+  useEffect(()=>{
+    if(!user||user.registration_session===false||(user.accountStatus||user.account_status)==='approved')return;
+    let pending=false,live=true;
+    const update=async()=>{if(!live||pending||document.visibilityState==='hidden'||navigator.onLine===false)return;pending=true;try{await refreshRef.current();if(live)setError('');}catch(e){if(live)setError(e.message);}finally{pending=false;}};
+    const timer=setInterval(update,3000);window.addEventListener('focus',update);window.addEventListener('online',update);document.addEventListener('visibilitychange',update);
+    return()=>{live=false;clearInterval(timer);window.removeEventListener('focus',update);window.removeEventListener('online',update);document.removeEventListener('visibilitychange',update);};
+  },[user?.id,user?.accountStatus,user?.account_status,user?.registration_session]);
   if(!user)return <Navigate to="/login" replace/>;
   if((user.accountStatus||user.account_status||'approved')==='approved')return <Navigate to={accountPath(user,selection)} replace/>;
   const rejected=(user.accountStatus||user.account_status)==='rejected';

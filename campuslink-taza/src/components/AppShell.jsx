@@ -1,3 +1,4 @@
+import ConnectionStatus from './ConnectionStatus';
 import { Select } from './Select';
 import PageLoading from './PageLoading';
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
@@ -37,7 +38,40 @@ import {
 } from "lucide-react";
 import { useApp } from "../context";
 import { Logo, Avatar, Button } from "./ui";
-import { NotificationItem } from "../pages/StudentPages";
+import { NotificationItem, NotificationReadAllButton } from "../pages/StudentPages";
+import './notifications.css';
+
+function AdminNotificationPopup({ notification, tr, onOpen, onDismiss }) {
+  const [hovered, setHovered] = useState(false);
+  const [focused, setFocused] = useState(false);
+  const [hidden, setHidden] = useState(() => document.visibilityState === 'hidden');
+  const paused = hovered || focused || hidden;
+  const dismissRef = useRef(onDismiss);
+  dismissRef.current = onDismiss;
+  useEffect(() => {
+    const visibility = () => setHidden(document.visibilityState === 'hidden');
+    document.addEventListener('visibilitychange', visibility);
+    return () => document.removeEventListener('visibilitychange', visibility);
+  }, []);
+  useEffect(() => {
+    if (paused) return;
+    const timer = window.setTimeout(() => dismissRef.current(notification.id), 12000);
+    return () => window.clearTimeout(timer);
+  }, [notification.id, paused]);
+  return <article className="admin-notification-popup" data-notification-id={notification.id}
+    onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}
+    onFocusCapture={() => setFocused(true)} onBlurCapture={event => { if (!event.currentTarget.contains(event.relatedTarget)) setFocused(false); }}>
+    <span className="admin-notification-popup-icon" aria-hidden="true"><ShieldCheck size={19} /></span>
+    <div className="admin-notification-popup-copy">
+      <div role="status"><strong dir="auto">{notification.title}</strong><p dir="auto">{notification.description}</p></div>
+      <button type="button" className="admin-notification-popup-open" onClick={() => onOpen(notification)}>
+        {tr('Consulter', 'View details', 'عرض التفاصيل')}<ArrowRight size={14} aria-hidden="true" />
+      </button>
+    </div>
+    <button type="button" className="icon-btn admin-notification-popup-close" onClick={() => onDismiss(notification.id)} aria-label={tr('Fermer cette notification', 'Dismiss this notification', 'إغلاق هذا الإشعار')}><X size={17} /></button>
+  </article>;
+}
+
 export default function AppShell() {
   const {
     t,
@@ -48,6 +82,10 @@ export default function AppShell() {
     selection,
     notifications,
     unreadCount,
+    discussionUnreadCount = 0,
+    adminNotificationPopups = [],
+    dismissAdminNotificationPopup,
+    openNotification,
     theme,
     setTheme,
     lowData,
@@ -109,6 +147,12 @@ export default function AppShell() {
   const panelRef = useRef(null);
   const menuRef = useRef(null);
   const drawerRef = useRef(null);
+  useEffect(() => {
+    const desktop = window.matchMedia('(min-width: 761px)');
+    const closeOnDesktop = () => { if (desktop.matches) setDrawer(false); };
+    desktop.addEventListener('change', closeOnDesktop);
+    return () => desktop.removeEventListener('change', closeOnDesktop);
+  }, []);
   const nav = [
     ["home", "/app", Home],
     ["library", "/app/library", BookOpen],
@@ -136,7 +180,7 @@ export default function AppShell() {
     setPanel(false);
     setMenu(false);
     document.title = `${t(current)} · CampusLink Taza`;
-  }, [location.pathname, language]);
+  }, [location.pathname, location.search, location.hash, language]);
   useEffect(() => {
     function handler(e) {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
@@ -214,8 +258,11 @@ export default function AppShell() {
         onClick={() => setDrawer(false)}
       />
       <aside
+        id="campus-navigation"
         ref={drawerRef}
         className={`sidebar ${drawer ? "open" : ""}`}
+        role={drawer ? 'dialog' : undefined}
+        aria-modal={drawer ? true : undefined}
         aria-label={tr(
           "Navigation principale",
           "Main navigation",
@@ -260,7 +307,7 @@ export default function AppShell() {
             <React.Fragment key={key}>
               {i === 4 && <div className="nav-divider" />}
               <NavLink
-                aria-label={t(key)}
+                aria-label={key === 'community' && discussionUnreadCount > 0 ? `${t(key)} · ${discussionUnreadCount} ${t('unread')}` : t(key)}
                 title={t(key)}
                 onClick={() => setDrawer(false)}
                 end={key === "home"}
@@ -269,10 +316,10 @@ export default function AppShell() {
                   `nav-item ${i < 4 ? "mobile-primary-nav-link" : ""} ${isActive ? "active" : ""}`
                 }
               >
-                <Icon size={18} strokeWidth={1.6} />
+                <span className="nav-icon-wrap" aria-hidden="true"><Icon size={18} strokeWidth={1.6} />{key === 'community' && discussionUnreadCount > 0 && <span className="discussion-unread-dot" data-unread-count={discussionUnreadCount} />}</span>
                 <span>{t(key)}</span>
                 {key === "notifications" && unread > 0 && (
-                  <span className="nav-count">{unread}</span>
+                  <span className="nav-count" aria-label={String(unread)}>{unread > 99 ? '99+' : unread}</span>
                 )}
               </NavLink>
             </React.Fragment>
@@ -294,7 +341,7 @@ export default function AppShell() {
                 "سؤال حول حسابك؟",
               )}
             </p>
-            <button onClick={() => setDialog({ type: "contact" })}>
+            <button onClick={() => { setDrawer(false); setDialog({ type: "contact" }); }}>
               {t("contact")}
               <ArrowRight size={11} />
             </button>
@@ -325,12 +372,13 @@ export default function AppShell() {
           </Link>
         </div>
       </aside>
-      <div className="app-main">
+      <div className="app-main" inert={drawer || undefined}>
         <header className="app-header">
           <button
             className="icon-btn mobile-menu-button"
             aria-label={t("menu")}
             aria-expanded={drawer}
+            aria-controls="campus-navigation"
             onClick={() => setDrawer(true)}
           >
             <Menu size={21} />
@@ -350,7 +398,7 @@ export default function AppShell() {
               <Search size={15} />
               <span>
                 {tr(
-                  "Rechercher dans CampusLink",
+                  "Rechercher ",
                   "Search CampusLink",
                   "ابحث في CampusLink",
                 )}
@@ -368,7 +416,7 @@ export default function AppShell() {
               }}
             >
               <Bell size={18} strokeWidth={1.7} />
-              {unread > 0 && <span className="notification-dot">{unread}</span>}
+              {unread > 0 && <span className="notification-dot">{unread > 99 ? '99+' : unread}</span>}
             </button>
             <Select
               className="language-select"
@@ -412,13 +460,14 @@ export default function AppShell() {
             >
               <div className="notification-popover-header">
                 <h2>{t("notifications")}</h2>
+                <NotificationReadAllButton/>
               </div>
               <div className="notification-filter-tabs" aria-label={tr('Filtrer les notifications', 'Filter notifications', 'تصفية الإشعارات')}>
                 <button type="button" aria-pressed={notificationTab === 'unread'} onClick={() => setNotificationTab('unread')}>{t('unread')} ({unread})</button>
                 <button type="button" aria-pressed={notificationTab === 'read'} onClick={() => setNotificationTab('read')}>{t('read')}</button>
               </div>
               {panelNotifications.slice(0, 3).map((n) => (
-                <NotificationItem key={n.id} notification={n} />
+                <NotificationItem key={n.id} notification={n} onOpen={() => setPanel(false)} />
               ))}
               {!panelNotifications.length && <p className="notification-popover-empty" role="status">{notificationTab === 'read' ? tr('Aucune notification lue.', 'No read notifications.', 'لا توجد إشعارات مقروءة.') : tr('Aucune notification non lue.', 'No unread notifications.', 'لا توجد إشعارات غير مقروءة.')}</p>}
               <footer>
@@ -499,7 +548,7 @@ export default function AppShell() {
           aria-label={t(current)}
           tabIndex={-1}
         >
-          {connectionError && <div className="notice" role="alert" style={{marginBottom:16}}><span>{connectionError}</span> <button className="text-link" onClick={()=>refresh().catch(()=>{})}>{tr("Réessayer", "Retry", "إعادة المحاولة")}</button></div>}
+          <ConnectionStatus/>
           {offlineSession&&<p className="notice" role="status">{tr("Hors ligne : documents enregistrés et outils personnels. Reconnectez-vous pour les échanges et la synchronisation.","Offline: saved documents and personal tools. Reconnect for conversations and synchronization.","دون اتصال: المستندات المحفوظة والأدوات الشخصية. أعد الاتصال للمحادثات والمزامنة.")}</p>}<React.Suspense fallback={<PageLoading/>}><Outlet /></React.Suspense>
         </main>
         <footer className="app-footer">
@@ -517,8 +566,12 @@ export default function AppShell() {
           </span>
         </footer>
       </div>
+      {isAdmin && adminNotificationPopups.some(notification => notification.popupEligible && notification.type === 'administration') && <section className="admin-notification-popups" aria-label={tr('Nouvelles notifications administratives', 'New administration notifications', 'إشعارات إدارية جديدة')}>
+        {adminNotificationPopups.filter(notification => notification.popupEligible && notification.type === 'administration').slice(0, 3).map(notification => <AdminNotificationPopup key={notification.id} notification={notification} tr={tr} onDismiss={dismissAdminNotificationPopup} onOpen={item => { if (openNotification(item) !== false) { dismissAdminNotificationPopup(item.id); setDrawer(false); setPanel(false); setMenu(false); } }} />)}
+      </section>}
       <nav
         className="mobile-bottom-nav"
+        inert={drawer || undefined}
         aria-label={tr("Navigation rapide", "Quick navigation", "التنقل السريع")}
       >
         {mobileNav.map(([key, path, Icon]) => (
@@ -527,12 +580,12 @@ export default function AppShell() {
             end={key === "home"}
             to={path}
             title={mobileNavLabel(key)}
-            aria-label={mobileNavLabel(key)}
+            aria-label={key === 'community' && discussionUnreadCount > 0 ? `${mobileNavLabel(key)} · ${discussionUnreadCount} ${t('unread')}` : mobileNavLabel(key)}
             className={({ isActive }) =>
               `mobile-bottom-nav-link ${isActive ? "active" : ""}`
             }
           >
-            <Icon size={18} strokeWidth={1.7} aria-hidden="true" />
+            <span className="nav-icon-wrap" aria-hidden="true"><Icon size={18} strokeWidth={1.7} />{key === 'community' && discussionUnreadCount > 0 && <span className="discussion-unread-dot" data-unread-count={discussionUnreadCount} />}</span>
             <span>{mobileNavLabel(key)}</span>
           </NavLink>
         ))}

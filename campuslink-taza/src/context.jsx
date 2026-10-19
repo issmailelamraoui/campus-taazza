@@ -1,4 +1,6 @@
+import {requestId} from './lib/identifiers.js';
 import React, {createContext, useCallback, useContext, useEffect, useRef, useState} from 'react';
+import {useNavigate} from 'react-router-dom';
 import {api,invalidateAPISession,subscribeAPIActivity} from './api.js';
 import {FACULTIES} from './data/mock.js';
 import {getFiliere, filiereBelongsToFaculty} from './data/studies.js';
@@ -14,20 +16,28 @@ const AppContext=createContext(null);
 const key='campuslink-prototype-v1:';
 export function readLocal(name,fallback){try{const value=localStorage.getItem(key+name);return value?JSON.parse(value):fallback;}catch{return fallback;}}
 function useLocal(name,initial){const [value,setValue]=useState(()=>readLocal(name,initial));useEffect(()=>{try{localStorage.setItem(key+name,JSON.stringify(value));}catch{}},[name,value]);return [value,setValue];}
-const emptyData=()=>({user:null,faculty:null,resources:[],announcements:[],messages:[],notifications:[],unreadCount:0,notificationsHasMore:false,saved:[],history:[],events:[],channels:[],members:[]});
+const emptyData=()=>({user:null,faculty:null,resources:[],announcements:[],messages:[],notifications:[],unreadCount:0,discussionUnreadCount:0,discussionUnreadCounts:[],adminUnreadCount:0,notificationsHasMore:false,saved:[],history:[],events:[],channels:[],members:[]});
 const preferencesFor=user=>({announcements:true,resources:true,mentions:true,...user?.preferences,calendar:false,discussions:user?.preferences?.important!==false,administration:user?.preferences?.admin!==false});
 
 export function AppProvider({children}){
+ const navigate=useNavigate();
  const [language,changeLanguage]=useLocal('language','fr');
  const [theme,setTheme]=useLocal('theme','dark');
  const [lowData,setLowData]=useLocal('low-data',false);
  const [data,setData]=useState(emptyData),[loading,setLoading]=useState(true),[connectionError,setConnectionError]=useState('');
+ const [connectionState,setConnectionState]=useState(navigator.onLine===false?'offline':'connecting');
  const [registrationRevision,setRegistrationRevision]=useState(0),[dialog,setDialog]=useState(null),[toast,setToast]=useState(null);
+ const [adminNotificationPopups,setAdminNotificationPopups]=useState([]),[notificationVisitRevision,setNotificationVisitRevision]=useState(0),[activeNotificationId,setActiveNotificationId]=useState(null);
+ const [popupRevision,setPopupRevision]=useState(0);
+ const popupSession=useRef({account:null,seen:new Set(),visible:[]});
  const [pendingActions,setPendingActions]=useState({}),[networkActivity,setNetworkActivity]=useState({reads:0,writes:0});
  const current=useRef(data);current.current=data;
+ const currentDialog=useRef(dialog);currentDialog.current=dialog;
  const epoch=useRef(0),mutationRevision=useRef(0),refreshRequest=useRef(null),refreshTimer=useRef(null),queuedRefresh=useRef(false);
+ const refreshMode=useRef({live:true,complete:false,ids:new Set()});
  const actionRequests=useRef(new Map()),stagedUploads=useRef(new Map()),optimistic=useRef(new Map()),messageDrafts=useRef(new Map());
- const notificationVisit=useRef(null);
+ const notificationVisit=useRef(null),notificationOpenSequence=useRef(0);
+ const notificationRetryTimer=useRef(null),retryReadyVisit=useRef(null),discussionReadQueue=useRef(Promise.resolve());
  const user=data.user,isAdmin=isAdministrator(user);
  const selection=user?.facultyId&&(user.filiereId||isAdmin)?{facultyId:user.facultyId,filiereId:user.filiereId||null,semester:user.semester}:null;
  const faculty=data.faculty||FACULTIES.find(item=>item.id===user?.facultyId),filiere=getFiliere(user?.filiereId);
@@ -35,18 +45,25 @@ export function AppProvider({children}){
  const tr=(fr,en,ar)=>language==='ar'?ar||fr:language==='en'?en||fr:fr;
  const notify=useCallback((message,type='success')=>setToast({message,type,id:Date.now()}),[]);
  const clearSession=useCallback(()=>{
-  notificationVisit.current=null;window.dispatchEvent(new Event('campus-session-cleared'));
-  epoch.current++;invalidateAPISession();refreshRequest.current=null;actionRequests.current.clear();stagedUploads.current.clear();optimistic.current.clear();messageDrafts.current.clear();setPendingActions({});clearTimeout(refreshTimer.current);queuedRefresh.current=false;
-  current.current=emptyData();setData(current.current);setDialog(null);setConnectionError('');
+  clearTimeout(notificationRetryTimer.current);notificationRetryTimer.current=null;discussionReadQueue.current=Promise.resolve();notificationVisit.current=null;setNotificationVisitRevision(0);setActiveNotificationId(null);setAdminNotificationPopups([]);popupSession.current={account:null,seen:new Set(),visible:[]};window.dispatchEvent(new Event('campus-session-cleared'));
+  epoch.current++;invalidateAPISession();refreshRequest.current=null;actionRequests.current.clear();stagedUploads.current.clear();optimistic.current.clear();messageDrafts.current.clear();setPendingActions({});clearTimeout(refreshTimer.current);refreshTimer.current=null;queuedRefresh.current=false;
+  refreshMode.current={live:true,complete:false,ids:new Set()};current.current=emptyData();setData(current.current);setDialog(null);setConnectionError('');
  },[]);
- const refresh=useCallback(({afterMutation=false}={})=>{
+ const refresh=useCallback(({afterMutation=false,live=false,messageIds=null}={})=>{
   if(requiresPasswordChange(current.current.user))return Promise.resolve({user:current.current.user});
   if(afterMutation)mutationRevision.current++;
   if(refreshRequest.current){queuedRefresh.current=true;return refreshRequest.current;}
   const owner=epoch.current,revision=mutationRevision.current;
-  const request=api('/bootstrap').then(result=>{
+  const endpoint=live?'/live'+(messageIds?.length?'?message_ids='+messageIds.join(','):Array.isArray(messageIds)?'?inbox=1':''):'/bootstrap';
+  const request=api(endpoint).then(result=>{
    if(owner===epoch.current){
-    if(revision===mutationRevision.current){const snapshot=normalizeBootstrap(result);reconcileDrafts(snapshot);setData(applyOptimistic(snapshot));setConnectionError('');}
+    if(revision===mutationRevision.current){
+     const snapshot=normalizeBootstrap(live?{...result,user:current.current.user,resources:current.current.resources}:result);
+     setData(previous=>{
+      const next=live?{...previous,notifications:snapshot.notifications,unreadCount:snapshot.unreadCount,adminUnreadCount:snapshot.adminUnreadCount,discussionUnreadCount:snapshot.discussionUnreadCount,discussionUnreadCounts:snapshot.discussionUnreadCounts,notificationsHasMore:snapshot.notificationsHasMore,messages:result.messages_complete?snapshot.messages:[...previous.messages.filter(m=>!messageIds?.some(id=>String(id)===m.id)),...snapshot.messages]}:snapshot;
+      reconcileDrafts(next);return applyOptimistic(next);
+     });setConnectionError('');if(typeof EventSource!=='function')setConnectionState('connected');
+    }
     else queuedRefresh.current=true;
    }return result;
   }).catch(async error=>{
@@ -63,11 +80,21 @@ export function AppProvider({children}){
    }throw error;
   }).finally(()=>{
    if(refreshRequest.current===request)refreshRequest.current=null;
-   if(queuedRefresh.current&&owner===epoch.current){queuedRefresh.current=false;clearTimeout(refreshTimer.current);refreshTimer.current=setTimeout(()=>refresh().catch(()=>{}),200);}
+   if(queuedRefresh.current&&owner===epoch.current){queuedRefresh.current=false;clearTimeout(refreshTimer.current);refreshTimer.current=setTimeout(()=>{refreshTimer.current=null;refresh().catch(()=>{});},60);}
   });
   refreshRequest.current=request;return request;
  },[clearSession]);
- const scheduleRefresh=useCallback(()=>{clearTimeout(refreshTimer.current);refreshTimer.current=setTimeout(()=>refresh().catch(()=>{}),350);},[refresh]);
+ const scheduleRefresh=useCallback(({live=false,messageIds=null}={})=>{
+  const mode=refreshMode.current;
+  if(!live)mode.live=false;
+  else if(!Array.isArray(messageIds))mode.complete=true;
+  else for(const id of messageIds)mode.ids.add(id);
+  if(refreshTimer.current)return;
+  refreshTimer.current=setTimeout(()=>{
+   refreshTimer.current=null;const next=refreshMode.current;refreshMode.current={live:true,complete:false,ids:new Set()};
+   refresh({live:next.live,messageIds:next.complete||next.ids.size>100?null:[...next.ids]}).catch(()=>{});
+  },40);
+ },[refresh]);
  useEffect(()=>subscribeAPIActivity(setNetworkActivity),[]);
  useEffect(()=>{
   let live=true;const owner=epoch.current;
@@ -82,7 +109,9 @@ export function AppProvider({children}){
  },[refresh]);
  useEffect(()=>{
   const expired=()=>clearSession();window.addEventListener('campus-session-expired',expired);
-  return()=>{window.removeEventListener('campus-session-expired',expired);clearTimeout(refreshTimer.current);};
+  const retryVisit=()=>retryReadyVisit.current?.();
+  document.addEventListener('visibilitychange',retryVisit);window.addEventListener('online',retryVisit);
+  return()=>{window.removeEventListener('campus-session-expired',expired);document.removeEventListener('visibilitychange',retryVisit);window.removeEventListener('online',retryVisit);clearTimeout(notificationRetryTimer.current);clearTimeout(refreshTimer.current);refreshTimer.current=null;};
  },[clearSession]);
  useEffect(()=>{
   document.documentElement.lang=language;document.documentElement.dir=language==='ar'?'rtl':'ltr';document.documentElement.dataset.theme=theme;
@@ -92,33 +121,42 @@ export function AppProvider({children}){
  useEffect(()=>{const cache=event=>{if(!requiresPasswordChange(current.current.user)&&(!event.detail?.userId||String(event.detail.userId)===String(current.current.user?.id)))saveOfflineSession(current.current).catch(()=>notify(tr('Impossible d’enregistrer la session hors ligne.','Could not save the offline session.','تعذر حفظ الجلسة دون اتصال.'),'error'));};window.addEventListener('campus-offline-enabled',cache);return()=>window.removeEventListener('campus-offline-enabled',cache);},[]);
  useEffect(()=>{if(!toast)return;const timer=setTimeout(()=>setToast(null),4200);return()=>clearTimeout(timer);},[toast]);
  useEffect(()=>{
+  if(!user?.id||!isAdmin||user.accountStatus!=='approved'||requiresPasswordChange(user)||user.preferences?.admin===false){popupSession.current.visible=[];setAdminNotificationPopups(previous=>previous.length?[]:previous);return;}
+  const storageKey=key+'notification-popups:'+user.id;
+  if(popupSession.current.account!==user.id){let saved=[];try{saved=JSON.parse(sessionStorage.getItem(storageKey)||'[]');}catch{}popupSession.current={account:user.id,seen:new Set(Array.isArray(saved)?saved:[]),visible:[]};}
+  const eligible=data.notifications.filter(n=>!n.read&&n.popupEligible&&n.target_available!==false);
+  const session=popupSession.current,byId=new Map(eligible.map(n=>[n.id,n]));
+  const active=session.visible.filter(n=>byId.has(n.id)).map(n=>byId.get(n.id));
+  const arrivals=document.visibilityState==='hidden'?[]:eligible.filter(n=>!session.seen.has(n.id)).slice(0,Math.max(0,3-active.length));
+  for(const item of arrivals)session.seen.add(item.id);
+  if(arrivals.length)try{sessionStorage.setItem(storageKey,JSON.stringify([...session.seen].slice(-500)));}catch{}
+  session.visible=[...active,...arrivals];setAdminNotificationPopups(session.visible);
+ },[user?.id,user?.accountStatus,user?.mustChangePassword,user?.preferences?.admin,isAdmin,data.notifications,popupRevision]);
+ function dismissAdminNotificationPopup(id){popupSession.current.visible=popupSession.current.visible.filter(n=>n.id!==String(id));setAdminNotificationPopups(popupSession.current.visible);setPopupRevision(value=>value+1);}
+ useEffect(()=>{
   if(!user?.facultyId||user.accountStatus!=='approved'||requiresPasswordChange(user))return;
-  let active=true;
-  const sync=()=>{if(document.visibilityState!=='hidden'&&navigator.onLine!==false)scheduleRefresh();};
-  const stream=navigator.onLine!==false&&!user.chatBlocked&&typeof EventSource==='function'?new EventSource('/api/events/stream'):null;
-  stream?.addEventListener('open',sync);stream?.addEventListener('error',sync);
-  stream?.addEventListener('update',event=>{
-   try{const change=JSON.parse(event.data);if(change.registrations||change.adminInbox)setRegistrationRevision(value=>value+1);}catch{}sync();
-  });
-  // Refresh notifications sooner than the general fallback, without
-  // fetching the full bootstrap response unless the inbox actually changed.
-  let lastNotificationState=null,checkingNotifications=false;
-  const checkNotifications=async()=>{
-   if(checkingNotifications||document.visibilityState==='hidden'||navigator.onLine===false)return;
-   checkingNotifications=true;
-   try{
-    const state=await api('/notifications/state');
-    if(!active)return;
-    const signature=state.latest_id+':'+state.total+':'+state.unread_count;
-    const newest=current.current.notifications.reduce((max,item)=>Math.max(max,Number(item.id)||0),0);
-    if(state.unread_count!==current.current.unreadCount||state.latest_id>newest||(lastNotificationState!==null&&lastNotificationState!==signature))scheduleRefresh();
-    lastNotificationState=signature;
-   }catch{}finally{checkingNotifications=false;}
+  let stream=null,connected=false,lastSync=Date.now(),lastFullSync=Date.now(),reconnectTimer=null;
+  const sync=(options={live:true})=>{if(document.visibilityState!=='hidden'&&navigator.onLine!==false){lastSync=Date.now();if(options.live===false)lastFullSync=lastSync;scheduleRefresh(options);}};
+  const connect=()=>{
+   if(stream||navigator.onLine===false||typeof EventSource!=='function')return;
+   setConnectionState('connecting');
+   stream=new EventSource('/api/events/stream');
+   stream.addEventListener('open',()=>{connected=true;setConnectionState('connected');sync({live:false});});
+   stream.addEventListener('error',()=>{connected=false;setConnectionState(navigator.onLine===false?'offline':'reconnecting');if(stream?.readyState===2){stream.close();stream=null;clearTimeout(reconnectTimer);reconnectTimer=setTimeout(connect,1000);}});
+   stream.addEventListener('update',event=>{
+    let change={};try{change=JSON.parse(event.data);}catch{}
+    window.dispatchEvent(new CustomEvent('campus-live-update',{detail:change}));
+    if(change.presence)return;
+    let options={live:false};
+    try{if(change.registrations||change.adminInbox)setRegistrationRevision(value=>value+1);if(Array.isArray(change.messageIds))options={live:true,messageIds:change.messageIds};else if(change.discussionReads)options={live:true,messageIds:[]};}catch{}sync(options);
+   });
   };
-  const notificationTimer=setInterval(checkNotifications,lowData?30000:15000);
-  const timer=setInterval(sync,lowData?90000:30000);
-  document.addEventListener('visibilitychange',sync);window.addEventListener('online',sync);window.addEventListener('focus',sync);window.addEventListener('pageshow',sync);window.addEventListener('campus-xp-updated',sync);
-  return()=>{active=false;stream?.close();clearInterval(timer);clearInterval(notificationTimer);document.removeEventListener('visibilitychange',sync);window.removeEventListener('online',sync);window.removeEventListener('focus',sync);window.removeEventListener('pageshow',sync);window.removeEventListener('campus-xp-updated',sync);};
+  const resume=()=>{connect();sync({live:false});window.dispatchEvent(new Event('campus-live-update'));};
+  const offline=()=>{clearTimeout(reconnectTimer);stream?.close();stream=null;connected=false;setConnectionState('offline');};
+  connect();
+  const timer=setInterval(()=>{if(!connected||Date.now()-lastSync>=(lowData?60000:15000))sync({live:Date.now()-lastFullSync<(lowData?90000:30000)});},lowData?15000:5000);
+  document.addEventListener('visibilitychange',resume);window.addEventListener('online',resume);window.addEventListener('offline',offline);window.addEventListener('focus',resume);window.addEventListener('pageshow',resume);window.addEventListener('campus-xp-updated',sync);
+  return()=>{clearTimeout(reconnectTimer);stream?.close();clearInterval(timer);document.removeEventListener('visibilitychange',resume);window.removeEventListener('online',resume);window.removeEventListener('offline',offline);window.removeEventListener('focus',resume);window.removeEventListener('pageshow',resume);window.removeEventListener('campus-xp-updated',sync);};
  },[user?.id,user?.facultyId,user?.filiereId,user?.accountStatus,user?.chatBlocked,user?.mustChangePassword,scheduleRefresh,lowData]);
  function locked(action,operation){
   if(actionRequests.current.has(action))return actionRequests.current.get(action);
@@ -196,45 +234,78 @@ export function AppProvider({children}){
  }
  function openAnnouncement(item){if(item)setDialog({type:'announcement',item});}
  function leaveNotificationDestination(identity){
-  const visit=notificationVisit.current;if(!visit||identity&&visit.viewedIdentity!==identity)return;
-  visit.left=true;notificationVisit.current=null;
+  const visit=notificationVisit.current;if(!visit||identity&&visit.viewedIdentity!==identity&&visit.href!==identity)return;
+  clearTimeout(notificationRetryTimer.current);notificationRetryTimer.current=null;
+  visit.left=true;notificationVisit.current=null;setActiveNotificationId(null);
   if(visit.token)return completeNotificationVisit(visit);
  }
  async function completeNotificationVisit(visit){
   if(visit.completed||!visit.token||visit.epoch!==epoch.current)return false;
   visit.completed=true;
   try{await api('/notifications/'+visit.id+'/departed',{method:'POST',body:{visit_token:visit.token}});
-   commit(visit.epoch,previous=>({...previous,unreadCount:Math.max(0,(previous.unreadCount||0)-(previous.notifications.some(item=>item.id===visit.id&&!item.read)?1:0)),notifications:previous.notifications.map(item=>item.id===visit.id?{...item,read:true}:item)}));return true;
-  }catch(error){visit.completed=false;if(visit.epoch===epoch.current)notify(error.message,'error');return false;}
+   commit(visit.epoch,previous=>{const notice=previous.notifications.find(item=>item.id===visit.id&&!item.read);return {...previous,unreadCount:Math.max(0,(previous.unreadCount||0)-(notice?1:0)),adminUnreadCount:Math.max(0,(previous.adminUnreadCount||0)-(notice?.popupEligible?1:0)),notifications:previous.notifications.map(item=>item.id===visit.id?{...item,read:true}:item)};});scheduleRefresh();return true;
+  }catch(error){visit.completed=false;if(visit.epoch!==epoch.current)return false;if([404,410].includes(error.status)){scheduleRefresh();return false;}visit.retries=(visit.retries||0)+1;if(visit.retries<=2)setTimeout(()=>completeNotificationVisit(visit),visit.retries*2500);else notify(error.message,'error');return false;}
  }
  function beginNotificationVisit(notification){
   leaveNotificationDestination();
-  if(notification.target_available===false){
-   if(!notification.read){
-    const owner=epoch.current;
-    api('/notifications/'+notification.id+'/read',{method:'POST'}).then(()=>{
-     commit(owner,previous=>({...previous,unreadCount:Math.max(0,(previous.unreadCount||0)-(previous.notifications.some(item=>item.id===notification.id&&!item.read)?1:0)),notifications:previous.notifications.map(item=>item.id===notification.id?{...item,read:true}:item)}));
-     if(owner===epoch.current)scheduleRefresh();
-    }).catch(error=>{if(owner===epoch.current)notify(error.message,'error');});
-   }
-   notify(tr('La destination n’est plus accessible.','The destination is no longer accessible.','لم تعد الوجهة متاحة.'),'error');return false;
+  if(notification.target_available===false){if(!notification.read)void markNotificationsRead(notification.id);notify(tr('La destination n’est plus accessible.','The destination is no longer accessible.','لم تعد الوجهة متاحة.'),'error');return false;}
+  if(!notification.read){notificationVisit.current={id:notification.id,path:notification.serverPath||notification.path,href:notification.href,epoch:epoch.current,token:null,left:false,viewing:false};setActiveNotificationId(notification.id);setNotificationVisitRevision(value=>value+1);}
+  return true;
+ }
+ async function markNotificationsRead(id=null){return locked('notification-read:'+(id||'all'),async owner=>{
+  try {
+   const result=await api(id?'/notifications/'+id+'/read':'/notifications/read',{method:'POST'});
+   if(owner!==epoch.current)return false;
+   mutationRevision.current++;const receipt=normalizeBootstrap({...result,user:current.current.user});
+   commit(owner,previous=>({...previous,notifications:receipt.notifications,unreadCount:receipt.unreadCount,adminUnreadCount:receipt.adminUnreadCount,discussionUnreadCount:receipt.discussionUnreadCount,discussionUnreadCounts:receipt.discussionUnreadCounts,notificationsHasMore:receipt.notificationsHasMore}));
+   scheduleRefresh({live:true,messageIds:[]});return true;
+  }catch(error){if(owner===epoch.current)notify(error.message,'error');return false;}
+ });}
+ async function openNotification(notification){
+  const owner=epoch.current,sequence=++notificationOpenSequence.current,origin=window.location.href;
+  if(!notification.read&&!await markNotificationsRead(notification.id))return false;
+  if(owner!==epoch.current||sequence!==notificationOpenSequence.current||window.location.href!==origin)return false;
+  leaveNotificationDestination();
+  dismissAdminNotificationPopup(notification.id);
+  if(notification.target_available===false){notify(tr('Ce contenu n’est plus disponible. La notification a été marquée comme lue.','This content is no longer available. The notification was marked as read.','لم يعد هذا المحتوى متاحاً. تم تعليم الإشعار كمقروء.'),'error');return false;}
+  setDialog(null);setNotificationVisitRevision(value=>value+1);navigate(notification.href||'/app');
+  const params=new URLSearchParams((notification.href||'').split('?')[1]?.split('#')[0]);
+  if(notification.type==='document'){
+   const resource=current.current.resources.find(item=>item.id===notification.targetId);
+   if(resource)openDocument({...resource,initialPage:params.has('page')?Math.max(1,Number(params.get('page'))||1):undefined,initialVersion:Number(params.get('version'))||undefined});
+  }else if(notification.type==='announcement'){
+   const announcement=current.current.announcements.find(item=>item.id===notification.targetId);if(announcement)openAnnouncement(announcement);
   }
-  if(!notification.read)notificationVisit.current={id:notification.id,path:notification.serverPath||notification.path,href:notification.href,epoch:epoch.current,token:null,left:false,viewing:false};
   return true;
  }
  async function notificationDestinationViewed(kind,target){
-  const visit=notificationVisit.current;if(!visit||visit.viewing||visit.token)return false;
+  const visit=notificationVisit.current;if(!visit)return false;
   const destination=visit.path;
   const matches=kind==='resource'?new RegExp('#resource-'+target+'(?:$|[&?])').test(destination)||new URLSearchParams(destination.split('?')[1]?.split('#')[0]).get('document')===String(target)
-   :kind==='message'?destination.includes('#message-'+target)
-   :kind==='announcement'?destination.includes('#announcement-'+target)
+   :kind==='message'?new RegExp('#message-'+target+'(?:$|[&?])').test(destination)
+   :kind==='announcement'?new RegExp('#announcement-'+target+'(?:$|[&?])').test(destination)
    :kind==='feedback'?[new URLSearchParams(destination.split('?')[1]?.split('#')[0]).get('ticket'),new URLSearchParams(destination.split('?')[1]?.split('#')[0]).get('contact')].includes(String(target))
    :kind==='campus'?visit.href===String(target):kind==='page'?visit.href===String(target):false;
-  if(!matches)return false;visit.viewing=true;visit.viewedIdentity=kind==='resource'?'document:'+target:kind==='announcement'?'announcement:'+target:window.location.pathname+window.location.search+window.location.hash;
+  if(!matches)return false;
+  const identity=kind==='resource'?'document:'+target:kind==='announcement'?'announcement:'+target:window.location.pathname+window.location.search+window.location.hash;
+  const shown=currentDialog.current,currentIdentity=shown?shown.type+':'+shown.item?.id:window.location.pathname+window.location.search+window.location.hash;
+  if(identity!==currentIdentity)return false;
+  visit.ready={kind,target,identity};visit.viewedIdentity=identity;
+  if(visit.token)return true;
+  if(visit.viewing||document.visibilityState==='hidden'||navigator.onLine===false||Date.now()-(visit.lastViewAttempt||0)<1500)return false;
+  visit.viewing=true;visit.lastViewAttempt=Date.now();
   try{const result=await api('/notifications/'+visit.id+'/viewed',{method:'POST',body:{path:visit.path}});if(visit.epoch!==epoch.current)return false;visit.token=result.visit_token;if(visit.left)await completeNotificationVisit(visit);return true;}
-  catch{visit.viewing=false;return false;}
+  catch(error){visit.viewing=[400,403,404,410].includes(error.status);if(!visit.viewing&&visit===notificationVisit.current&&visit.epoch===epoch.current&&(visit.viewRetries||0)<2){visit.viewRetries=(visit.viewRetries||0)+1;clearTimeout(notificationRetryTimer.current);notificationRetryTimer.current=setTimeout(()=>retryReadyVisit.current?.(),visit.viewRetries*2500);}return false;}
  }
- async function loadMoreNotifications(){return locked('notifications:more',async owner=>{const previous=current.current,before=previous.notifications.length?Math.min(...previous.notifications.map(n=>Number(n.id))):undefined;const result=await api('/notifications?limit=100'+(before?'&before_id='+before:''));const normalized=normalizeBootstrap({...result,user:previous.user,resources:previous.resources});requireCurrent(owner);commit(owner,old=>({...old,notifications:[...old.notifications,...normalized.notifications.filter(n=>!old.notifications.some(x=>x.id===n.id))],unreadCount:result.unread_count,notificationsHasMore:result.has_more}));return result;});}
+ retryReadyVisit.current=()=>{const visit=notificationVisit.current,ready=visit?.ready;if(!ready||visit.token||visit.epoch!==epoch.current)return;const shown=currentDialog.current;const identity=shown?shown.type+':'+shown.item?.id:window.location.pathname+window.location.search+window.location.hash;if(identity===ready.identity)notificationDestinationViewed(ready.kind,ready.target);};
+ async function loadMoreNotifications(){return locked('notifications:more',async owner=>{const previous=current.current,before=previous.notifications.at(-1)?.id;const result=await api('/notifications?limit=100'+(before?'&before_id='+before:''));const normalized=normalizeBootstrap({...result,user:previous.user,resources:previous.resources});requireCurrent(owner);commit(owner,old=>({...old,notifications:[...old.notifications,...normalized.notifications.filter(n=>!old.notifications.some(x=>x.id===n.id))],unreadCount:normalized.unreadCount,discussionUnreadCount:normalized.discussionUnreadCount,discussionUnreadCounts:normalized.discussionUnreadCounts,adminUnreadCount:normalized.adminUnreadCount,notificationsHasMore:result.has_more}));return result;});}
+ function markDiscussionRead(channel,throughId){return locked('discussion-read:'+channel+':'+throughId,owner=>{
+  const operation=discussionReadQueue.current.catch(()=>{}).then(async()=>{
+   requireCurrent(owner);const result=await api('/messages/read',{method:'POST',body:{...chatRequest(channel),through_id:throughId}});requireCurrent(owner);
+   if(result.discussion_unread_count!==undefined)commit(owner,previous=>({...previous,discussionUnreadCount:Math.max(0,Number(result.discussion_unread_count)||0),discussionUnreadCounts:normalizeBootstrap(result).discussionUnreadCounts}));
+   return result;
+  });discussionReadQueue.current=operation;return operation;
+ });}
  async function uploadResource({file,path,meta,libraryVisible=true,channel='general'}){
   const form=new FormData(),scope=chatRequest(channel),owner=epoch.current;
   const fields={title:meta.title,semester:meta.semester,module:meta.module,category:meta.category,part_number:normalizePart(meta.part),teacher_name:meta.author||'',filiere_id:meta.filiereId||current.current.user?.filiereId,
@@ -246,7 +317,7 @@ export function AppProvider({children}){
  }
  async function updateResourceAcademicYears(target,years){const owner=epoch.current,result=await api('/resources/'+target+'/academic-years',{method:'PATCH',body:{academic_years:years,academic_year:years[0]||null}});requireCurrent(owner);const resource=normalizeResource(result.resource);commit(owner,previous=>({...previous,resources:previous.resources.map(item=>item.id===resource.id?resource:item)}));return resource;}
  function sendMessage(draft){
-  const clientId=draft.client_id||globalThis.crypto?.randomUUID?.()||`message-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const clientId=draft.client_id||requestId();
   const action='message:'+clientId,pendingId='pending:'+clientId;
   return locked(action,async owner=>{
   draft={...draft,client_id:clientId};messageDrafts.current.set(pendingId,draft);
@@ -267,7 +338,7 @@ export function AppProvider({children}){
   const message=normalizeMessage(result.message,current.current.resources);requireCurrent(owner);finishOptimistic(owner,action,previous=>({...previous,messages:[...previous.messages.filter(item=>item.id!==pendingId&&item.id!==message.id&&!(item.client_id===clientId&&item.authorId===author.id)),message]}));
   messageDrafts.current.delete(pendingId);
   for(const cacheKey of stagedUploads.current.keys())if(JSON.parse(cacheKey)[0]===draft.client_id)stagedUploads.current.delete(cacheKey);
-  scheduleRefresh();return message;
+  scheduleRefresh({live:true,messageIds:[Number(message.id)]});return message;
   }catch(error){
    if(owner===epoch.current){optimistic.current.set(action,show({...pending,deliveryStatus:'failed',deliveryError:error.message}));setPendingActions(previous=>{const next={...previous};delete next[action];return next;});commit(owner,previous=>previous);}
    throw error;
@@ -277,8 +348,10 @@ export function AppProvider({children}){
  function discardMessage(target){const draft=messageDrafts.current.get(String(target));if(!draft||actionRequests.current.has('message:'+draft.client_id))return;messageDrafts.current.delete(String(target));for(const cacheKey of stagedUploads.current.keys())if(JSON.parse(cacheKey)[0]===draft.client_id)stagedUploads.current.delete(cacheKey);finishOptimistic(epoch.current,'message:'+draft.client_id,previous=>({...previous,messages:previous.messages.filter(item=>item.id!==String(target))}));}
  function deleteMessage(target){return locked('delete:'+target,async owner=>{
   const id=String(target),original=current.current.messages.find(item=>item.id===id),action='delete:'+id;
+  const actor=current.current.user;
+  const moderation=original&&actor?.role!=='global_admin'&&String(original.authorId)!==String(actor?.id);
   beginOptimistic(owner,action,previous=>({...previous,messages:previous.messages.filter(item=>item.id!==id)}));
-  try{await api('/messages/'+target,{method:'DELETE'});requireCurrent(owner);finishOptimistic(owner,action,previous=>({...previous,messages:previous.messages.filter(item=>item.id!==id)}));scheduleRefresh();}
+  try{await api(moderation?'/admin/messages/'+target+'/remove':'/messages/'+target,{method:moderation?'POST':'DELETE',...(moderation?{body:{}}:{})});requireCurrent(owner);finishOptimistic(owner,action,previous=>({...previous,messages:previous.messages.filter(item=>item.id!==id)}));scheduleRefresh();}
   catch(error){finishOptimistic(owner,action,previous=>({...previous,messages:original?[...previous.messages.filter(item=>item.id!==id),original].sort((a,b)=>a.date.localeCompare(b.date)):previous.messages}));throw error;}
  });}
  function toggleMessageReaction(target,kind){return locked('reaction:'+target+':'+kind,async owner=>{
@@ -341,7 +414,7 @@ export function AppProvider({children}){
  const value={...data,user,selection,faculty,filiere,isAdmin,loading,connectionError,error:connectionError,refresh,refreshAccount,scheduleRefresh,registrationRevision,register,login,logout,completeOnboarding,
   language,setLanguage,theme,setTheme,lowData,setLowData,t,tr,updateProfile,preferences:preferencesFor(user),setPreferences,resources:data.resources,allResources:data.resources,announcements:data.announcements,allAnnouncements:data.announcements,
   messages:data.messages.filter(item=>!['help','life'].includes(item.channel)),allMessages:data.messages,notifications:data.notifications,allNotifications:data.notifications,saved:data.saved,history:data.history,
-  saveItem,isSaved,isPending,pendingActions,networkActivity,refreshing:networkActivity.reads>0,openDocument,openAnnouncement,beginNotificationVisit,notificationDestinationViewed,leaveNotificationDestination,loadMoreNotifications,uploadResource,updateResourceAcademicYears,sendMessage,retryMessage,discardMessage,deleteMessage,toggleMessageReaction,toggleMessagePin,reportMessage,promoteMessage,editAnnouncement,deleteAnnouncement,applyAdminChanges,requestSupport,
+  saveItem,isSaved,isPending,pendingActions,networkActivity,connectionState,refreshing:networkActivity.reads>0,openDocument,openAnnouncement,openNotification,markNotificationsRead,adminNotificationPopups,dismissAdminNotificationPopup,activeNotificationId,notificationVisitRevision,beginNotificationVisit,notificationDestinationViewed,leaveNotificationDestination,loadMoreNotifications,markDiscussionRead,uploadResource,updateResourceAcademicYears,sendMessage,retryMessage,discardMessage,deleteMessage,toggleMessageReaction,toggleMessagePin,reportMessage,promoteMessage,editAnnouncement,deleteAnnouncement,applyAdminChanges,requestSupport,
   dialog,setDialog,closeDialog:()=>setDialog(null),openUpload:()=>setDialog({type:'upload'}),notify,toast,setToast};
  return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
 }

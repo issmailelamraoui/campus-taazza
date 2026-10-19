@@ -1,5 +1,5 @@
 import {getFilieres} from '../shared/studies.js';
-export const CAPABILITIES=['content.moderate','resource.manage','resource.upload','announcement.publish','student.support','feedback.manage','channel.manage'];
+export const CAPABILITIES=['content.moderate','resource.manage','resource.upload','announcement.publish','student.support','student.admit','feedback.manage','channel.manage'];
 const error=message=>Object.assign(new Error(message),{status:403});
 export async function createPermissions(db) {
   let newlyBound=false;
@@ -81,7 +81,7 @@ export async function createPermissions(db) {
     return fresh;
   }
   async function assertManage(actor,target){
-    if(isOwner(target)){if(!isOwner(actor)||actor.id!==target.id)throw error('Le compte propriétaire est protégé.');return;}
+    if(isOwner(target)){if(!isOwner(actor)||actor.id!==target.id)throw error('Vous ne pouvez pas gérer ce compte.');return;}
     if(isOwner(actor))return;
     const protectedRole=['global_admin','faculty_admin','faculty_leader'].includes(target.role)||!!await db.prepare('SELECT 1 FROM scoped_appointments WHERE user_id=? AND revoked_at IS NULL').get(target.id);
     if(protectedRole||!can(actor,'student.support',target.faculty_id,target.filiere_id))throw error('Seul le propriétaire peut gérer les comptes protégés.');

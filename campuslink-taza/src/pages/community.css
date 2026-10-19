@@ -122,7 +122,7 @@
   color: var(--muted);
   font-weight: 600;
   letter-spacing: 0.7px;
-  margin: 0 8px 11px;
+  margin: 8px 8px 11px;
 }
 .community-channel-list {
   display: flex;
@@ -279,7 +279,15 @@
 }
 .community-chat-heading {
   min-width: 0;
+  display: flex;
+  align-items: center;
   flex: 1;
+  gap: 14px;
+}
+.community-chat-title { min-width: 0; flex: 1; }
+.community-unread-dot {
+  width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto;
+  background: var(--accent-ink); box-shadow: 0 0 0 3px var(--accent-soft);
 }
 .community-chat-heading h2 {
   display: flex;
@@ -417,8 +425,9 @@ html[data-input-modality="keyboard"] .community-search-bar input:focus-visible {
   font-size: 19px;
 }
 .community-message-history .empty-state p {
-  font-size: 14px;
+  font-size: 12px;
   line-height: 1.8;
+  margin-bottom: 15px;
 }
 .community-date-divider {
   display: flex;
@@ -1200,7 +1209,7 @@ html[data-input-modality="keyboard"] .community-composer-input textarea:focus-vi
     padding: 14px 0;
     min-height: 47px;
   }
-  .app-shell--community .sidebar .nav-item > span {
+  .app-shell--community .sidebar .nav-item > span:not(.nav-icon-wrap) {
     display: none;
   }
   .app-shell--community .sidebar .nav-item.active::after {
@@ -1253,6 +1262,11 @@ html[data-input-modality="keyboard"] .community-composer-input textarea:focus-vi
     display: flex;
     border: 0;
     border-radius: 0;
+  }
+  .community-chat-heading {
+    display: flex;
+    flex-direction: column;
+    align-items: start;
   }
   .community-channel-panel {
     flex: 1;
@@ -1512,7 +1526,8 @@ html[data-input-modality="keyboard"] .community-composer-input textarea:focus-vi
     font-size: 18px;
   }
   .community-message-history .empty-state p {
-    font-size: 13px;
+    font-size: 11px;
+    margin-bottom: 12px;
   }
 }
 @media (max-width: 360px) {
@@ -1570,14 +1585,15 @@ html[data-input-modality="keyboard"] .community-composer-input textarea:focus-vi
 .community-device-pdf { width: 100%; height: min(55dvh, 560px); border: 0; border-radius: 9px; background: var(--surface2); }
 .community-device-image { display: block; max-width: 100%; max-height: 55dvh; object-fit: contain; margin: auto; border-radius: 9px; }
 .community-device-text { white-space: pre-wrap; overflow-wrap: anywhere; font-family: inherit; font-size: 14px; line-height: 1.7; padding: 16px; margin: 0; border-radius: 9px; background: var(--surface2); }
-.community-file-classification { display: flex; flex-direction: column; gap: 5px; margin: 7px 0; min-width: 0; font-size: 11px; line-height: 1.4; white-space: normal; overflow-wrap: anywhere; }
-.community-file-module { display: flex; align-items: flex-start; gap: 7px; font-weight: 600; }
+.community-file-classification { display: flex; flex-direction: column; gap: 5px; margin: 0; min-width: 0; font-size: 11px; line-height: 1.4; white-space: normal; overflow-wrap: anywhere; }
+.community-file-module { display: block; font-size: 13px; font-weight: 600; }
 .community-file-module > bdi { min-width: 0; overflow-wrap: anywhere; }
 .community-file-module > span { flex: 0 0 auto; font-weight: 500; opacity: .85; }
 .community-file-labels { display: flex; align-items: center; flex-wrap: wrap; gap: 5px 9px; }
 .community-file-labels > span { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
 .community-file-category { padding: 2px 6px; border-radius: 5px; background: color-mix(in srgb, currentColor 9%, transparent); font-size: 10px; font-weight: 600; }
 .community-file-classification .community-file-program, .community-file-classification .community-file-author { font-size: 10px; line-height: 1.4; }
+.community-file-uploader { font-size: 10px; opacity: .8; overflow-wrap: anywhere; }
 .community-file-name { opacity: .8; }
 .community-device-attachment .community-attachment-file { align-items: flex-start; gap: 8px; }
 .community-device-attachment .community-attachment-icon { width: 32px; min-height: 36px; }
@@ -1596,3 +1612,29 @@ html[data-input-modality="keyboard"] .community-composer-input textarea:focus-vi
 .community-message-bubble > .community-shared-module { margin-top: 8px; }
 .community-message-bubble > .community-shared-module:first-child { margin-top: 0; }
 .community-message.is-own .community-shared-module { background: var(--surface2); }
+
+.chat-presence { position: relative; font-size: 11px; color: var(--muted); }
+.chat-presence summary { display: flex; align-items: center; gap: 5px; cursor: pointer; min-height: 24px; }
+.chat-presence ul { position: absolute; z-index: 20; inset-block-start: 134%; inset-inline-start: 0; max-height: 220px; min-width: 180px; overflow-y: auto; list-style: none; padding: 10px; margin: 0; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); box-shadow: 0 8px 24px #0002; }
+.chat-presence li { padding: 5px; overflow-wrap: anywhere; }
+
+/* Keep conversation titles and real presence within a single compact header. */
+.community-chat-heading .chat-presence { flex: 0 1 auto; min-width: 0; max-width: 40%; }
+.community-chat-heading .chat-presence summary { min-height: 44px; white-space: nowrap; }
+.community-chat-heading .chat-presence summary > span { overflow: hidden; text-overflow: ellipsis; }
+.community-chat-heading .chat-presence summary > svg { flex: 0 0 auto; }
+.community-chat-heading .chat-presence ul { inset-inline-start: auto; inset-inline-end: 0; max-width: min(260px, 80vw); }
+@media (max-width: 1100px) {
+  .community-chat-heading { gap: 8px; }
+  .community-chat-header { gap: 8px; }
+}
+@media (max-width: 760px) {
+  .community-chat-header { min-height: 54px; padding-block: 4px; }
+  .community-chat-heading { display: flex; flex-direction: row; align-items: center; gap: 6px; }
+  .community-chat-heading .community-chat-title p { display: none; }
+  .community-chat-heading h2 { margin: 0; }
+  .community-chat-heading .chat-presence { max-width: 54px; }
+  .community-chat-heading .chat-presence .presence-label { display: none; }
+}
+
+.chat-presence .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }

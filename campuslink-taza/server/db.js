@@ -11,6 +11,10 @@ const applicationTables = new Set([...identityTables, 'faculties', 'filieres', '
 applicationTables.add('password_reset_operations');
 applicationTables.add('upload_sessions');
 applicationTables.add('message_module_shares');
+applicationTables.add('discussion_reads');
+applicationTables.add('realtime_events');
+applicationTables.add('chat_presence');
+applicationTables.add('contact_reactions');
 const migrationDirectory = new URL('./migrations/', import.meta.url);
 const connectionCodes = new Set(['ECONNRESET', 'ECONNREFUSED', 'ETIMEDOUT', 'EPIPE', 'ENETUNREACH', 'EHOSTUNREACH', 'ENOTFOUND', 'EAI_AGAIN', '57P01', '57P02', '57P03', '53300']);
 function connectionFailure(error) {

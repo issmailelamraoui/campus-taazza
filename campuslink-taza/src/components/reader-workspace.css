@@ -44,7 +44,7 @@
 .reader-pane-header strong { font-size: 12px; }
 .reader-pane-header small { font-size: 10px; }
 .reader-controls { flex: none; padding: 6px 12px; gap: 4px; border-top: 0; border-bottom: 1px solid var(--line); background: var(--surface); }
-.reader-controls .icon-btn { width: 34px; height: 34px; }
+.reader-controls .icon-btn { width: 30px; height: 30px; }
 .reader-controls .btn { min-height: 34px; padding: 6px 10px; font-size: 12px; }
 .reader-controls .reader-tools-toggle { margin-inline-start: auto; }
 .reader-controls .btn[aria-expanded="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-ink); }

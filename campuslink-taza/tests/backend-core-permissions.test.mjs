@@ -96,12 +96,12 @@ test('years separate material slots and one physical file can be reused across y
  const result=await request('/search?q='+encodeURIComponent(module)+'&type=resource',{cookie:cookies.yassine});assert.deepEqual(result.data.results.map(r=>r.id),[file.id,older.data.resource.id,unknown.data.resource.id]);
  const stream=await request('/files/'+file.id,{cookie:cookies.yassine});assert.match(stream.headers.get('content-disposition'),/^attachment/);assert.equal(stream.headers.get('x-content-type-options'),'nosniff');
 });
-test('private feedback persists administrative replies and exact notifications remain unread until departure',async()=>{
+test('private feedback persists the assigned administrator and reads only on explicit actions',async()=>{
  const created=await request('/feedback',{cookie:cookies.yassine,method:'POST',body:{category:'bug',title:'Reader concern',description:'My private report'}});assert.equal(created.status,201);const id=created.data.ticket.id;
  assert.equal((await request('/feedback/'+id,{cookie:cookies.sara})).status,403);
- const replied=await request('/admin/feedback/'+id+'/replies',{cookie:cookies.admin,method:'POST',body:{content:'Administration response',status:'reviewing'}});assert.equal(replied.status,201,JSON.stringify(replied.data));assert.equal(replied.data.ticket.replies[0].author.name,'Administration');assert.equal(replied.data.ticket.replies[0].author.id,null);
- const row=await env.db.prepare('SELECT * FROM notifications WHERE user_id=3 AND path LIKE ? ORDER BY id DESC').get('%#feedback-'+id);assert.equal(row.read,0);
- assert.equal((await request('/notifications/read',{cookie:cookies.yassine,method:'POST',body:{ids:[row.id]}})).status,400);
+ assert.equal((await request('/admin/feedback/'+id+'/accept',{cookie:cookies.admin,method:'POST',body:{}})).status,200);
+ const replied=await request('/admin/feedback/'+id+'/replies',{cookie:cookies.admin,method:'POST',body:{content:'Administration response',status:'reviewing'}});assert.equal(replied.status,201,JSON.stringify(replied.data));assert.equal(replied.data.ticket.replies[0].author.id,2);assert.ok(replied.data.ticket.replies[0].author.username);
+ const row=await env.db.prepare('SELECT * FROM notifications WHERE user_id=3 AND path LIKE ? ORDER BY id DESC').get('/app/feedback?ticket='+id+'#reply-%');assert.equal(row.read,0);
  await request('/bootstrap',{cookie:cookies.yassine});assert.equal((await env.db.prepare('SELECT read FROM notifications WHERE id=?').get(row.id)).read,0);
  assert.equal((await request('/notifications/'+row.id+'/viewed',{cookie:cookies.yassine,method:'POST',body:{path:'/app'}})).status,400);
  const visit=await request('/notifications/'+row.id+'/viewed',{cookie:cookies.yassine,method:'POST',body:{path:row.path}});assert.equal(visit.status,200);assert.equal((await env.db.prepare('SELECT read FROM notifications WHERE id=?').get(row.id)).read,0);
@@ -170,7 +170,7 @@ test('feedback files stay private, validate duplicate uploads, and honor exact a
  assert.equal((await request('/feedback/'+id+'/attachments',{cookie:cookies.yassine,method:'POST',form:form()})).status,409);
  const bad=new FormData();bad.set('file',new Blob(['false PNG header']),'shot.png');assert.equal((await request('/feedback/'+id+'/attachments',{cookie:cookies.yassine,method:'POST',form:bad})).status,400);
  const grant=await request('/admin/appointments',{cookie:cookies.admin,method:'POST',body:{user_id:8,role:'faculty_admin',faculty_id:'flaa',filiere_id:'french_studies',capabilities:['feedback.manage']}});assert.equal(grant.status,201);cookies.nour=await login('nour');
- assert.equal((await request('/admin/feedback/'+id,{cookie:cookies.nour})).status,200);assert.equal((await request(file,{cookie:cookies.nour})).status,200);
+ assert.equal((await request('/admin/feedback/'+id,{cookie:cookies.nour})).status,200);assert.equal((await request(file,{cookie:cookies.nour})).status,403);assert.equal((await request('/admin/feedback/'+id+'/accept',{cookie:cookies.nour,method:'POST',body:{}})).status,200);assert.equal((await request(file,{cookie:cookies.nour})).status,200);
  const details=await request('/feedback/'+id,{cookie:cookies.yassine});assert.equal(details.data.ticket.attachments[0].id,added.data.attachment.id);
 });
 test('simultaneous ticket submissions cannot exceed hourly or daily limits',async()=>{

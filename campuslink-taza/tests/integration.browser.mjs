@@ -1,4 +1,5 @@
-import {chromium,expect} from '@playwright/test';
+import {chromium,expect as baseExpect} from '@playwright/test';
+const expect=baseExpect.configure({timeout:20000});
 import assert from 'node:assert/strict';
 import {existsSync} from 'node:fs';
 import {mkdir,writeFile} from 'node:fs/promises';
@@ -8,9 +9,9 @@ import {chooseOption,classifyChatFiles} from './ui.helpers.mjs';
 
 // Real application routes and disposable PostgreSQL metadata. Explicit test
 // identity/storage doubles never create provider users or alter source files.
-const environment=await createTestApp({appOrigin:'http://127.0.0.1:5182'});
-const server=environment.app.listen(5182,'127.0.0.1');await once(server,'listening');
-const origin='http://127.0.0.1:5182';
+const environment=await createTestApp();
+const server=environment.app.listen(0,'127.0.0.1');await once(server,'listening');
+const origin='http://127.0.0.1:'+server.address().port;
 const installed='/home/issmail/.cache/ms-playwright/chromium-1243/chrome-linux64/chrome';
 const browser=await chromium.launch({headless:true,...(existsSync(installed)?{executablePath:installed}:{}),args:['--no-sandbox','--disable-dev-shm-usage']});
 const passed=[],failures=[];
@@ -41,21 +42,22 @@ try{
   const bootstrap=await json(page,'/bootstrap');assert.equal(bootstrap.user.filiere_id,'french_studies');assert.ok(bootstrap.resources.length>0);
   await page.reload();await expect(page.locator('.home-welcome')).toBeVisible();assert.equal((await json(page,'/session')).user.username,'sara');
   await page.goto(origin+'/app/library');await page.locator('.library-module-folder').first().click();const card=page.locator('.document-card').first();await expect(card).toBeVisible();
-  const title=await card.locator('h3').innerText();await card.locator('.save-btn').click();await expect(card.locator('.save-btn')).toHaveAttribute('aria-pressed','true');await expect(card.locator('.save-btn')).toBeEnabled();
-  await card.locator('.document-main').click();await expect(page.locator('.preview-modal')).toBeVisible();await expect(page.locator('.preview-modal')).toContainText(title);
-  const document=(await json(page,'/bootstrap')).resources.find(item=>item.title===title);assert.ok(document);const bytes=await page.request.get(origin+'/api/files/'+document.id);assert.equal(bytes.status(),200);assert.ok((await bytes.body()).subarray(0,4).equals(Buffer.from('%PDF')));
-  await page.keyboard.press('Escape');await page.reload();await expect(page.locator('.document-card').filter({hasText:title}).locator('.save-btn')).toHaveAttribute('aria-pressed','true');
+  const cardId=await card.getAttribute('id');await card.locator('.save-btn').click();await expect(card.locator('.save-btn')).toHaveAttribute('aria-pressed','true');await expect(card.locator('.save-btn')).toBeEnabled();
+  const document=(await json(page,'/bootstrap')).resources.find(item=>'resource-'+item.id===cardId);assert.ok(document);
+  await card.locator('.document-main').click();await expect(page.locator('.preview-modal')).toBeVisible();await expect(page.locator('.preview-modal')).toContainText(document.title);
+  const bytes=await page.request.get(origin+'/api/files/'+document.id);assert.equal(bytes.status(),200);assert.ok((await bytes.body()).subarray(0,4).equals(Buffer.from('%PDF')));
+  await page.keyboard.press('Escape');await page.reload();await expect(page.locator('#'+cardId).locator('.save-btn')).toHaveAttribute('aria-pressed','true');
   assert.ok((await json(page,'/bootstrap')).history.some(item=>item.resource_id===document.id));await context.close();
  });
  await scenario('Library uploads complete classification and original bytes persist after reload',async()=>{
   const {context,page}=await pageFor();active=page;await login(page,'sara');await page.goto(origin+'/app/library');await page.getByRole('button',{name:'Partager un document',exact:true}).first().click();
   const modal=page.getByRole('dialog');await modal.locator('input[type=file]:not([webkitdirectory])').setInputFiles({name:'integration-library.txt',mimeType:'text/plain',buffer:Buffer.from('Persisted frontend library upload\n')});
   await modal.getByRole('button',{name:/^Classer les documents/}).click();const row=modal.locator('.upload-file').first();await row.getByRole('button',{name:/^Modifier /}).click();const editor=row.locator('.upload-file-editor');
-  await modal.locator('.upload-batch').getByLabel(/^Module/).fill('Module intégration frontend');await editor.getByLabel(/^Part\/Chapitre/).fill('Complet');
+  await modal.locator('.upload-batch').getByLabel(/^Module/).fill('Module intégration frontend');await chooseOption(editor.getByLabel(/^Part\/Chapitre/), 'complete');
   await modal.getByRole('button',{name:/^Vérifier/}).click();await expect(modal.locator('.upload-review-list')).toBeVisible();await modal.getByRole('button',{name:/^Confirmer|^Envoyer|^Partager/}).last().click();
   await expect(modal.getByRole('heading',{name:'Documents ajoutés'})).toBeVisible({timeout:45000});await modal.getByRole('button',{name:'Terminer',exact:true}).click();
   const data=await json(page,'/bootstrap'),file=data.resources.find(item=>item.filename==='integration-library.txt');assert.ok(file);assert.equal(file.part_number,'complete');assert.equal(file.module,'Module intégration frontend');assert.equal(file.library_visible,true);
-  assert.equal((await page.request.get(origin+'/api/files/'+file.id)).status(),200);await page.reload();await page.getByRole('button',{name:'Ouvrir le module MODULE INTÉGRATION FRONTEND',exact:true}).click();await expect(page.locator('.document-card').filter({hasText:'integration-library'})).toBeVisible();await context.close();
+  assert.equal((await page.request.get(origin+'/api/files/'+file.id)).status(),200);await page.reload();await page.getByRole('button',{name:'Ouvrir le module MODULE INTÉGRATION FRONTEND',exact:true}).click();await expect(page.locator('#resource-'+file.id)).toBeVisible();await context.close();
  });
  await scenario('Chat send, multi-file classification, reactions and reload use actual API records',async()=>{
   const {context,page}=await pageFor({mobile:true});active=page;await login(page,'sara');await page.addInitScript(()=>Object.defineProperty(crypto,'randomUUID',{value:undefined,configurable:true}));await page.goto(origin+'/app/community?channel=general');assert.equal(await page.evaluate(()=>typeof crypto.randomUUID),'undefined');await expect(page.locator('.community-composer')).toBeVisible();

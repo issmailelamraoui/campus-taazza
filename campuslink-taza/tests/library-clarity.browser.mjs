@@ -139,7 +139,7 @@ async function upload(page, names) {
   for (const [index] of names.entries()) {
     const row = modal.locator('.upload-file').nth(index);
     if (!(await row.locator('.upload-file-editor').count())) await row.getByRole('button', { name: /^Modifier / }).click();
-    await row.getByLabel(/^Part\/Chapitre/).fill(String(index + 1));
+    await chooseOption(row.getByLabel(/^Part\/Chapitre/), String(index + 1));
   }
   await modal.getByRole('button', { name: /^Vérifier/ }).click();
   await modal.getByRole('button', { name: 'Confirmer le partage', exact: true }).click();
@@ -220,7 +220,7 @@ try {
       await moduleSearch.fill('straße');
       await page.locator('.library-modules').getByRole('button', { name: 'STRASSE', exact: true }).tap();
       await expect(page).toHaveURL(url => url.searchParams.get('module') === 'straße');
-      await expect(page.locator('.document-filename')).toHaveText('fixture-document-13.pdf');
+      await expect(page.locator('.document-card')).toHaveAttribute('id', 'resource-13');
       await page.goBack();
       await expect(title).toHaveText(longModule);
       await page.locator('.library-results-heading').getByRole('button', { name: 'Tous les modules', exact: true }).tap();
@@ -228,13 +228,13 @@ try {
       await page.getByRole('button', { name: 'Choisir un module', exact: true }).tap();
       await moduleSearch.fill('module complémentaire 30');
       await page.locator('.library-modules').getByRole('button', { name: 'MODULE COMPLÉMENTAIRE 30', exact: true }).tap();
-      await expect(page.locator('.document-filename')).toHaveText('fixture-document-129.pdf');
+      await expect(page.locator('.document-card')).toHaveAttribute('id', 'resource-129');
       await expect(page.getByLabel('Rechercher des documents', { exact: true })).toHaveValue('');
       await page.getByRole('button', { name: 'Changer de module', exact: true }).tap();
       await moduleSearch.fill('Sans module');
       await page.locator('.library-modules').getByRole('button', { name: 'Sans module', exact: true }).tap();
       await expect(page).toHaveURL(url => url.searchParams.has('module') && url.searchParams.get('module') === '');
-      await expect(page.locator('.document-filename')).toHaveText('fixture-document-15.pdf');
+      await expect(page.locator('.document-card')).toHaveAttribute('id', 'resource-15');
       assert.deepEqual(f.errors, []); assert.deepEqual(f.uploads, []);
     } finally { await f.context.close(); }
   });
@@ -248,7 +248,7 @@ try {
       await fullyReadable(page.locator('.library-results-heading h2'), 'Desktop full folder name');
       await categoriesVisible(page, `Desktop ${theme}`);
       await page.getByRole('tab', { name: /^Examens/ }).click();
-      await expect(page.locator('.document-filename')).toHaveText('fixture-document-5.pdf');
+      await expect(page.locator('.document-card')).toHaveAttribute('id', 'resource-5');
       await fits(page, `Desktop ${theme}`);
       await page.screenshot({ path: `test-results/library-clarity-desktop-${theme}.png` });
       assert.deepEqual(f.errors, []);

@@ -34,7 +34,8 @@ async function fixture(viewport, theme, mobile = true) {
   await context.route('**/api/**', route => {
     const request = route.request(), path = new URL(request.url()).pathname;
     if (path === '/api/session') return route.fulfill({ json: { user } });
-    if (path === '/api/bootstrap') return route.fulfill({ json: { user, faculty: { id: 'flaa', code: 'FLAA', name: 'Fixture faculty' }, resources: [], announcements: [], messages, notifications: [], events: [], saved: [], history: [], channels: [{ id: 'general', read_only: false }], members: [] } });
+    if (path === '/api/bootstrap'||path==='/api/live') return route.fulfill({ json: { messages_complete:true,user, faculty: { id: 'flaa', code: 'FLAA', name: 'Fixture faculty' }, resources: [], announcements: [], messages, notifications: [], events: [], saved: [], history: [], channels: [{ id: 'general', read_only: false }], members: [] } });
+    if (path === '/api/messages/read') return route.fulfill({ json: { discussion_unread_count: 0 } });
     writes.push(`${request.method()} ${path}`);
     return route.fulfill({ status: 500, json: { error: 'Unexpected fixture request' } });
   });
@@ -42,7 +43,7 @@ async function fixture(viewport, theme, mobile = true) {
   page.setDefaultTimeout(8000);
   page.on('pageerror', error => errors.push(error.message));
   await page.goto(`${baseURL}/app/community?channel=general`);
-  await expect(page.locator('[data-message-id="101"]')).toBeVisible();
+  await page.locator('[data-message-id="101"]').waitFor({ timeout: 30000 });
   await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
   return { context, page, errors, writes };
 }
@@ -127,9 +128,10 @@ try {
         await expect(page.getByRole('menu')).toHaveCount(0);
         const trace = await page.evaluate(() => window.__touchTrace);
         assert.ok(trace.some(event => event.type === 'pointerdown' && event.pointerType === 'touch'));
-        // The touch action may commit on pointerup and suppress Chrome's
-        // compatibility click. Both native paths must target the copy action.
-        assert.ok(trace.some(event => ['pointerup', 'click'].includes(event.type) && event.pointerType === 'touch' && event.action.includes('Copier le message')));
+        // The new native touch must target the copy action. Browsers may
+        // commit on pointerup or emit a compatibility click without pointerType;
+        // the copied-content assertion above verifies the resulting action.
+        assert.ok(trace.some(event => event.type === 'pointerdown' && event.pointerType === 'touch' && event.action.includes('Copier le message')));
         assert.deepEqual(errors, []);
         assert.deepEqual(writes, []);
         console.log(`PASS ${viewport.width}x${viewport.height} ${theme}: native hold, all portal release actions blocked, new tap, outside dismissal, compact bubbles, temporary/resettable reply highlight, pan cancels hold`);

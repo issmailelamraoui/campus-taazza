@@ -34,7 +34,7 @@ async function fixture({ width, height, theme, language, state = 'approved' }) {
   }, { theme, language });
   await context.route('**/api/**', async route => {
     const request = route.request(), path = new URL(request.url()).pathname;
-    if (request.method() !== 'GET' && !['/api/history', '/api/notifications/visit', '/api/notifications/leave'].includes(path)) {
+    if (request.method() !== 'GET' && !['/api/history', '/api/messages/read', '/api/notifications/visit', '/api/notifications/leave'].includes(path)) {
       unexpected.push(`${request.method()} ${path}`);
       return route.fulfill({ status: 503, json: { error: 'Read-only design fixture.' } });
     }
@@ -64,7 +64,7 @@ async function fixture({ width, height, theme, language, state = 'approved' }) {
     else if (path === '/api/campus/reports') data = { reports: [] };
     else if (path === '/api/campus/blocks') data = { blocks: [] };
     else if (path === '/api/document-search') data = { matches: [], items: [], results: [] };
-    else if (path === '/api/history') data = { ok: true };
+    else if (path === '/api/history' || path === '/api/messages/read') data = { ok: true };
     else { unexpected.push(`${request.method()} ${path}`); return route.fulfill({ status: 503, json: { error: 'Design fixture endpoint unavailable.' } }); }
     return route.fulfill({ json: data });
   });

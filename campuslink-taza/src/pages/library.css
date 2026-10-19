@@ -1,6 +1,22 @@
 .library-page {
   min-width: 0;
 }
+.library-folder-breadcrumbs { scroll-margin-top: 90px; display: flex; align-items: center; flex-wrap: wrap; gap: 5px; margin: 20px 0 14px; min-width: 0; font-size: 12px; }
+.library-folder-breadcrumbs > button { max-width: 100%; min-height: 40px; padding: 8px; border: 0; border-radius: 6px; background: transparent; color: var(--muted); font: inherit; overflow-wrap: anywhere; text-align: start; cursor: pointer; }
+.library-folder-breadcrumbs > button:hover { background: var(--surface2); color: var(--ink); }
+.library-folder-breadcrumbs > button[aria-current="page"] { font-weight: 600; color: var(--ink); }
+.library-folder-breadcrumbs > .library-parent-folder { margin-inline-start: auto; }
+.library-uploaded-folders { margin-bottom: 24px; }
+.library-uploaded-folders > h3 { margin: 0 0 12px; font-size: 14px; }
+.library-uploaded-folder { display: flex; align-items: center; gap: 12px; width: 100%; min-width: 0; padding: 16px; color: var(--ink); text-align: start; cursor: pointer; }
+.library-uploaded-folder:hover { border-color: var(--accent); }
+.library-uploaded-folder-copy { display: flex; flex-direction: column; flex: 1; gap: 4px; min-width: 0; overflow-wrap: anywhere; }
+.library-uploaded-folder-copy > strong { font-size: 14px; line-height: 1.5; }
+.library-uploaded-folder-copy > :not(strong) { font-size: 11px; color: var(--muted); }
+@media (max-width: 480px) {
+  .library-uploaded-folder { padding: 12px; gap: 10px; }
+  .library-folder-breadcrumbs > .library-parent-folder { margin-inline-start: 0; }
+}
 .library-navigation {
   padding: 24px;
   margin: 26px 0 20px;
@@ -94,7 +110,7 @@
   width: 100%;
   margin-top: 10px;
   padding: 13px 14px;
-  border: 1px solid color-mix(in srgb, var(--accent) 42%, var(--line));
+  border: 1px solid #ffffff17;
   border-radius: 10px;
   background: color-mix(in srgb, var(--accent) 7%, var(--surface));
   color: var(--ink);
@@ -103,12 +119,12 @@
   transition: background-color .16s, border-color .16s;
 }
 .library-module-trigger.is-open {
-  border-color: var(--accent);
+  border-color: #ffffff17;
   background: color-mix(in srgb, var(--accent) 11%, var(--surface));
 }
 @media (hover: hover) and (pointer: fine) {
   .library-module-trigger:hover {
-    border-color: color-mix(in srgb, var(--accent) 70%, var(--line));
+    border-color: #ffffff26;
     background: color-mix(in srgb, var(--accent) 11%, var(--surface));
   }
 }

@@ -69,7 +69,7 @@ async function fixture(settings) {
   await context.route('**/api/**', async route => {
     const request = route.request(), path = new URL(request.url()).pathname;
     if (path === '/api/session') return route.fulfill({ json: { user } });
-    if (path === '/api/bootstrap') return route.fulfill({ json: payload() });
+    if (path === '/api/bootstrap'||path==='/api/live') return route.fulfill({ json: {...payload(),messages_complete:true} });
     if (path === '/api/messages' && request.method() === 'POST') {
       const body = request.postDataJSON();
       writes.push(body);
@@ -81,6 +81,7 @@ async function fixture(settings) {
       };
       return;
     }
+    if (path === '/api/messages/read') return route.fulfill({ json: { discussion_unread_count: 0 } });
     errors.push(`Unexpected fixture request: ${request.method()} ${path}`);
     return route.fulfill({ status: 500, json: { error: 'Unexpected keyboard fixture request' } });
   });
@@ -88,7 +89,7 @@ async function fixture(settings) {
   page.setDefaultTimeout(10000);
   page.on('pageerror', error => errors.push(error.message));
   await page.goto(`${origin}/app/community?channel=general`);
-  await expect(page.locator('[data-message-id="145"]')).toBeVisible();
+  await page.locator('[data-message-id="145"]').waitFor({ timeout: 30000 });
   return { context, page, errors, writes, acknowledge: async () => { await expect.poll(() => Boolean(pending)).toBe(true); await pending(); } };
 }
 

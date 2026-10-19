@@ -107,7 +107,7 @@ async function shareFiles(page, paths, title, folder = false, part = '') {
     await row.getByRole('button', { name: /^Modifier / }).click();
     const fields = row.locator('.upload-file-editor');
     if (index === 0) await fields.getByLabel('Titre du document *', { exact: true }).fill(title);
-    await fields.getByLabel('Part/Chapitre *', { exact: true }).fill(String(part || index + 1));
+    await chooseOption(fields.getByLabel('Part/Chapitre *', { exact: true }), String(part || index + 1));
   }
   await modal.getByRole('button', { name: /^Vérifier/ }).click();
   await expect(modal.locator('.upload-review-list')).toContainText(title);
