@@ -7,7 +7,7 @@ import {getFiliere, filiereBelongsToFaculty} from './data/studies.js';
 import {translations} from './i18n.js';
 import {chatRequest, isAdministrator, normalizeAnnouncement, normalizeBootstrap, normalizeMessage, normalizeResource, normalizeUser, requiresPasswordChange} from './lib/backend.js';
 import {normalizePart} from './lib/resources.js';
-import {nativePDFUrl} from './lib/document-open.js';
+import {documentFileUrl,isPhoneDocumentViewport} from './lib/document-open.js';
 import {saveOfflineSession,loadOfflineSession} from './lib/offline-session.js';
 // Session cleanup must be registered even when no reader/study route is loaded.
 import './lib/offline-documents.js';
@@ -46,6 +46,7 @@ export function AppProvider({children}){
  const tr=(fr,en,ar)=>language==='ar'?ar||fr:language==='en'?en||fr:fr;
  const notify=useCallback((message,type='success')=>setToast({message,type,id:Date.now()}),[]);
  const clearSession=useCallback(()=>{
+  setToast(null);
   clearTimeout(notificationRetryTimer.current);notificationRetryTimer.current=null;discussionReadQueue.current=Promise.resolve();notificationVisit.current=null;setNotificationVisitRevision(0);setActiveNotificationId(null);setAdminNotificationPopups([]);popupSession.current={account:null,seen:new Set(),visible:[]};window.dispatchEvent(new Event('campus-session-cleared'));
   epoch.current++;invalidateAPISession();refreshRequest.current=null;actionRequests.current.clear();stagedUploads.current.clear();optimistic.current.clear();messageDrafts.current.clear();setPendingActions({});clearTimeout(refreshTimer.current);refreshTimer.current=null;queuedRefresh.current=false;
   refreshMode.current={live:true,complete:false,ids:new Set()};current.current=emptyData();setData(current.current);setDialog(null);setConnectionError('');
@@ -120,7 +121,6 @@ export function AppProvider({children}){
  },[language,theme]);
  useEffect(()=>{document.documentElement.dataset.lowData=lowData?'true':'false';},[lowData]);
  useEffect(()=>{const cache=event=>{if(!requiresPasswordChange(current.current.user)&&(!event.detail?.userId||String(event.detail.userId)===String(current.current.user?.id)))saveOfflineSession(current.current).catch(()=>notify(tr('Impossible d’enregistrer la session hors ligne.','Could not save the offline session.','تعذر حفظ الجلسة دون اتصال.'),'error'));};window.addEventListener('campus-offline-enabled',cache);return()=>window.removeEventListener('campus-offline-enabled',cache);},[]);
- useEffect(()=>{if(!toast)return;const timer=setTimeout(()=>setToast(null),4200);return()=>clearTimeout(timer);},[toast]);
  useEffect(()=>{
   if(!user?.id||!isAdmin||user.accountStatus!=='approved'||requiresPasswordChange(user)||user.preferences?.admin===false){popupSession.current.visible=[];setAdminNotificationPopups(previous=>previous.length?[]:previous);return;}
   const storageKey=key+'notification-popups:'+user.id;
@@ -224,9 +224,9 @@ export function AppProvider({children}){
    finishOptimistic(owner,action,apply(result.saved));if(owner===epoch.current)notify(t(result.saved?'savedSuccess':'removedSuccess'));return result.saved;
   }catch(error){finishOptimistic(owner,action,apply(wasSaved));if(owner===epoch.current)notify(error.message,'error');return false;}
  });}
- function openDocument(item,{study=false,nativeOpened=false,inPlace=false}={}){
+ function openDocument(item,{study=false,external=false,nativeOpened=false,inPlace=false}={}){
   if(!item)return;
-  const nativeUrl=!study&&navigator.onLine!==false&&nativePDFUrl(item);
+  const nativeUrl=!study&&navigator.onLine!==false&&(external||isPhoneDocumentViewport())&&documentFileUrl(item);
   if(nativeUrl){
    setDialog(null);
    if(inPlace)window.location.replace(nativeUrl);
@@ -234,7 +234,7 @@ export function AppProvider({children}){
     const tab=window.open(nativeUrl,'_blank');
     if(tab)tab.opener=null;else window.location.assign(nativeUrl);
    }
-  }else setDialog({type:'document',item});
+  }else setDialog({type:'document',item,study:study||navigator.onLine===false});
   const owner=epoch.current;
   locked('history:'+item.id,async()=>{const original=current.current.history,action='history:'+item.id,id=String(item.id);
    const apply=previous=>({...previous,history:[id,...previous.history.filter(target=>target!==id)].slice(0,20)});

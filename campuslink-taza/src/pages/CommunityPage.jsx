@@ -1,3 +1,4 @@
+import BrowserFilePreview from '../components/BrowserFilePreview';
 import ChatPresence from '../components/ChatPresence';
 import React, {
   useEffect,
@@ -45,6 +46,7 @@ import { useApp } from "../context";
 import { COMMUNITY_YEAR_CHANNELS, normalizeCommunityChannel, canonicalCommunityMessageId } from "../lib/community";
 import { SUPPORTED_FILE_ACCEPT, isSupportedFile, fileKey, filesFromDrop, createSessionAttachment, getSessionFile, releaseSessionAttachment } from "../lib/files";
 import { partLabel } from "../lib/resources";
+import { documentFileUrl, isPhoneDocumentViewport } from "../lib/document-open";
 import { normalizeSearch } from "../utils";
 import { copyText } from "../lib/clipboard";
 import UploadModal from "../components/UploadModal";
@@ -983,23 +985,20 @@ export default function CommunityPage() {
     const scope = currentScope.current;
     const targetChannel = channel;
     const session = getSessionFile(attachment.id);
-    const url = session?.url || attachment.url;
+    const url = session?.url || documentFileUrl(attachment) || attachment.url;
     if (!url) {
       notify(tr("Ce fichier n’est plus disponible.", "This file is no longer available.", "لم يعد هذا الملف متاحاً."));
       return;
     }
+    if (isPhoneDocumentViewport() && (session || navigator.onLine !== false)) {
+      const tab = window.open(url, "_blank");
+      if (tab) tab.opener = null;
+      else window.location.assign(url);
+      return;
+    }
     try {
-      let text = null;
-      if (attachment.fileType === "TXT") {
-        if (session) text = await session.file.text();
-        else {
-          const response = await fetch(url, { credentials: "same-origin" });
-          if (!response.ok) throw new Error(tr("Ce fichier n’a pas pu être ouvert.", "This file could not be opened.", "تعذر فتح هذا الملف."));
-          text = await response.text();
-        }
-      }
       if (request !== previewSequence.current || scope !== currentScope.current || targetChannel !== currentChannel.current) return;
-      setDevicePreview({ attachment, file: session?.file || { name: attachment.name }, url, text, local: Boolean(session) });
+      setDevicePreview({ attachment, file: session?.file || { name: attachment.name }, url, local: Boolean(session) });
     } catch (error) {
       if (request === previewSequence.current && scope === currentScope.current && targetChannel === currentChannel.current) notify(error.message || tr("Ce fichier n’a pas pu être ouvert.", "This file could not be opened.", "تعذر فتح هذا الملف."));
     }
@@ -1706,7 +1705,7 @@ export default function CommunityPage() {
         </section>
       </div>
       {attachmentClassification && <UploadModal mode="chat" initialEntries={attachmentClassification.entries} existingAttachments={attachmentClassification.existingAttachments} onConfirm={confirmDeviceFiles} onClose={() => setAttachmentClassification(null)} />}
-      {devicePreview && <Modal className="community-device-preview" title={devicePreview.attachment.title || devicePreview.attachment.name} onClose={() => setDevicePreview(null)} wide footer={<Button variant="primary" icon={Download} onClick={() => { const link = document.createElement('a'); link.href = devicePreview.attachment.downloadUrl || devicePreview.url; link.download = devicePreview.attachment.name || devicePreview.file.name; link.click(); }}>{tr("Télécharger", "Download", "تنزيل")}</Button>}>
+      {devicePreview && <Modal className="community-device-preview" title={devicePreview.attachment.title || devicePreview.attachment.name} onClose={() => setDevicePreview(null)} wide footer={<><a className="btn btn-secondary community-device-external-open" href={devicePreview.url} target="_blank" rel="noopener noreferrer"><ArrowUpRight size={17}/><span>{tr("Ouvrir dans un nouvel onglet", "Open in a new tab", "فتح في تبويب جديد")}</span></a><Button variant="primary" icon={Download} onClick={() => { const link = document.createElement('a'); link.href = devicePreview.attachment.downloadUrl || devicePreview.url; link.download = devicePreview.attachment.name || devicePreview.file.name; link.click(); }}>{tr("Télécharger", "Download", "تنزيل")}</Button></>}>
         <p className="muted community-device-preview-meta">{devicePreview.attachment.fileType} · {devicePreview.attachment.size} · {devicePreview.local ? tr("Fichier sélectionné sur votre appareil", "File selected on your device", "ملف محدد من جهازك") : tr("Fichier conservé dans cette discussion", "File saved in this conversation", "ملف محفوظ في هذه المناقشة")}</p>
         {devicePreview.attachment.module && <dl className="community-device-details">
           {[
@@ -1723,7 +1722,7 @@ export default function CommunityPage() {
           ].filter(([, value]) => value).map(([label, value]) => <div key={label}><dt>{label}</dt><dd dir="auto">{value}</dd></div>)}
         </dl>}
         {devicePreview.attachment.path?.includes('/') && <p className="muted community-device-preview-path" dir="auto">{devicePreview.attachment.path}</p>}
-        {devicePreview.attachment.fileType === 'PDF' ? <iframe className="community-device-pdf" title={devicePreview.attachment.name} src={devicePreview.url + '#toolbar=0&view=FitH'} /> : ['JPG', 'JPEG', 'PNG', 'WEBP'].includes(devicePreview.attachment.fileType) ? <img className="community-device-image" src={devicePreview.url} alt={devicePreview.attachment.name} /> : devicePreview.attachment.fileType === 'TXT' ? <pre className="community-device-text" dir="auto">{devicePreview.text}</pre> : <EmptyState icon={FileText} title={devicePreview.attachment.name} description={tr("Téléchargez ce fichier pour l’ouvrir avec une application compatible sur votre appareil.", "Download this file to open it in a compatible application on your device.", "نزّل الملف لفتحه بتطبيق متوافق على جهازك.")} />}
+        <BrowserFilePreview item={devicePreview.attachment} url={devicePreview.url}/>
       </Modal>}
       {showPins && (
         <Modal

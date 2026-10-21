@@ -1,7 +1,7 @@
 import ConnectionStatus from './components/ConnectionStatus';
 import React,{useEffect} from 'react';
 import {Navigate,Route,Routes,useLocation} from 'react-router-dom';
-import {AlertCircle,Check,X} from 'lucide-react';
+import NotificationCenter from './components/NotificationCenter';
 import {useApp} from './context';
 import PageLoading from './components/PageLoading';
 import {accountDestination,requiresPasswordChange} from './lib/backend';
@@ -70,7 +70,7 @@ function NotificationLifecycle(){
  return null;
 }
 export default function App(){
- const {user,selection,isAdmin,loading,dialog,toast,setToast,t}=useApp(),destination=accountDestination(user,selection,isAdmin);
+ const {user,selection,isAdmin,loading,dialog}=useApp(),destination=accountDestination(user,selection,isAdmin);
  return <><ScrollReset/><NotificationLifecycle/><React.Suspense fallback={<PageLoading fullPage/>}><Routes>
   <Route path="/" element={<LandingPage/>}/>
   <Route path="/support" element={<AccessSupportPage/>}/>
@@ -82,5 +82,5 @@ export default function App(){
   <Route path="/app" element={<Protected/>}>
    <Route index element={<HomePage/>}/><Route path="library" element={<LibraryPage/>}/><Route path="community" element={<CommunityPage/>}/><Route path="study" element={<StudyPage/>}/><Route path="scanner" element={<ScannerPage/>}/><Route path="campus" element={<CampusPage/>}/><Route path="labs" element={<CampusLabs/>}/><Route path="feedback" element={<FeedbackPage/>}/><Route path="xp" element={<XPPage/>}/><Route path="permissions" element={user?.role==='global_admin'?<PermissionsPage/>:<Navigate to="/app" replace/>}/><Route path="announcements" element={<AnnouncementsPage/>}/><Route path="notifications" element={<NotificationsPage/>}/><Route path="saved" element={<SavedPage/>}/><Route path="profile" element={<ProfilePage/>}/><Route path="admin" element={isAdmin?<AdminPage/>:<Navigate to="/app" replace/>}/><Route path="*" element={<Navigate to="/app" replace/>}/>
   </Route><Route path="*" element={<Navigate to="/" replace/>}/>
- </Routes></React.Suspense>{dialog&&<React.Suspense fallback={null}><Dialogs/></React.Suspense>}{toast&&<div className="toast" role={toast.type==='error'?'alert':'status'} aria-live="polite">{toast.type==='error'?<AlertCircle size={17}/>:<Check size={17}/>}<span>{toast.message}</span><button className="icon-btn" aria-label={t('close')} onClick={()=>setToast(null)}><X size={15}/></button></div>}</>;
+ </Routes></React.Suspense>{dialog&&<React.Suspense fallback={null}><Dialogs/></React.Suspense>}<NotificationCenter/></>;
 }

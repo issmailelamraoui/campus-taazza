@@ -1,5 +1,7 @@
 # CampusLink Taza — responsive, actions et ouverture native des PDF
 
+La règle d’ouverture des fichiers a été mise à jour le 21 octobre : aperçu intégré sur ordinateur/tablette avec bouton externe, ouverture externe automatique sur téléphone. Voir [le rapport du 21 octobre](document-preview-routing-2026-10-21.md). Les résultats ci-dessous décrivent la version du 19 octobre.
+
 ## Corrections
 
 Les détails d’un compte présentent maintenant l’identité et les informations dans une disposition compacte. Le pied de la fenêtre regroupe **Fermer** et **Modifier** ; les opérations de mot de passe, de nomination et de suppression restent accessibles dans **Autres actions sur le compte**, sans occuper plusieurs rangées en permanence. Les décisions de modération utilisent une grille régulière plutôt qu’un enchaînement de boutons de largeurs différentes. Les contrôles de permission et les confirmations existantes sont conservés.

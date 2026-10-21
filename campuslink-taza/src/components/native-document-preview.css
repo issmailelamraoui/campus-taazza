@@ -1,0 +1,32 @@
+.native-document-preview {
+  width: min(1420px, calc(100vw - 24px));
+  height: min(1100px, calc(var(--modal-viewport-height, 100dvh) - 24px));
+  max-height: calc(var(--modal-viewport-height, 100dvh) - 24px);
+}
+.native-document-preview .modal-header { min-height: 50px; padding: 10px 18px; }
+.native-document-preview .modal-header h2 { font-size: 15px; overflow-wrap: anywhere; }
+.native-document-preview .modal-body { display: flex; flex-direction: column; flex: 1; min-height: 0; padding: 0; overflow: hidden; }
+.native-document-toolbar { display: flex; flex: none; align-items: center; gap: 12px; padding: 7px 16px; border-bottom: 1px solid var(--line); }
+.native-document-context { display: flex; flex: 1; align-items: center; min-width: 0; gap: 8px; font-size: 11px; }
+.native-document-context > :not(bdi) { flex: none; }
+.native-document-context > bdi { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.native-document-toolbar .reader-external-open { flex: none; min-height: 34px; font-size: 11px; padding: 6px 9px; white-space: nowrap; }
+.browser-file-preview { display: flex; flex-direction: column; flex: 1; min-height: 0; min-width: 0; overflow: hidden; background: var(--surface2); }
+.native-document-frame { display: block; flex: 1; width: 100%; height: 100%; min-height: 0; border: 0; background: var(--surface2); }
+.browser-file-preview > .empty-state { margin: auto; padding: 24px; }
+.native-document-preview .modal-body > .empty-state { margin: auto; padding: 24px; }
+.community-device-preview .browser-file-preview { height: min(65dvh, 720px); min-height: 240px; border-radius: 9px; }
+@media (max-width: 900px), (pointer: coarse) {
+  .native-document-toolbar .reader-external-open { min-height: 44px; }
+}
+@media (max-width: 760px), (max-height: 500px) {
+  .modal-backdrop:has(.native-document-preview) { padding: 0; }
+  .native-document-preview { width: 100%; height: var(--modal-viewport-height, 100dvh); max-height: var(--modal-viewport-height, 100dvh); border-radius: 0; }
+  .native-document-preview .modal-header { min-height: 44px; padding: 7px 12px; }
+  .native-document-toolbar { padding: 5px 10px; gap: 8px; }
+  .native-document-context { gap: 6px; }
+}
+@media (max-width: 500px) {
+  .native-document-context { display: none; }
+  .native-document-toolbar { justify-content: flex-end; }
+}

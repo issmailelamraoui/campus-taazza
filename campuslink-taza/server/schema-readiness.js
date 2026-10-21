@@ -113,6 +113,8 @@ export async function assertSchemaReady(db) {
 // Only trusted startup logs receive object names. Never include database URLs,
 // driver messages, imported migration names, query text or underlying causes.
 export function schemaReadinessDiagnostic(error) {
+  if (error?.code === 'DATABASE_UNAVAILABLE') return 'CampusLink API startup failed: the PostgreSQL connection is temporarily unavailable after startup retries. Check database availability and network access, then restart npm run dev. No migrations or seed were run.';
+  if (error?.code === 'AUTH_CONFIGURATION') return 'CampusLink API startup failed: Neon Auth configuration is incomplete. Check NEON_AUTH_BASE_URL and NEON_AUTH_JWKS_URL in the server environment.';
   if (!error?.readiness) return 'CampusLink API startup failed. Check server configuration and database availability.';
   const { pendingMigrations, changedMigrations, missingTables, missingColumns } = error.readiness;
   if (changedMigrations.length) return `CampusLink API startup failed: applied migration checksums differ (${changedMigrations.join(', ')}). Restore the matching migration files before applying new migrations.`;

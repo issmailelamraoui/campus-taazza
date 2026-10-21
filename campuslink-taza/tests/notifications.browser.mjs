@@ -64,18 +64,13 @@ async function fixture(width, role = 'global_admin', { messages = [], reports = 
       readCursors.set(scope, Math.max(readCursors.get(scope) || 0, body.through_id));
       return route.fulfill({ json: { discussion_unread_count: ordinaryUnread() } });
     }
-    const visit = /^\/api\/notifications\/(\d+)\/(viewed|departed)$/.exec(path);
-    if (visit && method === 'POST') {
-      const body = request.postDataJSON(), item = notices.find(item => item.id === Number(visit[1]));
-      assert.ok(item, 'Only fixture notifications may be visited');
-      writes.push({ id: item.id, action: visit[2], body });
-      if (visit[2] === 'viewed') {
-        assert.equal(body.path, item.path, 'Visits use the server path even when the visible tab was normalized');
-        return route.fulfill({ json: { visit_token: 'visit-' + item.id } });
-      }
-      assert.equal(body.visit_token, 'visit-' + item.id);
+    const read = /^\/api\/notifications\/(\d+)\/read$/.exec(path);
+    if (read && method === 'POST') {
+      const item = notices.find(item => item.id === Number(read[1]));
+      assert.ok(item, 'Only fixture notifications may be marked read');
+      writes.push({ id: item.id, action: 'read' });
       notices = notices.map(row => row.id === item.id ? { ...row, read: true } : row);
-      return route.fulfill({ json: { read: true } });
+      return route.fulfill({ json: { notifications: notices, ...counters(), has_more: false } });
     }
     errors.push(`Unexpected fixture request: ${method} ${path}`);
     return route.fulfill({ status: 404, json: { error: 'Unexpected fixture request' } });
@@ -131,7 +126,7 @@ try {
       assert.ok(rect.x >= 0 && rect.x + rect.width <= width + 1, 'The administrative popup fits the screen');
       await popup.locator('.admin-notification-popup-open').click();
       await exactRegistration(f.page, 51);
-      await expect.poll(() => f.writes.filter(item => item.id === 21 && item.action === 'viewed').length).toBe(1);
+      await expect.poll(() => f.writes.filter(item => item.id === 21 && item.action === 'read').length).toBe(1);
 
       // A second notification changes only the query/hash of an already open
       // Administration page, exercising async card targeting and panel closure.
@@ -140,7 +135,7 @@ try {
       await f.page.locator('.notification-button').click();
       await f.page.locator('.notification-popover [data-notification-id="22"] .notification-content').click();
       await exactRegistration(f.page, 52);
-      await expect.poll(() => f.writes.filter(item => item.id === 22 && item.action === 'viewed').length).toBe(1);
+      await expect.poll(() => f.writes.filter(item => item.id === 22 && item.action === 'read').length).toBe(1);
       await expect(badge).toHaveAttribute('data-unread-count', '2');
       await f.page.screenshot({ path: `test-results/notifications/registration-${width}.png`, animations: 'disabled' });
       console.log(`PASS ${width}px: discussion badge, administrative live popup and exact registration navigation`);
@@ -236,7 +231,7 @@ try {
         await expect(modal).toHaveAttribute('data-notification-target-ready', 'true');
         await expect(modal).toBeFocused();
         await expect(f.page).toHaveURL(url => url.searchParams.get(kind) === String(target));
-        await expect.poll(() => f.writes.some(item => item.id === id && item.action === 'viewed')).toBe(true);
+        await expect.poll(() => f.writes.filter(item => item.id === id && item.action === 'read').length).toBe(1);
         const rect = await modal.boundingBox();
         assert.ok(rect.x >= -1 && rect.x + rect.width <= width + 1, `${kind} detail fits the screen`);
         if (kind === 'report') assert.ok(f.adminRequests.some(item => item.archive), 'Archived report targeting requests the archive instead of the default open-only list');
@@ -251,48 +246,30 @@ try {
   let releaseFile;
   const fileReady = new Promise(resolve => { releaseFile = resolve; });
   try {
-    const resource = { id: 91, faculty_id: 'flaa', filiere_id: 'french_studies', title: 'Document outside bootstrap', filename: 'notification-source.txt', mime: 'text/plain', version: 1, semester: 1, category: 'courses', module: 'Reader notifications', part_number: 'complete', created_at: stamp() };
-    let fileRequested = false, viewAttempts = 0;
-    await source.context.route('**/api/notifications/51/viewed', async route => {
-      viewAttempts++;
-      if (viewAttempts === 1) return route.fulfill({ status: 503, json: { error: 'Transient fixture failure while registering the loaded destination' } });
-      return route.fallback();
+    const resource = { id: 91, title: 'Document outside bootstrap' };
+    let fileRequested = false;
+    await source.context.route('**/api/files/91', async route => {
+      assert.equal(route.request().method(), 'GET');
+      fileRequested = true;
+      await fileReady;
+      // A plain response verifies the exact canonical destination in headless
+      // Chromium without depending on its built-in PDF extension.
+      return route.fulfill({ contentType: 'text/plain', body: 'The exact source document is now visibly loaded.' });
     });
-    await source.context.route('**/api/reading/**', async route => {
-      const path = new URL(route.request().url()).pathname;
-      if (path === '/api/reading/91') return route.fulfill({ json: { document: { ...resource, url: '/api/reading/91/file?version=1' }, position: null, previousPositions: [], recovery: [] } });
-      if (path === '/api/reading/91/position') return route.fulfill({ json: { position: { ...route.request().postDataJSON(), revision: 1 } } });
-      if (path === '/api/reading/91/file') {
-        fileRequested = true;
-        await fileReady;
-        return route.fulfill({ contentType: 'text/plain', body: 'The exact source document is now visibly loaded.' });
-      }
-      errors.push('Unexpected reader fixture path: ' + path);
-      return route.fulfill({ status: 404, json: { error: 'Unexpected reader fixture path' } });
-    });
-    await source.context.route('**/api/knowledge**', route => route.fulfill({ json: { items: [] } }));
     await source.context.route('**/api/history', route => {
       assert.equal(route.request().method(), 'POST');
       assert.equal(route.request().postDataJSON().resource_id, '91');
       return route.fulfill({ json: { ok: true } });
     });
-    for (const path of ['resource-supplements', 'document-relations', 'document-repairs']) await source.context.route(`**/api/${path}/**`, route => route.fulfill({ json: { items: [], suggestions: [], mappings: [], proposals: [], canManage: false, canReview: false, currentVersion: 1 } }));
     await source.arrive({ id: 51, type: 'resources', title: resource.title, body: 'Open the exact source', path: '/app/resources/courses/s1/reader-notifications#resource-91', created_at: stamp(), read: false, target_available: true, popup_eligible: false });
-    await source.page.locator('[data-notification-id="51"] .notification-content').click();
-    await expect(source.page.locator('.study-reader-modal')).toBeVisible();
+    await source.page.locator('[data-notification-id="51"] .notification-content').click({ noWaitAfter: true });
     await expect.poll(() => fileRequested).toBe(true);
-    assert.ok(!source.writes.some(item => item.id === 51), 'A reader destination is not viewed while its file is still loading');
+    assert.equal(source.writes.filter(item => item.id === 51 && item.action === 'read').length, 1, 'Explicitly opening the source marks its notification read immediately, before its file finishes loading');
     releaseFile();
-    await expect(source.page.locator('.reader-text-document')).toContainText('The exact source document is now visibly loaded.');
-    await expect.poll(() => viewAttempts).toBeGreaterThan(0);
-    await source.page.evaluate(() => window.dispatchEvent(new Event('online')));
-    await expect.poll(() => source.writes.some(item => item.id === 51 && item.action === 'viewed')).toBe(true);
-    assert.equal(viewAttempts, 2, 'A transient destination registration failure recovers after the online/retry signal');
-    assert.ok(!source.writes.some(item => item.id === 51 && item.action === 'departed'), 'The source remains unread until the loaded reader is left');
-    await source.page.keyboard.press('Escape');
-    await expect(source.page.locator('.study-reader-modal')).toHaveCount(0);
-    await expect.poll(() => source.writes.some(item => item.id === 51 && item.action === 'departed')).toBe(true);
-    console.log('PASS source documents outside bootstrap recover a transient viewed failure after loading and register departed only after closing');
+    await expect(source.page).toHaveURL(baseURL + '/api/files/91');
+    await expect(source.page.locator('body')).toContainText('The exact source document is now visibly loaded.');
+    assert.equal(source.writes.filter(item => item.id === 51).length, 1, 'Opening and loading the native source do not duplicate its explicit read receipt');
+    console.log('PASS source documents outside bootstrap open their exact native destination and mark read once on explicit click, before loading completes');
   } finally { releaseFile(); await source.context.close(); }
   assert.deepEqual(errors, []);
 } finally { await browser.close(); }

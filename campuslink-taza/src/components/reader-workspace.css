@@ -29,6 +29,14 @@
 .reader-document-context > :not(bdi) { flex: none; }
 .reader-document-actions { flex-wrap: wrap; gap: 4px; }
 .study-reader-modal .reader-document-meta .btn { min-height: 34px; padding: 6px 9px; margin: 0; font-size: 11px; }
+.study-reader-modal .reader-document-meta .reader-external-open { flex: 0 0 auto; white-space: nowrap; }
+@media (max-width: 900px), (pointer: coarse) {
+  .study-reader-modal .reader-document-meta .reader-external-open { min-height: 44px; }
+}
+@media (max-width: 760px) {
+  .study-reader-modal .reader-document-meta .reader-external-open { width: 44px; padding-inline: 0; justify-content: center; }
+  .reader-document-meta .reader-external-open > span { display: none; }
+}
 .study-reader-modal .reader-file-details { flex: none; margin: 0; padding: 12px 18px; background: var(--surface2); border-bottom: 1px solid var(--line); max-height: 160px; overflow: auto; }
 .reader-file-details dl { display: flex; flex-wrap: wrap; gap: 12px 24px; margin: 0; }
 .reader-file-details .info-row { flex: 1 1 150px; min-width: 0; margin: 0; }

@@ -7,6 +7,8 @@ import App from './App';
 import {InstallAppProvider} from './components/InstallApp';
 import {registerInstallWorker} from './lib/install';
 import './styles.css';
+import './components/notifications.css';
+import './styles/close-controls.css';
 
 // Text fields also match :focus-visible after a mouse click in many browsers.
 // Track navigation so focus indicators stay useful for keyboard users.

@@ -80,6 +80,8 @@ Migration 028 stores a salted password verifier for idempotency, the operation's
 
 API startup verifies the complete migration ledger/checksums and required table/column catalog before creating provider clients or initializing permissions. An incomplete schema stops startup with a sanitized, actionable diagnostic. `/api/health` checks database/schema readiness, briefly caches successful probes, and returns a generic `503` on failure without leaking connection details.
 
+Temporary PostgreSQL connection failures during local startup are retried at most three times, with waits of one and two seconds. Schema and configuration errors stop immediately. These retries never enable migrations or seeding. Vite may return `503 API_UNAVAILABLE` while the API starts; if startup still fails, its final server diagnostic identifies database connectivity or Neon Auth configuration without printing credentials.
+
 `npm run db:migrate` applies additive migrations and does not seed existing metadata. Reference seeding requires the separate `db:seed` command or explicit `db:migrate -- --seed`. Never edit an applied migration or replace its recorded checksum to conceal drift. Migration `012` is restored to its original recorded bytes; feedback attachments/program scope are introduced by `027`. The configured application's schema was upgraded through `027` on 12 October 2026 under the requested server repair, after a private metadata snapshot. Owner, accounts, Auth IDs, private object keys and existing record counts were checked after upgrading.
 
 ## Additional Labs languages

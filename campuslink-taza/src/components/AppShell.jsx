@@ -39,38 +39,6 @@ import {
 import { useApp } from "../context";
 import { Logo, Avatar, Button } from "./ui";
 import { NotificationItem, NotificationReadAllButton } from "../pages/StudentPages";
-import './notifications.css';
-
-function AdminNotificationPopup({ notification, tr, onOpen, onDismiss }) {
-  const [hovered, setHovered] = useState(false);
-  const [focused, setFocused] = useState(false);
-  const [hidden, setHidden] = useState(() => document.visibilityState === 'hidden');
-  const paused = hovered || focused || hidden;
-  const dismissRef = useRef(onDismiss);
-  dismissRef.current = onDismiss;
-  useEffect(() => {
-    const visibility = () => setHidden(document.visibilityState === 'hidden');
-    document.addEventListener('visibilitychange', visibility);
-    return () => document.removeEventListener('visibilitychange', visibility);
-  }, []);
-  useEffect(() => {
-    if (paused) return;
-    const timer = window.setTimeout(() => dismissRef.current(notification.id), 12000);
-    return () => window.clearTimeout(timer);
-  }, [notification.id, paused]);
-  return <article className="admin-notification-popup" data-notification-id={notification.id}
-    onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}
-    onFocusCapture={() => setFocused(true)} onBlurCapture={event => { if (!event.currentTarget.contains(event.relatedTarget)) setFocused(false); }}>
-    <span className="admin-notification-popup-icon" aria-hidden="true"><ShieldCheck size={19} /></span>
-    <div className="admin-notification-popup-copy">
-      <div role="status"><strong dir="auto">{notification.title}</strong><p dir="auto">{notification.description}</p></div>
-      <button type="button" className="admin-notification-popup-open" onClick={() => onOpen(notification)}>
-        {tr('Consulter', 'View details', 'عرض التفاصيل')}<ArrowRight size={14} aria-hidden="true" />
-      </button>
-    </div>
-    <button type="button" className="icon-btn admin-notification-popup-close" onClick={() => onDismiss(notification.id)} aria-label={tr('Fermer cette notification', 'Dismiss this notification', 'إغلاق هذا الإشعار')}><X size={17} /></button>
-  </article>;
-}
 
 export default function AppShell() {
   const {
@@ -83,9 +51,6 @@ export default function AppShell() {
     notifications,
     unreadCount,
     discussionUnreadCount = 0,
-    adminNotificationPopups = [],
-    dismissAdminNotificationPopup,
-    openNotification,
     theme,
     setTheme,
     lowData,
@@ -180,7 +145,7 @@ export default function AppShell() {
     setPanel(false);
     setMenu(false);
     document.title = `${t(current)} · CampusLink Taza`;
-  }, [location.pathname, location.search, location.hash, language]);
+  }, [location.key, location.pathname, location.search, location.hash, language]);
   useEffect(() => {
     function handler(e) {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
@@ -566,9 +531,7 @@ export default function AppShell() {
           </span>
         </footer>
       </div>
-      {isAdmin && adminNotificationPopups.some(notification => notification.popupEligible && notification.type === 'administration') && <section className="admin-notification-popups" aria-label={tr('Nouvelles notifications administratives', 'New administration notifications', 'إشعارات إدارية جديدة')}>
-        {adminNotificationPopups.filter(notification => notification.popupEligible && notification.type === 'administration').slice(0, 3).map(notification => <AdminNotificationPopup key={notification.id} notification={notification} tr={tr} onDismiss={dismissAdminNotificationPopup} onOpen={item => { if (openNotification(item) !== false) { dismissAdminNotificationPopup(item.id); setDrawer(false); setPanel(false); setMenu(false); } }} />)}
-      </section>}
+
       <nav
         className="mobile-bottom-nav"
         inert={drawer || undefined}

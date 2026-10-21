@@ -1,0 +1,101 @@
+/* Keep the visible close affordance small while retaining comfortable targets. */
+:where(button.icon-btn:has(> svg.lucide-x),
+       .community-composer-reply > button:has(> svg.lucide-x),
+       .community-composer-attachment > button:has(> svg.lucide-x),
+       .library-search > button:has(> svg.lucide-x),
+       .labs-code-editor .cm-search button[name="close"]) {
+  position: relative;
+}
+.notification-overlay { --close-surface: var(--notification-bg); }
+:is(button.icon-btn:has(> svg.lucide-x),
+    .community-composer-reply > button:has(> svg.lucide-x),
+    .community-composer-attachment > button:has(> svg.lucide-x),
+    .library-search > button:has(> svg.lucide-x),
+    body .labs-code-editor .cm-search button[name="close"]) {
+  --close-bg: color-mix(in srgb, var(--ink) 4%, var(--close-surface, var(--surface)));
+  --close-border: color-mix(in srgb, var(--ink) 13%, var(--close-surface, var(--surface)));
+  --close-inset: 2px;
+  isolation: isolate;
+  flex: 0 0 32px;
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  min-height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--muted);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  transition: color 140ms ease;
+}
+:is(button.icon-btn:has(> svg.lucide-x),
+    .community-composer-reply > button:has(> svg.lucide-x),
+    .community-composer-attachment > button:has(> svg.lucide-x),
+    .library-search > button:has(> svg.lucide-x),
+    body .labs-code-editor .cm-search button[name="close"])::before {
+  content: "";
+  position: absolute;
+  inset: var(--close-inset);
+  z-index: -1;
+  border: 1px solid var(--close-border);
+  border-radius: 8px;
+  background: var(--close-bg);
+  pointer-events: none;
+  transition: background-color 140ms ease, border-color 140ms ease;
+}
+:is(button.icon-btn:has(> svg.lucide-x),
+    .community-composer-reply > button:has(> svg.lucide-x),
+    .community-composer-attachment > button:has(> svg.lucide-x),
+    .library-search > button:has(> svg.lucide-x),
+    body .labs-code-editor .cm-search button[name="close"]):hover:not(:disabled) {
+  --close-bg: color-mix(in srgb, var(--accent) 12%, var(--close-surface, var(--surface)));
+  --close-border: color-mix(in srgb, var(--accent) 35%, var(--close-surface, var(--surface)));
+  color: var(--accent-ink);
+}
+:is(button.icon-btn:has(> svg.lucide-x),
+    .community-composer-reply > button:has(> svg.lucide-x),
+    .community-composer-attachment > button:has(> svg.lucide-x),
+    .library-search > button:has(> svg.lucide-x)) > svg {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  stroke-width: 1.8;
+}
+button.close-control.btn:not(.btn-danger),
+.library-filter-heading > .btn:has(> svg.lucide-x) {
+  background: color-mix(in srgb, var(--ink) 4%, var(--surface));
+  border-color: var(--line);
+  color: var(--muted);
+}
+button.close-control.btn:not(.btn-danger):hover:not(:disabled),
+.library-filter-heading > .btn:has(> svg.lucide-x):hover:not(:disabled) {
+  background: var(--surface2);
+  border-color: var(--muted);
+  color: var(--ink);
+}
+.modal-header > button.icon-btn:has(> svg.lucide-x) { margin-block: -2px; margin-inline-end: -2px; }
+body .labs-code-editor .cm-panels .cm-search { padding-inline-end: 40px; }
+@media (max-width: 900px), (pointer: coarse) {
+  :is(button.icon-btn:has(> svg.lucide-x),
+      .community-composer-reply > button:has(> svg.lucide-x),
+      .community-composer-attachment > button:has(> svg.lucide-x),
+      .library-search > button:has(> svg.lucide-x),
+      body .labs-code-editor .cm-search button[name="close"]) {
+    --close-inset: 8px;
+    flex-basis: 44px;
+    width: 44px;
+    height: 44px;
+    min-width: 44px;
+    min-height: 44px;
+  }
+  .modal-header > button.icon-btn:has(> svg.lucide-x) { margin-block: -8px; margin-inline-end: -8px; }
+  body .labs-code-editor .cm-panels .cm-search { padding-inline-end: 50px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  button:has(> svg.lucide-x), button:has(> svg.lucide-x)::before,
+  .labs-code-editor .cm-search button[name="close"], .labs-code-editor .cm-search button[name="close"]::before { transition: none; }
+}

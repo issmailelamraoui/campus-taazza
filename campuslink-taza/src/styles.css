@@ -1455,33 +1455,6 @@ hr {
   .btn { min-height: 44px; }
   .modal-footer { gap: 8px; }
 }
-.toast {
-  position: fixed;
-  bottom: 24px;
-  inset-inline-end: 24px;
-  background: var(--surface2);
-  border: 1px solid var(--line);
-  box-shadow: var(--shadow);
-  border-radius: 9px;
-  padding: 12px 13px 12px 17px;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  z-index: 400;
-  max-width: calc(100vw - 32px);
-  font-size: 13px;
-}
-.toast > svg {
-  color: var(--accent-ink);
-}
-.toast > span {
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-.toast .icon-btn {
-  height: 29px;
-  width: 29px;
-}
 .preview-meta {
   display: flex;
   align-items: center;
@@ -2474,11 +2447,6 @@ html[data-input-modality="keyboard"] .switch input:focus-visible + span {
   .settings-card {
     padding: 22px;
   }
-  .toast {
-    bottom: 16px;
-    inset-inline-end: 16px;
-    font-size: 12px;
-  }
   .saved-tabs {
     gap: 20px;
   }
@@ -2699,9 +2667,6 @@ html[data-input-modality="keyboard"] .switch input:focus-visible + span {
     color: var(--ink);
     white-space: nowrap;
   }
-  .toast {
-    bottom: calc(66px + env(safe-area-inset-bottom, 0px));
-  }
   .community-preview-grid {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -2734,12 +2699,6 @@ html[data-input-modality="keyboard"] .switch input:focus-visible + span {
   min-width: 0;
 }
 
-.toast {
-  pointer-events: none;
-}
-.toast .icon-btn {
-  pointer-events: auto;
-}
 
 [dir="rtl"] .section-heading a svg,
 [dir="rtl"] .quick-arrow,

@@ -5,6 +5,11 @@ const extensions = new Set(SUPPORTED_FILE_ACCEPT.split(',').map(value => value.s
 export const MAX_UPLOAD_FILE_BYTES = 20 * 1024 * 1024;
 export const MAX_UPLOAD_BATCH_FILES = 1000;
 const sessionFiles = new Map();
+const previewMimeTypes = {
+  pdf: 'application/pdf', jpg: 'image/jpeg', jpeg: 'image/jpeg',
+  png: 'image/png', webp: 'image/webp', gif: 'image/gif',
+};
+const textPreviewExtensions = new Set('txt md tex py ipynb c cpp h hpp js jsx ts tsx html css xml svg json csv sql java'.split(' '));
 export const fileExtension = file => {
   const name = String(file?.name || '');
   const extension = name.includes('.') ? name.split('.').pop().toLowerCase() : '';
@@ -74,7 +79,12 @@ export async function filesFromDrop(dataTransfer) {
 
 export function createSessionAttachment(file, path = '') {
   const id = `device-${globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`}`;
-  sessionFiles.set(id, { file, url: URL.createObjectURL(file) });
+  // External previews must not execute HTML/SVG or trust a claimed MIME type.
+  // Keep the original File unchanged for uploads and use an inert preview Blob.
+  const extension = fileExtension(file);
+  const type = previewMimeTypes[extension]
+    || (textPreviewExtensions.has(extension) ? 'text/plain;charset=utf-8' : 'application/octet-stream');
+  sessionFiles.set(id, { file, url: URL.createObjectURL(new Blob([file], { type })) });
   return { id, title: file.name, name: file.name, size: sizeLabel(file.size),
     fileType: fileTypeLabel(file), path: path || file.webkitRelativePath || file.name, sessionOnly: true };
 }

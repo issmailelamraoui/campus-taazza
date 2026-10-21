@@ -350,7 +350,10 @@ try {
         await panel.getByRole('textbox', { name: searchName, exact: true }).press('Enter');
         await expect(panel.locator('.reader-search-result')).toHaveCount(1);
         await expect(panel.locator('.reader-tools-close')).toBeInViewport();
-        const colors = await panel.locator('.reader-tools-close').evaluate(node => ({ background: getComputedStyle(node).backgroundColor, color: getComputedStyle(node).color, danger: getComputedStyle(node).getPropertyValue('--danger') }));
+        const colors = await panel.locator('.reader-tools-close').evaluate(node => {
+          const style = getComputedStyle(node), surface = getComputedStyle(node, '::before');
+          return { background: surface.content !== 'none' ? surface.backgroundColor : style.backgroundColor, color: style.color };
+        });
         assert.notEqual(colors.background, 'rgba(0, 0, 0, 0)', 'Close controls have a visible tinted background.');
         if (f.width === 390) await f.page.screenshot({ path: artifact(`reader-workspace-${f.width}x${f.height}-${f.theme}-${f.language}-tools.png`) });
         await panel.locator('.reader-notes-toggle').click();

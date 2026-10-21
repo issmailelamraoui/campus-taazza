@@ -1,10 +1,10 @@
 import React,{useEffect,useId,useLayoutEffect,useRef,useState} from 'react';
-import {Bookmark,BookmarkCheck,ArrowUpRight,FileText,X,GraduationCap,Inbox,ChevronRight,LoaderCircle,Edit3,Trash2,BookOpen} from 'lucide-react';
+import {Bookmark,BookmarkCheck,ArrowUpRight,Download,FileText,X,GraduationCap,Inbox,ChevronRight,LoaderCircle,Edit3,Trash2,BookOpen} from 'lucide-react';
 import {useApp} from '../context';
 import {formatDate} from '../i18n';
 import './document-card.css';
 import {partLabel,moduleDisplayName} from '../lib/resources';
-import {nativePDFUrl} from '../lib/document-open';
+import {documentFileUrl,isPDFDocument,isPhoneDocumentViewport} from '../lib/document-open';
 
 export function Logo({compact=false}) {return <span className="brand"><span className="brand-mark"><GraduationCap size={23} strokeWidth={1.6}/></span>{!compact&&<span className="brand-name">CampusLink<span>TAZA · USMBA</span></span>}</span>;}
 export function Button({variant='secondary',icon:Icon,children,className='',type='button',...props}){return <button type={type} className={`btn btn-${variant} ${className}`} {...props}>{Icon&&<Icon size={17} strokeWidth={1.7}/>}<span>{children}</span></button>;}
@@ -41,7 +41,7 @@ export function Modal({title,children,onClose,footer,wide=false,className=''}){
    if(e.defaultPrevented||dialogs[dialogs.length-1]!==node)return;
    if(e.key==='Escape'){e.preventDefault();closeRef.current();return;}
    if(e.key!=='Tab')return;
-   const elements=[...node.querySelectorAll('button,a[href],input,select,textarea,summary,[tabindex="0"]')].filter(x=>!x.disabled&&x.getClientRects().length);
+   const elements=[...node.querySelectorAll('button,a[href],input,select,textarea,summary,iframe,[tabindex="0"]')].filter(x=>!x.disabled&&x.getClientRects().length);
    if(!elements.length){e.preventDefault();node.focus();return;}
    const first=elements[0],last=elements.at(-1),outside=!node.contains(document.activeElement);
    if(e.shiftKey&&(document.activeElement===first||document.activeElement===node||outside)){e.preventDefault();last.focus();}
@@ -56,8 +56,14 @@ export function DocumentCard({document:item,showOpenLabel=false,metadata="compac
  const module=moduleDisplayName(item.module)||tr('Sans module','Unclassified','بدون وحدة');
  const detailed=metadata==='recent';
  const username=item.uploaderUsername||item.uploader_username||'';
- const nativeUrl=nativePDFUrl(item),OpenControl=nativeUrl?'a':'button';
- const openProps=nativeUrl?{href:nativeUrl,target:'_blank',rel:'noopener',onClick:event=>{const online=navigator.onLine!==false;if(!online)event.preventDefault();openDocument(item,{nativeOpened:online});}}:{type:'button',onClick:()=>openDocument(item)};
+ const fileUrl=documentFileUrl(item),OpenControl=fileUrl?'a':'button';
+ const downloadUrl=fileUrl&&`${fileUrl.split('#')[0]}${fileUrl.includes('?')?'&':'?'}download=1`;
+ const openProps=fileUrl?{href:fileUrl,target:'_blank',rel:'noopener',onClick:event=>{
+  const modified=event.metaKey||event.ctrlKey||event.shiftKey||event.altKey;
+  const external=navigator.onLine!==false&&(isPhoneDocumentViewport()||modified);
+  if(!external)event.preventDefault();
+  openDocument(item,{external,nativeOpened:external});
+ }}:{type:'button',onClick:()=>openDocument(item)};
  return <article id={`resource-${item.id}`} className={`document-card document-card-compact${detailed?' document-card-recent':''}`} onClick={event=>{if(!event.target.closest('button,a'))openDocument(item);}}>
   <OpenControl {...openProps} className="document-main" aria-label={`${tr('Ouvrir le document','Open document','فتح المستند')} : ${item.title||module}`}>
    <span className="document-heading">
@@ -69,7 +75,7 @@ export function DocumentCard({document:item,showOpenLabel=false,metadata="compac
    <span className="document-classification">{detailed&&item.category&&<span className="document-type">{t(item.category)}</span>}{(!detailed||item.part!==null&&item.part!==undefined)&&<span className="part-label">{partLabel(item.part,language)}</span>}{item.semester>0&&<span className="document-semester">S{item.semester}</span>}</span>
    <span className="document-uploader"><span>{tr('Partagé par','Shared by','شارك بواسطة')}</span><bdi>{username?`@${username.replace(/^@/,'')}`:tr('Compte non renseigné','Account unavailable','الحساب غير متوفر')}</bdi></span>
   </OpenControl>
-  <div className="document-footer"><OpenControl {...openProps} className="document-open-label">{tr('Ouvrir le document','Open document','فتح المستند')}<ChevronRight size={15} aria-hidden="true"/></OpenControl><div className="document-secondary-actions">{nativeUrl&&<button type="button" className="icon-btn" aria-label={tr('Outils d’étude','Study tools','أدوات الدراسة')+': '+(item.title||module)} title={tr('Notes et outils d’étude','Notes and study tools','الملاحظات وأدوات الدراسة')} onClick={()=>openDocument(item,{study:true})}><BookOpen size={17}/></button>}<button type="button" className={`icon-btn save-btn ${saved?'is-saved':''}`} aria-label={t(saved?'unsave':'save')+': '+(item.title||module)} aria-pressed={saved} aria-busy={pending} disabled={pending} title={pending?tr('Enregistrement…','Saving…','جارٍ الحفظ…'):undefined} onClick={()=>saveItem('document',item.id)}>{pending?<LoaderCircle size={17} className="action-spinner"/>:saved?<BookmarkCheck size={17}/>:<Bookmark size={17}/>}</button></div></div>
+  <div className="document-footer"><OpenControl {...openProps} className="document-open-label">{tr('Ouvrir le document','Open document','فتح المستند')}<ChevronRight size={15} aria-hidden="true"/></OpenControl><div className="document-secondary-actions">{isPDFDocument(item)&&<button type="button" className="icon-btn" aria-label={tr('Outils d’étude','Study tools','أدوات الدراسة')+': '+(item.title||module)} title={tr('Notes et outils d’étude','Notes and study tools','الملاحظات وأدوات الدراسة')} onClick={()=>openDocument(item,{study:true})}><BookOpen size={17}/></button>}{downloadUrl&&<a className="icon-btn document-download" href={downloadUrl} download={item.originalName||item.filename||item.name||undefined} aria-label={t('download')+': '+(item.title||item.originalName||module)} title={t('download')}><Download size={17} aria-hidden="true"/></a>}<button type="button" className={`icon-btn save-btn ${saved?'is-saved':''}`} aria-label={t(saved?'unsave':'save')+': '+(item.title||module)} aria-pressed={saved} aria-busy={pending} disabled={pending} title={pending?tr('Enregistrement…','Saving…','جارٍ الحفظ…'):undefined} onClick={()=>saveItem('document',item.id)}>{pending?<LoaderCircle size={17} className="action-spinner"/>:saved?<BookmarkCheck size={17}/>:<Bookmark size={17}/>}</button></div></div>
  </article>;
 }
 export function AnnouncementCard({announcement:item,compact=false}){

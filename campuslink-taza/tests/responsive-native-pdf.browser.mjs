@@ -6,7 +6,7 @@ import {mkdir,writeFile,mkdtemp,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {createTestApp} from './backend-helpers.mjs';
-import {nativePDFUrl} from '../src/lib/document-open.js';
+import {documentFileUrl,nativePDFUrl} from '../src/lib/document-open.js';
 
 // Real application, disposable metadata, simulated identity and object storage.
 // Full Chromium exercises its native PDF viewer instead of the headless shell.
@@ -35,14 +35,21 @@ async function resource(faculty='flaa',filiere='french_studies',text=false){
 }
 async function actor(username,width=390,height=844,theme='dark',offlineSupport=false){
  const context=await browser.newContext({viewport:{width,height},hasTouch:width<=900,serviceWorkers:offlineSupport?'allow':'block',reducedMotion:'reduce'});contexts.push(context);
- await context.addInitScript(theme=>{localStorage.setItem('campuslink-prototype-v1:language','"fr"');localStorage.setItem('campuslink-prototype-v1:theme',JSON.stringify(theme));localStorage.setItem('campuslink-prototype-v1:install-prompt-seen-v1','true');},theme);
+ await context.addInitScript(theme=>{if(window!==window.top)return;localStorage.setItem('campuslink-prototype-v1:language','"fr"');localStorage.setItem('campuslink-prototype-v1:theme',JSON.stringify(theme));localStorage.setItem('campuslink-prototype-v1:install-prompt-seen-v1','true');},theme);
  if(username){const response=await context.request.post(origin+'/api/login',{data:{username,password:username==='admin'?'Admin2026!':'Campus2026!'}});assert.ok(response.ok(),await response.text());}
  const page=await context.newPage();page.on('pageerror',error=>errors.push(error.message));return {context,page};
 }
 async function scenario(name,run){if(process.env.CAMPUS_RESPONSIVE_SCENARIOS&&!new RegExp(process.env.CAMPUS_RESPONSIVE_SCENARIOS).test(name))return;await run();results.push(name);console.log('PASS '+name);}
 async function fits(page,label){
- const geometry=await page.evaluate(()=>({width:innerWidth,scrollWidth:document.documentElement.scrollWidth}));
+ const geometry=await page.evaluate(()=>({width:innerWidth,scrollWidth:document.documentElement.scrollWidth,offenders:document.documentElement.scrollWidth>innerWidth+1?[...document.querySelectorAll('body *')].map(node=>({node,rect:node.getBoundingClientRect()})).filter(({node,rect})=>rect.width>0&&rect.right>innerWidth+1&&getComputedStyle(node).visibility!=='hidden').slice(0,12).map(({node,rect})=>({tag:node.tagName,class:node.className?.baseVal??node.className,right:rect.right,width:rect.width})):[]}));
  assert.ok(geometry.scrollWidth<=geometry.width+1,label+': horizontal overflow '+JSON.stringify(geometry));
+}
+async function nativeViewerLoaded(page,label){
+ await expect.poll(()=>page.frames().some(frame=>frame.url().startsWith('chrome-extension:'))).toBe(true);
+ const viewer=page.frames().find(frame=>frame.url().startsWith('chrome-extension:'));
+ await viewer.waitForFunction(()=>document.querySelector('pdf-viewer')?.loadState_==='success',{},{timeout:20000});
+ assert.equal(await viewer.evaluate(()=>document.querySelector('pdf-viewer').loadProgress_),100,label+': native PDF rendering completes');
+ return viewer;
 }
 async function modalFits(page,label){
  const modal=page.getByRole('dialog');await expect(modal).toBeVisible();
@@ -96,30 +103,40 @@ try{
   if(config.width===320){await page.setViewportSize({width:320,height:300});await review.click();await page.getByRole('dialog').locator('summary').click();await modalFits(page,'short visual viewport');await page.keyboard.press('Escape');}
   results.push({configuration:config,geometry});
  });
- for(const width of [320,390,768,1024,1920])await scenario(`PDF opens natively without downloading at ${width}px`,async()=>{
+ for(const width of [320,390,768,1024,1920])await scenario(`PDF opens ${width<=760?'externally on phones':'internally with an explicit external action'} without downloading at ${width}px`,async()=>{
   const page=student.page;active=page;await page.setViewportSize({width,height:width===320?568:900});
-  const requests=[];const listen=request=>requests.push(request.url());page.on('request',listen);
+  const requests=[],positionWrites=[],popups=[];const listen=request=>{requests.push(request.url());if(request.method()==='PUT'&&/\/reading\/\d+\/position(?:\?|$)/.test(request.url()))positionWrites.push(request.url());},onPopup=popup=>popups.push(popup);page.on('request',listen);page.on('popup',onPopup);
   await page.goto(origin+'/app/library?semester=1&module=Responsive+PDF');
   const card=page.locator('#resource-'+own.id);await expect(card).toBeVisible();
   const link=card.locator('a.document-main');await expect(link).toHaveAttribute('href','/api/files/'+own.id);await expect(link).not.toHaveAttribute('download',/.*/);
   const downloads=[];const onPage=p=>p.on('download',d=>downloads.push(d.suggestedFilename()));student.context.on('page',onPage);
-  const [popup,response]=await Promise.all([page.waitForEvent('popup'),student.context.waitForEvent('response',{predicate:r=>new URL(r.url()).pathname==='/api/files/'+own.id}),link.click()]);
+  let externalAction=link,externalPath='/api/files/'+own.id;
+  if(width>760){
+   externalPath=`/api/reading/${own.id}/file?version=1`;
+   await link.click();await expect(page.locator('.native-document-preview')).toBeVisible();await expect(page.locator('.native-document-frame')).toBeVisible();await expect(page.locator('.native-document-frame')).toHaveAttribute('src',externalPath);
+   await expect(page.locator('.study-reader-modal')).toHaveCount(0);await expect(page.locator('.reader-continuous-pages')).toHaveCount(0);
+   assert.equal(popups.length,0,'The initial desktop/tablet preview stays inside the site');
+   if(headed){await nativeViewerLoaded(page,'Embedded viewer '+width);await page.screenshot({path:`${out}/embedded-native-${width}.png`});}
+   externalAction=page.locator('.reader-external-open');await expect(externalAction).toHaveAttribute('href',externalPath);await expect(externalAction).toHaveAttribute('target','_blank');await expect(externalAction).not.toHaveAttribute('download',/.*/);
+  }
+  const [popup,response]=await Promise.all([page.waitForEvent('popup'),student.context.waitForEvent('response',{predicate:r=>new URL(r.url()).pathname===externalPath.split(/[?#]/)[0]}),externalAction.click()]);
   await popup.setViewportSize({width,height:width===320?568:900});
   assert.equal(response.status(),200);assert.match(response.headers()['content-type'],/^application\/pdf/);assert.match(response.headers()['content-disposition'],/^inline;/);assert.equal(response.headers()['cache-control'],'private, no-store');
-  await expect(popup).toHaveURL(new RegExp('/api/files/'+own.id+'$'));
+  await expect(popup).toHaveURL(origin+externalPath);
   if(headed){
-   await expect.poll(()=>popup.frames().some(frame=>frame.url().startsWith('chrome-extension:'))).toBe(true);
-   const viewer=popup.frames().find(frame=>frame.url().startsWith('chrome-extension:'));
-   await viewer.waitForFunction(()=>document.querySelector('pdf-viewer')?.loadState_==='success',{},{timeout:20000});
-   assert.equal(await viewer.evaluate(()=>document.querySelector('pdf-viewer').loadProgress_),100,'Native PDF rendering completes');
+   await nativeViewerLoaded(popup,'External viewer '+width);
    await popup.screenshot({path:`${out}/native-${width}.png`});
   }
-  await expect(page.getByRole('dialog')).toHaveCount(0);
-  assert.equal(requests.some(url=>/\/reading\//.test(url)||/pdf(?:\.worker)?-[\w-]+\.js/.test(url)),false,'Ordinary PDF opening must not load PDF.js or the study reader');
+  if(width<=760){
+   await expect(page.getByRole('dialog')).toHaveCount(0);
+   assert.equal(requests.some(url=>/\/reading\//.test(url)),false,'The automatic phone opening does not request study-reader metadata');
+  }else await expect(page.locator('.native-document-preview')).toBeVisible();
+  assert.equal(requests.some(url=>/pdf(?:\.worker)?-[\w-]+\.js/.test(url)),false,'Default previews use the browser PDF viewer without loading PDF.js');
+  assert.deepEqual(positionWrites,[],'The browser PDF viewer does not write study-reader positions');
   assert.deepEqual(downloads,[],'Viewing does not trigger an automatic download');
   await expect.poll(async()=>!!await env.db.prepare('SELECT resource_id FROM history WHERE user_id=3 AND resource_id=?').get(own.id)).toBe(true);
   await fits(page,'library '+width);await page.screenshot({path:`${out}/library-${width}.png`});
-  await popup.close();page.off('request',listen);student.context.off('page',onPage);
+  await popup.close();if(width>760)await page.keyboard.press('Escape');page.off('request',listen);page.off('popup',onPopup);student.context.off('page',onPage);
  });
  await scenario('PDF permissions, ranges, explicit downloads and source versions stay enforced',async()=>{
   const get=(path,headers)=>student.context.request.get(origin+path,{headers});
@@ -133,6 +150,8 @@ try{
   assert.equal(source,`/api/reading/${own.id}/file?version=1#page=2`);assert.equal((await get(source.split('#')[0])).status(),200);
   assert.equal(nativePDFUrl({id:'../other',fileType:'PDF'}),null);
   assert.equal(nativePDFUrl({id:own.id,fileType:'TXT'}),null);
+  assert.equal(documentFileUrl({id:own.id,fileType:'TXT',url:'https://untrusted.invalid/file?download=1'}),'/api/files/'+own.id);
+  assert.equal(documentFileUrl({id:'../other',fileType:'TXT'}),null);
  });
  await scenario('Notes and study tools remain an explicit optional action',async()=>{
   const page=student.page;active=page;await page.setViewportSize({width:390,height:844});await page.goto(origin+'/app/library?semester=1&module=Responsive+PDF');
@@ -140,17 +159,31 @@ try{
   await page.keyboard.press('Escape');await expect(page.getByRole('dialog')).toHaveCount(0);
   await page.goto(origin+'/app/study');await page.getByRole('button',{name:'Nouvelle note',exact:true}).click();await modalFits(page,'private note');await page.keyboard.press('Escape');
  });
- await scenario('Deep PDF source links retain page, version and history without duplicate tabs',async()=>{
+ for(const width of [390,1440])await scenario(`Deep PDF source links retain page, version and history without duplicate tabs at ${width}px`,async()=>{
   await env.db.prepare('DELETE FROM history WHERE user_id=3 AND resource_id=?').run(own.id);
-  const page=await student.context.newPage();active=page;const popups=[];page.on('popup',popup=>popups.push(popup));
+  const page=await student.context.newPage();active=page;await page.setViewportSize({width,height:900});const popups=[];page.on('popup',popup=>popups.push(popup));
   await page.goto(origin+`/app/library?document=${own.id}&page=2&version=1`);
-  await expect(page).toHaveURL(origin+`/api/reading/${own.id}/file?version=1#page=2`);
+  if(width<=760)await expect(page).toHaveURL(origin+`/api/reading/${own.id}/file?version=1#page=2`);
+  else{
+   await expect(page).toHaveURL(origin+`/app/library?document=${own.id}&page=2&version=1`);await expect(page.locator('.native-document-preview')).toBeVisible();
+   await expect(page.locator('.native-document-frame')).toHaveAttribute('src',`/api/reading/${own.id}/file?version=1#page=2`);await expect(page.locator('.study-reader-modal')).toHaveCount(0);
+   if(headed)await nativeViewerLoaded(page,'Deep source embedded viewer');
+   await expect(page.locator('.reader-external-open')).toHaveAttribute('href',`/api/reading/${own.id}/file?version=1#page=2`);
+  }
   await expect.poll(async()=>!!await env.db.prepare('SELECT resource_id FROM history WHERE user_id=3 AND resource_id=?').get(own.id)).toBe(true);
   assert.equal(popups.length,0);await page.close();
  });
- await scenario('Non-PDF previews keep their existing text viewer',async()=>{
-  const text=await resource('flaa','french_studies',true),page=student.page;active=page;await page.goto(origin+'/app/library?semester=1&module=Responsive+PDF');
-  await page.locator('#resource-'+text.id+' .document-main').click();await expect(page.locator('.reader-text-document')).toContainText('Isolated text preview remains readable.');await page.keyboard.press('Escape');
+ await scenario('Non-PDF previews use the internal text viewer on desktop and the canonical source on phones',async()=>{
+  const text=await resource('flaa','french_studies',true),page=student.page;active=page;await page.setViewportSize({width:1440,height:900});await page.goto(origin+'/app/library?semester=1&module=Responsive+PDF');
+  await page.locator('#resource-'+text.id+' .document-main').click();await expect(page.locator('.native-document-preview')).toBeVisible();await expect(page.locator('.native-document-frame')).toHaveAttribute('src',/^blob:/);
+  await expect(page.frameLocator('.native-document-frame').locator('body')).toContainText('Isolated text preview remains readable.');await expect(page.locator('.study-reader-modal')).toHaveCount(0);await expect(page.locator('.reader-external-open')).toHaveAttribute('href',`/api/reading/${text.id}/file?version=1`);await page.keyboard.press('Escape');
+  await page.setViewportSize({width:390,height:844});
+  const [popup,response]=await Promise.all([page.waitForEvent('popup'),student.context.waitForEvent('response',{predicate:r=>new URL(r.url()).pathname==='/api/files/'+text.id}),page.locator('#resource-'+text.id+' .document-main').click()]);
+  // The existing server serves text/code as an attachment. Chromium closes its
+  // temporary tab after handing that source to downloads; the frontend still
+  // routes it through the authenticated endpoint without opening a modal.
+  assert.equal(response.status(),200);assert.match(response.headers()['content-type'],/^text\/plain/);assert.match(response.headers()['content-disposition'],/^attachment;/);
+  await expect(page.getByRole('dialog')).toHaveCount(0);if(!popup.isClosed())await popup.close();
  });
  await scenario('Other modals keep forms, report decisions, uploads and chat actions reachable',async()=>{
   const response=await student.context.request.post(origin+'/api/reports',{data:{target_type:'resource',target_id:own.id,reason:'incorrect',details:'Isolated responsive review of a long report description.'}});
