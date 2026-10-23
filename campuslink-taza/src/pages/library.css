@@ -8,6 +8,9 @@
 .library-folder-breadcrumbs > .library-parent-folder { margin-inline-start: auto; }
 .library-uploaded-folders { margin-bottom: 24px; }
 .library-uploaded-folders > h3 { margin: 0 0 12px; font-size: 14px; }
+.library-type-section { min-width: 0; }
+.library-type-section + .library-type-section { margin-top: 20px; }
+.library-type-heading { margin: 0 0 10px; color: var(--muted); font-size: 12px; font-weight: 600; line-height: 1.5; overflow-wrap: anywhere; }
 .library-uploaded-folder { display: flex; align-items: center; gap: 12px; width: 100%; min-width: 0; padding: 16px; color: var(--ink); text-align: start; cursor: pointer; }
 .library-uploaded-folder:hover { border-color: var(--accent); }
 .library-uploaded-folder-copy { display: flex; flex-direction: column; flex: 1; gap: 4px; min-width: 0; overflow-wrap: anywhere; }

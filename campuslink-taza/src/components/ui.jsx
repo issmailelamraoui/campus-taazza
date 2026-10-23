@@ -51,6 +51,11 @@ export function Modal({title,children,onClose,footer,wide=false,className=''}){
  },[]);
  return <div ref={backdropRef} className="modal-backdrop" onMouseDown={e=>{if(e.target===e.currentTarget)onClose();}}><section ref={ref} tabIndex={-1} className={`modal ${wide?'modal-wide':''} ${className}`} role="dialog" aria-modal="true" aria-labelledby={id}><header className="modal-header"><h2 id={id}>{title}</h2><button type="button" className="icon-btn close-control" aria-label={t('close')} onClick={onClose}><X size={20}/></button></header><div className="modal-body">{children}</div>{footer&&<footer className="modal-footer">{footer}</footer>}</section></div>;
 }
+export function DocumentTypeBadge({category}){
+ const {t,tr}=useApp();
+ const label=category==='tdtp'?tr('TD / TP (anciens)','TD / TP (legacy)','TD / TP (قديمة)'):category?t(category):tr('Non classé','Unclassified','غير مصنف');
+ return <span className="document-type">{label}</span>;
+}
 export function DocumentCard({document:item,showOpenLabel=false,metadata="compact"}){
  const {t,tr,language,openDocument,saveItem,isSaved,isPending}=useApp();const saved=isSaved('document',item.id),pending=isPending('saved:document:'+item.id);
  const module=moduleDisplayName(item.module)||tr('Sans module','Unclassified','بدون وحدة');
@@ -72,7 +77,7 @@ export function DocumentCard({document:item,showOpenLabel=false,metadata="compac
     <ArrowUpRight size={17} className="document-arrow" aria-hidden="true"/>
    </span>
    {detailed&&<span className="document-program" dir="auto">{item.filiereName||item.filiereId||tr('Filière non renseignée','Program unavailable','المسلك غير محدد')}</span>}
-   <span className="document-classification">{detailed&&item.category&&<span className="document-type">{t(item.category)}</span>}{(!detailed||item.part!==null&&item.part!==undefined)&&<span className="part-label">{partLabel(item.part,language)}</span>}{item.semester>0&&<span className="document-semester">S{item.semester}</span>}</span>
+   <span className="document-classification"><DocumentTypeBadge category={item.category}/>{(!detailed||item.part!==null&&item.part!==undefined)&&<span className="part-label">{partLabel(item.part,language)}</span>}{item.semester>0&&<span className="document-semester">S{item.semester}</span>}</span>
    <span className="document-uploader"><span>{tr('Partagé par','Shared by','شارك بواسطة')}</span><bdi>{username?`@${username.replace(/^@/,'')}`:tr('Compte non renseigné','Account unavailable','الحساب غير متوفر')}</bdi></span>
   </OpenControl>
   <div className="document-footer"><OpenControl {...openProps} className="document-open-label">{tr('Ouvrir le document','Open document','فتح المستند')}<ChevronRight size={15} aria-hidden="true"/></OpenControl><div className="document-secondary-actions">{isPDFDocument(item)&&<button type="button" className="icon-btn" aria-label={tr('Outils d’étude','Study tools','أدوات الدراسة')+': '+(item.title||module)} title={tr('Notes et outils d’étude','Notes and study tools','الملاحظات وأدوات الدراسة')} onClick={()=>openDocument(item,{study:true})}><BookOpen size={17}/></button>}{downloadUrl&&<a className="icon-btn document-download" href={downloadUrl} download={item.originalName||item.filename||item.name||undefined} aria-label={t('download')+': '+(item.title||item.originalName||module)} title={t('download')}><Download size={17} aria-hidden="true"/></a>}<button type="button" className={`icon-btn save-btn ${saved?'is-saved':''}`} aria-label={t(saved?'unsave':'save')+': '+(item.title||module)} aria-pressed={saved} aria-busy={pending} disabled={pending} title={pending?tr('Enregistrement…','Saving…','جارٍ الحفظ…'):undefined} onClick={()=>saveItem('document',item.id)}>{pending?<LoaderCircle size={17} className="action-spinner"/>:saved?<BookmarkCheck size={17}/>:<Bookmark size={17}/>}</button></div></div>

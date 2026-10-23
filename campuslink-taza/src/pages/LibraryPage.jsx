@@ -55,17 +55,26 @@ const semesterNumber = (value) =>
 const categories = [
   "courses",
   "exercises",
-  "tdtp",
+  "td",
+  "tp",
   "corrections",
   "exams",
   "rattrapage",
 ];
 const DOCUMENTS_PER_PAGE = 24;
 const categoryMatches = (resource, category) =>
-  category === "all" ||
-  (category === "tdtp"
-    ? ["td", "tp", "tdtp"].includes(resource.category)
-    : resource.category === category);
+  category === "all" || resource.category === category;
+const groupByCategory = (items) => {
+  const groups = new Map();
+  for (const item of items) {
+    const key = item.category || "";
+    if (!groups.has(key)) groups.set(key, { category: key, items: [] });
+    groups.get(key).items.push(item);
+  }
+  const order = [...categories, "tdtp"];
+  const rank = (key) => order.includes(key) ? order.indexOf(key) : order.length;
+  return [...groups.values()].sort((a, b) => rank(a.category) - rank(b.category) || a.category.localeCompare(b.category));
+};
 function ModuleActions({ children, resource, label, onShare, choice = false }) {
   const { tr } = useApp();
   const share = () => onShare(resource);
@@ -103,11 +112,9 @@ export default function LibraryPage() {
   const folder = module !== null ? searchParams.get("folder") || "" : "";
   const folderOwner = folder ? searchParams.get("folderOwner") || "" : "";
   const requestedCategory = searchParams.get("category");
-  const category = ["td", "tp"].includes(requestedCategory)
-    ? "tdtp"
-    : categories.includes(requestedCategory)
-      ? requestedCategory
-      : "all";
+  const category = [...categories, "tdtp"].includes(requestedCategory)
+    ? requestedCategory
+    : "all";
   const query = searchParams.get("q") || "";
   const requestedSort = searchParams.get("sort");
   const sort = ["recent", "oldest", "title", "part"].includes(requestedSort) ? requestedSort : "recent";
@@ -369,7 +376,9 @@ export default function LibraryPage() {
     });
   const folderLabel = (name) =>
     name || tr("Sans module", "Unclassified", "بدون وحدة");
-  const categoryLabel = (key) => (key === "tdtp" ? "TD / TP" : t(key));
+  const categoryLabel = (key) => key === "tdtp"
+    ? tr("TD / TP (anciens)", "TD / TP (legacy)", "TD / TP (قديمة)")
+    : key ? t(key) : tr("Sans catégorie", "Unclassified", "بدون فئة");
   const openYearEditor = (document) => {
     setYearEditor(document);
     setEditedYears(resourceAcademicYears(document));
@@ -388,7 +397,7 @@ export default function LibraryPage() {
   };
   const tabs = [
     { id: "all", label: t("all"), count: filteredBase.length },
-    ...categories.map((id) => ({
+    ...[...categories, ...(category === "tdtp" || semesterResources.some(item => item.category === "tdtp") ? ["tdtp"] : [])].map((id) => ({
       id,
       label: categoryLabel(id),
       count: filteredBase.filter((item) => categoryMatches(item, id)).length,
@@ -827,7 +836,7 @@ export default function LibraryPage() {
         <Tabs
           items={tabs}
           value={category}
-          onChange={(value) => navigateLibrary({ category: value })}
+          onChange={(value) => navigateLibrary({ category: value, folder: "", folderOwner: "" })}
         />
       </div>
       <div className="library-academic-year-control">
@@ -928,11 +937,14 @@ export default function LibraryPage() {
           <>
             {directory.folders.length > 0 && <section className="library-uploaded-folders" aria-label={tr("Dossiers partagés", "Shared folders", "المجلدات المشتركة")}>
               <h3>{tr("Dossiers", "Folders", "المجلدات")}</h3>
-              <div className="library-document-grid">{directory.folders.map(entry => <button type="button" key={entry.key} className="library-uploaded-folder card" onClick={() => openFolder(entry.path, entry.owner, entry.category||category)}>
-                <span className="library-folder-symbol" aria-hidden="true"><Folder size={23} strokeWidth={1.5}/></span>
-                <span className="library-uploaded-folder-copy"><strong dir="auto">{entry.name}</strong>{category==='all'&&entry.category&&<span>{t(entry.category)}</span>}<span>{entry.count} {tr(entry.count === 1 ? "document" : "documents", entry.count === 1 ? "document" : "documents", "وثيقة")}</span>{entry.uploader && <bdi>{entry.uploader}</bdi>}</span>
-                <ArrowRight className="library-folder-arrow" size={17} aria-hidden="true"/>
-              </button>)}</div>
+              {groupByCategory(directory.folders).map(group => <section className="library-type-section" data-category={group.category} key={group.category} aria-label={categoryLabel(group.category)}>
+                <h4 className="library-type-heading">{categoryLabel(group.category)}</h4>
+                <div className="library-document-grid">{group.items.map(entry => <button type="button" key={entry.key} className="library-uploaded-folder card" onClick={() => openFolder(entry.path, entry.owner, entry.category||category)}>
+                  <span className="library-folder-symbol" aria-hidden="true"><Folder size={23} strokeWidth={1.5}/></span>
+                  <span className="library-uploaded-folder-copy"><strong dir="auto">{entry.name}</strong><span>{entry.count} {tr(entry.count === 1 ? "document" : "documents", entry.count === 1 ? "document" : "documents", "وثيقة")}</span>{entry.uploader && <bdi>{entry.uploader}</bdi>}</span>
+                  <ArrowRight className="library-folder-arrow" size={17} aria-hidden="true"/>
+                </button>)}</div>
+              </section>)}
             </section>}
             <div className="library-year-groups">
               {pageYearGroups.map(group => (
@@ -941,8 +953,10 @@ export default function LibraryPage() {
                     <h3>{group.year || tr("Année inconnue", "Unknown year", "سنة غير معروفة")}</h3>
                     {group.year && group.year === currentAcademicYear && <span className="library-current-year">{tr("Année actuelle", "Current year", "السنة الحالية")}</span>}
                   </div>
-                  <div className="library-document-grid">
-                    {group.documents.map(document => (
+                  {groupByCategory(group.documents).map(typeGroup => <section className="library-type-section" data-category={typeGroup.category} key={typeGroup.category} aria-label={categoryLabel(typeGroup.category)}>
+                    <h4 className="library-type-heading">{categoryLabel(typeGroup.category)}</h4>
+                    <div className="library-document-grid">
+                    {typeGroup.items.map(document => (
                       <div className="library-year-document" key={document.id}>
                         <DocumentCard document={document} showOpenLabel />
                         <div className="library-document-year-meta">
@@ -955,7 +969,8 @@ export default function LibraryPage() {
                         </div>
                       </div>
                     ))}
-                  </div>
+                    </div>
+                  </section>)}
                 </section>
               ))}
             </div>
@@ -1049,7 +1064,7 @@ export default function LibraryPage() {
           "تُحفظ الوثائق المشتركة في مكتبة فضائك الجامعي.",
         )}
       </p>
-      {showUpload && <UploadModal onClose={() => setShowUpload(false)} />}
+      {showUpload && <UploadModal initialClassification={{ semester, module: module === null ? "" : moduleDisplayName(module), category }} onClose={() => setShowUpload(false)} />}
       {sharedResource && <ModuleShareDialog resource={sharedResource} onClose={() => setSharedResource(null)} />}
       {yearEditor && <Modal title={tr("Années d’utilisation du document", "Years the material was used", "سنوات استخدام الوثيقة")} onClose={() => { if (!savingYears) setYearEditor(null); }} footer={<div className="library-year-editor-footer"><Button variant="ghost" disabled={savingYears} onClick={() => setYearEditor(null)}>{t("cancel")}</Button><Button variant="primary" disabled={savingYears} onClick={saveYears}>{savingYears ? tr("Enregistrement…", "Saving…", "جارٍ الحفظ…") : tr("Enregistrer", "Save", "حفظ")}</Button></div>}>
         <p className="muted library-year-editor-note">{yearEditor.originalName || yearEditor.title}</p>

@@ -63,7 +63,8 @@ async function fixture({ width = 1280, height = 900, theme = 'light', documents 
   await context.route('**/api/**', async route => {
     const request = route.request(), path = new URL(request.url()).pathname;
     if (path === '/api/session') return route.fulfill({ json: { user } });
-    if (path === '/api/bootstrap') return route.fulfill({ json: payload() });
+    if (path === '/api/bootstrap' || path === '/api/live') return route.fulfill({ json: payload() });
+    if (path === '/api/messages/read' && request.method() === 'POST') return route.fulfill({ json: { discussion_unread_count: 0, discussion_unread_counts: [] } });
     if (path === '/api/uploads' && request.method() === 'POST') {
       const parsed = multipart(request);
       uploads.push(parsed);
@@ -378,10 +379,14 @@ try {
       await expect(modal.locator('.upload-review-list strong')).toHaveText(['XML', 'XML']);
       await modal.getByRole('button', { name: 'Joindre au message', exact: true }).click();
       await expect(page.locator('.community-composer-attachment')).toHaveCount(2);
+      await expect(page.locator('.community-composer-attachment .community-file-labels .document-type')).toHaveText(['Cours', 'Cours']);
+      for (const badge of await page.locator('.community-composer-attachment .community-file-labels .document-type').all()) await expect(badge).toBeVisible();
       await page.getByLabel('Votre message', { exact: true }).fill('Classified message fixture');
       await page.getByRole('button', { name: 'Envoyer le message', exact: true }).click();
       await expect(page.locator('[data-message-id="9001"]')).toBeVisible();
       await expect(page.locator('[data-message-id="9001"] .community-device-attachment')).toHaveCount(2);
+      await expect(page.locator('[data-message-id="9001"] .community-file-labels .document-type')).toHaveText(['Cours', 'Cours']);
+      for (const badge of await page.locator('[data-message-id="9001"] .community-file-labels .document-type').all()) await expect(badge).toBeVisible();
       assert.equal(f.uploads.length, 2);
       assert.deepEqual(f.uploads.map(item => item.fields.library_visible), ['false', 'false']);
       assert.deepEqual(f.uploads.map(item => item.fields.title), ['XML', 'XML']);

@@ -48,6 +48,7 @@
     "test:reading": "node --test tests/reading.test.mjs tests/backend-reading.test.mjs tests/backend-spaced-review.test.mjs",
     "test:labs": "node tests/labs.browser.mjs",
     "test:library-academic": "node tests/library-academic.browser.mjs",
+    "test:library-types": "node tests/library-type-separation.browser.mjs",
     "test:install-worker": "node tests/install-worker.browser.mjs",
     "test:academic-collaboration": "node tests/academic-collaboration.browser.mjs",
     "test:document-relations": "node tests/document-relations.browser.mjs",

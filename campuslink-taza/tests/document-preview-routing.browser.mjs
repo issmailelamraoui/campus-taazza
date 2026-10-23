@@ -328,6 +328,105 @@ try {
     await expect(f.page.locator('.community-device-preview')).toHaveCount(0);
   });
 
+  for (const size of [{ width: 1440, height: 900, touch: false }, { width: 768, height: 1024 }]) {
+    await scenario(`Closed discussion attachment stays closed after chat actions, refresh and Back at ${size.width}px`, size, async f => {
+      await f.page.goto(origin + '/app/community?channel=general');
+      const attachment = f.page.locator('[data-message-id="501"] .community-attachment-file');
+      const preview = f.page.locator('.community-device-preview');
+      await attachment.click();
+      await expect(preview).toBeVisible();
+      await preview.locator('.close-control').click();
+      await expect(preview).toHaveCount(0);
+      await f.page.getByRole('button', { name: 'Rechercher dans la conversation', exact: true }).click();
+      await f.page.getByRole('textbox', { name: 'Rechercher dans la conversation', exact: true }).fill('attachment');
+      await expect(attachment).toBeVisible();
+      await expect(preview).toHaveCount(0);
+      await f.page.getByRole('button', { name: 'Fermer la recherche', exact: true }).click();
+      await f.page.getByRole('button', { name: 'Messages épinglés', exact: true }).click();
+      await expect(f.page.getByRole('dialog')).toBeVisible();
+      await expect(preview).toHaveCount(0);
+      await f.page.keyboard.press('Escape');
+      const refreshes = f.requests.filter(request => request.path === '/api/bootstrap').length;
+      await f.page.evaluate(() => window.dispatchEvent(new Event('focus')));
+      await expect.poll(() => f.requests.filter(request => request.path === '/api/bootstrap').length).toBeGreaterThan(refreshes);
+      await expect(preview).toHaveCount(0);
+      // A deliberate second opening still works, including Escape dismissal.
+      await attachment.click();
+      await expect(preview).toBeVisible();
+      await f.page.keyboard.press('Escape');
+      await expect(preview).toHaveCount(0);
+      await f.page.locator('a[href="/app/library"]').first().click();
+      await expect(f.page).toHaveURL(/\/app\/library/);
+      await f.page.goBack();
+      await expect(attachment).toBeVisible();
+      await f.page.getByRole('button', { name: 'Messages épinglés', exact: true }).click();
+      await expect(preview).toHaveCount(0);
+      assert.equal(f.popups.length, 0);
+      noStudyRuntime(f);
+    });
+  }
+
+  await scenario('Closed linked document consumes its open command before another filter action', { width: 1440, height: 900, touch: false }, async f => {
+    await f.goto('&document=41&page=2&version=1#resource-41');
+    const preview = await nativePreview(f, { page: 2, version: 1 });
+    await preview.locator('.close-control').click();
+    await expect(preview).toHaveCount(0);
+    await expect(f.page).toHaveURL(/#resource-41$/);
+    const dismissed = new URL(f.page.url());
+    for (const key of ['document', 'page', 'version', 'mode']) assert.equal(dismissed.searchParams.has(key), false, 'Dismissal consumes only the document open command.');
+    assert.equal(dismissed.searchParams.get('semester'), '5');
+    assert.equal(dismissed.searchParams.get('module'), 'Administration des bases de donnees');
+    const search = f.page.getByRole('textbox', { name: 'Rechercher des documents', exact: true });
+    await search.fill('Preview');
+    await expect(f.page).toHaveURL(/q=Preview/);
+    await expect(preview).toHaveCount(0);
+    const closed = new URL(f.page.url());
+    for (const key of ['document', 'page', 'version', 'mode']) assert.equal(closed.searchParams.has(key), false, 'Dismissal consumes only the document open command.');
+    assert.equal(closed.searchParams.get('semester'), '5');
+    assert.equal(closed.searchParams.get('module'), 'Administration des bases de donnees');
+    const refreshes = f.requests.filter(request => request.path === '/api/bootstrap').length;
+    await f.page.evaluate(() => window.dispatchEvent(new Event('focus')));
+    await expect.poll(() => f.requests.filter(request => request.path === '/api/bootstrap').length).toBeGreaterThan(refreshes);
+    await expect(preview).toHaveCount(0);
+    // Another browser navigation to the same source is a new open request,
+    // even without reloading the app and resetting its command tracking.
+    await f.page.evaluate(() => {
+      const source = new URL(window.location.href);
+      source.searchParams.set('document', '41');
+      source.searchParams.set('page', '2');
+      source.searchParams.set('version', '1');
+      window.history.pushState(null, '', source.href);
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    });
+    await nativePreview(f, { page: 2, version: 1 });
+    await f.page.keyboard.press('Escape');
+    await expect(preview).toHaveCount(0);
+    await search.fill('routing');
+    await expect(preview).toHaveCount(0);
+    assert.equal(f.popups.length, 0);
+  });
+
+  await scenario('Closed linked document preserves a newer source command awaiting router navigation', { width: 1440, height: 900, touch: false }, async f => {
+    await f.goto('&document=41&page=2&version=1');
+    const preview = await nativePreview(f, { page: 2, version: 1 });
+    // A navigation may update the browser URL before React commits it. The
+    // old dialog's close callback must not consume the new requested page.
+    await f.page.evaluate(() => {
+      const source = new URL(window.location.href);
+      source.searchParams.set('page', '3');
+      window.history.pushState(null, '', source.href);
+    });
+    await preview.locator('.close-control').click();
+    const pending = new URL(f.page.url());
+    assert.equal(pending.searchParams.get('document'), '41');
+    assert.equal(pending.searchParams.get('page'), '3');
+    await f.page.evaluate(() => window.dispatchEvent(new PopStateEvent('popstate')));
+    await nativePreview(f, { page: 3, version: 1 });
+    await f.page.keyboard.press('Escape');
+    await expect(preview).toHaveCount(0);
+    await expect.poll(() => new URL(f.page.url()).searchParams.has('document')).toBe(false);
+  });
+
   for (const selected of [
     { name: 'selected-preview.html', type: 'text/html', source: '<!doctype html><script>globalThis.__previewScriptExecuted = true</script><p>Isolated HTML source preview</p>' },
     { name: 'selected-preview.svg', type: 'image/svg+xml', source: '<svg xmlns="http://www.w3.org/2000/svg" onload="globalThis.__previewScriptExecuted = true"><text y="20">Isolated SVG source preview</text></svg>' },

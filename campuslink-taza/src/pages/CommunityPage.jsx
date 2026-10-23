@@ -56,6 +56,7 @@ import {
   Avatar,
   Badge,
   Button,
+  DocumentTypeBadge,
   EmptyState,
   Field,
   Modal,
@@ -150,7 +151,7 @@ function AttachmentClassification({ attachment, uploader }) {
   const username = attachment.uploaderUsername || uploader;
   return <span className="community-file-classification">
     <strong className="community-file-module" dir="auto">{attachment.module}</strong>
-    <span className="community-file-labels"><span>{partLabel(attachment.part, language)}</span>{attachment.semester && <span>S{attachment.semester}</span>}</span>
+    <span className="community-file-labels"><DocumentTypeBadge category={attachment.category}/><span>{partLabel(attachment.part, language)}</span>{attachment.semester && <span>S{attachment.semester}</span>}</span>
     {(username || attachment.uploader) && <small className="community-file-uploader" dir="auto">{username ? '@' + String(username).replace(/^@/, '') : attachment.uploader}</small>}
   </span>;
 }

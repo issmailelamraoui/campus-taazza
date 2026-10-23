@@ -1,13 +1,13 @@
 import {requestId} from './lib/identifiers.js';
 import React, {createContext, useCallback, useContext, useEffect, useRef, useState} from 'react';
-import {useNavigate} from 'react-router-dom';
+import {useLocation,useNavigate} from 'react-router-dom';
 import {api,invalidateAPISession,subscribeAPIActivity} from './api.js';
 import {FACULTIES} from './data/mock.js';
 import {getFiliere, filiereBelongsToFaculty} from './data/studies.js';
 import {translations} from './i18n.js';
 import {chatRequest, isAdministrator, normalizeAnnouncement, normalizeBootstrap, normalizeMessage, normalizeResource, normalizeUser, requiresPasswordChange} from './lib/backend.js';
 import {normalizePart} from './lib/resources.js';
-import {documentFileUrl,isPhoneDocumentViewport} from './lib/document-open.js';
+import {documentFileUrl,documentOpenRequest,isPhoneDocumentViewport} from './lib/document-open.js';
 import {saveOfflineSession,loadOfflineSession} from './lib/offline-session.js';
 // Session cleanup must be registered even when no reader/study route is loaded.
 import './lib/offline-documents.js';
@@ -21,7 +21,7 @@ const emptyData=()=>({user:null,faculty:null,resources:[],announcements:[],messa
 const preferencesFor=user=>({announcements:true,resources:true,mentions:true,...user?.preferences,calendar:false,discussions:user?.preferences?.important!==false,administration:user?.preferences?.admin!==false});
 
 export function AppProvider({children}){
- const navigate=useNavigate();
+ const navigate=useNavigate(),location=useLocation();
  const [language,changeLanguage]=useLocal('language','fr');
  const [theme,setTheme]=useLocal('theme','dark');
  const [lowData,setLowData]=useLocal('low-data',false);
@@ -224,7 +224,18 @@ export function AppProvider({children}){
    finishOptimistic(owner,action,apply(result.saved));if(owner===epoch.current)notify(t(result.saved?'savedSuccess':'removedSuccess'));return result.saved;
   }catch(error){finishOptimistic(owner,action,apply(wasSaved));if(owner===epoch.current)notify(error.message,'error');return false;}
  });}
- function openDocument(item,{study=false,external=false,nativeOpened=false,inPlace=false}={}){
+ function closeDialog(){
+  const dismissed=currentDialog.current;currentDialog.current=null;setDialog(null);
+  // A source URL is an open command. Consume it when its reader is dismissed,
+  // otherwise the next filter or search update can replay the same command.
+  // Compare the actual URL too: a newer source link must remain untouched.
+  if(dismissed?.type!=='document'||!dismissed.linkedRequest||documentOpenRequest(window.location)!==dismissed.linkedRequest)return;
+  const target=new URL(window.location.href);
+  for(const name of ['document','page','version'])target.searchParams.delete(name);
+  if(target.searchParams.get('mode')==='study')target.searchParams.delete('mode');
+  navigate(target.pathname+target.search+target.hash,{replace:true,state:location.state,preventScrollReset:true});
+ }
+ function openDocument(item,{study=false,external=false,nativeOpened=false,inPlace=false,linkedRequest=null}={}){
   if(!item)return;
   const nativeUrl=!study&&navigator.onLine!==false&&(external||isPhoneDocumentViewport())&&documentFileUrl(item);
   if(nativeUrl){
@@ -234,7 +245,7 @@ export function AppProvider({children}){
     const tab=window.open(nativeUrl,'_blank');
     if(tab)tab.opener=null;else window.location.assign(nativeUrl);
    }
-  }else setDialog({type:'document',item,study:study||navigator.onLine===false});
+  }else setDialog({type:'document',item,study:study||navigator.onLine===false,linkedRequest});
   const owner=epoch.current;
   locked('history:'+item.id,async()=>{const original=current.current.history,action='history:'+item.id,id=String(item.id);
    const apply=previous=>({...previous,history:[id,...previous.history.filter(target=>target!==id)].slice(0,20)});
@@ -426,7 +437,7 @@ export function AppProvider({children}){
   language,setLanguage,theme,setTheme,lowData,setLowData,t,tr,updateProfile,preferences:preferencesFor(user),setPreferences,resources:data.resources,allResources:data.resources,announcements:data.announcements,allAnnouncements:data.announcements,
   messages:data.messages.filter(item=>!['help','life'].includes(item.channel)),allMessages:data.messages,notifications:data.notifications,allNotifications:data.notifications,saved:data.saved,history:data.history,
   saveItem,isSaved,isPending,pendingActions,networkActivity,connectionState,refreshing:networkActivity.reads>0,openDocument,openAnnouncement,openNotification,markNotificationsRead,adminNotificationPopups,dismissAdminNotificationPopup,activeNotificationId,notificationVisitRevision,beginNotificationVisit,notificationDestinationViewed,leaveNotificationDestination,loadMoreNotifications,markDiscussionRead,uploadResource,updateResourceAcademicYears,sendMessage,retryMessage,discardMessage,deleteMessage,toggleMessageReaction,toggleMessagePin,reportMessage,promoteMessage,editAnnouncement,deleteAnnouncement,applyAdminChanges,requestSupport,
-  dialog,setDialog,closeDialog:()=>setDialog(null),openUpload:()=>setDialog({type:'upload'}),notify,toast,setToast};
+  dialog,setDialog,closeDialog,openUpload:()=>setDialog({type:'upload'}),notify,toast,setToast};
  return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
 }
 export const useApp=()=>useContext(AppContext);

@@ -18,6 +18,16 @@ export function nativePDFUrl(item) {
   return isPDFDocument(item) ? documentFileUrl(item) : null;
 }
 
+// Filters and fragment navigation do not constitute another request to open
+// the linked document. Keep the command separate from the rest of the URL.
+export function documentOpenRequest(location) {
+  const params = new URLSearchParams(location.search), id = params.get('document');
+  if (!id || !/^[1-9]\d*$/.test(id)) return '';
+  return JSON.stringify([location.pathname, id,
+    params.has('page') ? Math.max(1, Number(params.get('page')) || 1) : null,
+    Number(params.get('version')) || null, params.get('mode') === 'study']);
+}
+
 export function isPhoneDocumentViewport() {
   return typeof window !== 'undefined' && window.matchMedia(
     '(max-width: 760px), (pointer: coarse) and (max-width: 950px) and (max-height: 500px)',

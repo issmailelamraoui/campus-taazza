@@ -1,6 +1,7 @@
 import { chromium, expect } from '@playwright/test';
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { chooseOption } from './ui.helpers.mjs';
 
 // Network fixtures keep these interface checks independent of real campus
 // databases, user accounts, uploaded documents and storage credentials.
@@ -14,8 +15,8 @@ mkdirSync('test-results', { recursive: true });
 
 const user = { id: 2, username: 'clarity-fixture', name: 'Fixture Student', role: 'student', faculty_id: 'flaa', filiere_id: 'french_studies', current_semester: 1, account_status: 'approved', language: 'fr' };
 const longModule = 'ADMINISTRATION DES BASES DE DONNÉES ET SYSTÈMES D’INFORMATION DISTRIBUÉS';
-const categories = ['courses', 'exercises', 'td', 'corrections', 'exams', 'rattrapage'];
-const tabLabels = ['Tous', 'Cours', 'Exercices', 'TD / TP', 'Corrections', 'Examens', 'Rattrapages'];
+const categories = ['courses', 'exercises', 'td', 'corrections', 'exams', 'rattrapage', 'tp'];
+const tabLabels = ['Tous', 'Cours', 'Exercices', 'TD', 'TP', 'Corrections', 'Examens', 'Rattrapages'];
 function document(id, module, category = 'courses', extra = {}) {
   return { id, module, filename: `fixture-document-${id}.pdf`, title: `Fixture document ${id}`, faculty_id: 'flaa', filiere_id: 'french_studies', semester: 1, category, resource_type: category, part_number: String(id), teacher_name: 'Fixture Lecturer', created_at: '2026-10-10T10:00:00Z', size: 512, mime: 'application/pdf', library_visible: true, author: user, ...extra };
 }
@@ -57,7 +58,7 @@ async function fixture({ width = 390, height = 844, theme = 'light', holdUploads
   await context.route('**/api/**', async route => {
     const request = route.request(), pathname = new URL(request.url()).pathname;
     if (pathname === '/api/session') return route.fulfill({ json: { user } });
-    if (pathname === '/api/bootstrap') return route.fulfill({ json: { user, faculty: { id: 'flaa', code: 'FLAA', name: 'Fixture faculty' }, resources: state.resources, messages: [], announcements: [], notifications: [], events: [], saved: [], history: [], channels: [{ id: 'general', read_only: false }], members: [] } });
+    if (pathname === '/api/bootstrap' || pathname === '/api/live') return route.fulfill({ json: { user, faculty: { id: 'flaa', code: 'FLAA', name: 'Fixture faculty' }, resources: state.resources, messages: [], announcements: [], notifications: [], events: [], saved: [], history: [], channels: [{ id: 'general', read_only: false }], members: [] } });
     if (pathname === '/api/uploads' && request.method() === 'POST') {
       const parsed = multipart(request); uploads.push(parsed);
       const finish = async () => {
@@ -122,7 +123,7 @@ async function immediatelyOnScreen(locator, label) {
 async function categoriesVisible(page, label) {
   const tabs = page.getByRole('tablist', { name: 'Choisir une catégorie', exact: true });
   await tabs.scrollIntoViewIfNeeded();
-  await expect(tabs.getByRole('tab')).toHaveCount(7);
+  await expect(tabs.getByRole('tab')).toHaveCount(8);
   const layout = await tabs.evaluate(node => ({ width: document.documentElement.clientWidth, clientWidth: node.clientWidth, scrollWidth: node.scrollWidth, tabs: [...node.querySelectorAll('[role="tab"]')].map(tab => { const r = tab.getBoundingClientRect(); return { text: tab.textContent, left: r.left, right: r.right, height: r.height }; }) }));
   assert.ok(layout.scrollWidth <= layout.clientWidth + 1, `${label}: categories must be visible without horizontal scrolling.`);
   for (const tab of layout.tabs) {
@@ -196,7 +197,7 @@ try {
       await page.screenshot({ path: `test-results/library-clarity-${width}-${theme}-picker.png` });
       await choice.tap();
       await expect(page).toHaveURL(url => url.searchParams.get('module')?.toUpperCase() === longModule);
-      await expect(page.locator('.document-card')).toHaveCount(6);
+      await expect(page.locator('.document-card')).toHaveCount(7);
       const title = page.locator('.library-results-heading h2');
       await expect(title).toHaveText(longModule);
       await immediatelyOnScreen(title, 'Current module heading immediately after choosing a module');
@@ -209,7 +210,7 @@ try {
         const tab = page.getByRole('tab', { name: new RegExp(`^${text.replace('/', '\\/')}(?:\\s|\\d|$)`) });
         await tab.tap();
         await expect(tab).toHaveAttribute('aria-selected', 'true');
-        await expect(page.locator('.document-card')).toHaveCount(index === 0 ? 6 : 1);
+        await expect(page.locator('.document-card')).toHaveCount(index === 0 ? 7 : 1);
         await expect(title).toHaveText(longModule);
         await fits(page, `${width}px ${theme}: ${text}`);
       }
@@ -244,7 +245,7 @@ try {
     try {
       const { page } = f;
       await page.locator('.library-module-folder').filter({ has: page.locator('.library-module-name', { hasText: longModule }) }).click();
-      await expect(page.locator('.document-card')).toHaveCount(6);
+      await expect(page.locator('.document-card')).toHaveCount(7);
       await fullyReadable(page.locator('.library-results-heading h2'), 'Desktop full folder name');
       await categoriesVisible(page, `Desktop ${theme}`);
       await page.getByRole('tab', { name: /^Examens/ }).click();

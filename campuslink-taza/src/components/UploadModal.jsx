@@ -85,6 +85,7 @@ function SuggestedField({
 export default function UploadModal({
   onClose,
   mode = "library",
+  initialClassification = {},
   initialEntries = [],
   existingAttachments = [],
   onConfirm,
@@ -117,8 +118,10 @@ export default function UploadModal({
   const canChooseProgram = !isSupplement && uploadScopes.length > 1;
   const filiere = getFiliere(selection.filiereId);
   const isChat = mode === "chat";
-  const accountSemester = semesterNumber(supplementFor?.semester ?? accountSelection?.semester);
+  const accountSemester = semesterNumber(supplementFor?.semester ?? initialClassification.semester ?? accountSelection?.semester);
   const initialSemester = allowedSemesters.includes(accountSemester) ? accountSemester : allowedSemesters[0] || accountSemester || 1;
+  const initialModule = supplementFor?.module || initialClassification.module || "";
+  const initialCategory = supplementCategory || (categoryKeys.includes(initialClassification.category) ? initialClassification.category : "courses");
   const currentAcademicYear = normalizeAcademicYear(user?.currentAcademicYear ?? user?.current_academic_year);
   const initialAcademicYear = isSupplement ? normalizeAcademicYear(supplementFor.academicYear ?? supplementFor.academic_year) : currentAcademicYear;
   const yearOptions = academicYearOptions(currentAcademicYear, (allResources || []).flatMap(resourceAcademicYears));
@@ -134,8 +137,8 @@ export default function UploadModal({
         key: fileKey(file, path),
         meta: {
           semester: initialSemester,
-          module: supplementFor?.module || "",
-          category: supplementCategory || "courses",
+          module: initialModule,
+          category: initialCategory,
           author: "",
           academicYear: initialAcademicYear,
           part: isSupplement ? supplementPart : "",
@@ -146,8 +149,8 @@ export default function UploadModal({
   const [files, setFiles] = useState(initialFiles);
   const [batch, setBatch] = useState({
     semester: initialSemester,
-    module: supplementFor?.module || "",
-    category: supplementCategory || "courses",
+    module: initialModule,
+    category: initialCategory,
     author: "",
     academicYear: initialAcademicYear,
     part: isSupplement ? supplementPart : "",

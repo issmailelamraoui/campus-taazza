@@ -3,6 +3,7 @@
 .document-card-compact .file-symbol { width: 38px; height: 42px; padding: 0; background: var(--accent-soft); color: var(--accent-ink); }
 .document-card-compact .document-copy h3 { margin: 0; font-size: 14px; line-height: 1.5; color: var(--ink); }
 .document-card-compact .document-classification { justify-content: flex-start; gap: 8px; }
+.document-type { display: inline-flex; align-items: center; min-width: 0; max-width: 100%; padding: 4px 8px; border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--line)); border-radius: 5px; background: var(--accent-soft); color: var(--accent-ink); font-size: 12px; font-weight: 600; line-height: 1.5; overflow-wrap: anywhere; }
 .document-card-compact .part-label,.document-card-compact .document-semester { font-size: 11px; padding: 4px 7px; }
 .document-card-compact .document-uploader { display: flex; flex-direction: row; flex-wrap: wrap; align-items: baseline; gap: 5px; font-size: 12px; line-height: 1.6; }
 .document-card-compact .document-uploader > span { font-size: 11px; color: var(--muted); }
@@ -32,5 +33,4 @@ html[dir="rtl"] .document-card-compact .document-open-label svg { transform: sca
 .document-card-recent .document-copy h3 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; min-height: 3em; overflow-wrap: anywhere; }
 .document-card-recent .document-program { font-size: 12px; line-height: 1.5; color: var(--muted); overflow-wrap: anywhere; }
 .document-card-recent .document-classification { flex-wrap: wrap; }
-.document-card-recent .document-type { font-size: 11px; padding: 4px 7px; background: var(--accent-soft); color: var(--accent-ink); border-radius: 5px; }
 .document-card-recent .document-uploader { margin-top: auto; }

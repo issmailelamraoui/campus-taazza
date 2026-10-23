@@ -5,6 +5,7 @@ import NotificationCenter from './components/NotificationCenter';
 import {useApp} from './context';
 import PageLoading from './components/PageLoading';
 import {accountDestination,requiresPasswordChange} from './lib/backend';
+import {documentOpenRequest} from './lib/document-open';
 const AppShell=React.lazy(()=>import('./components/AppShell'));
 const Dialogs=React.lazy(()=>import('./components/Modals'));
 import {LandingPage,LoginPage,OnboardingPage,RegisterPage,AccountReviewPage} from './pages/PublicPages';
@@ -41,17 +42,19 @@ function Protected(){
 function ScrollReset(){const location=useLocation();useEffect(()=>{if(location.hash){requestAnimationFrame(()=>document.getElementById(location.hash.slice(1))?.scrollIntoView({behavior:'auto',block:'start'}));}else{window.scrollTo({top:0,behavior:'auto'});}},[location.pathname,location.hash]);return null;}
 function NotificationLifecycle(){
  const location=useLocation();const {user,dialog,resources,announcements,messages,openDocument,openAnnouncement,notificationDestinationViewed,leaveNotificationDestination,activeNotificationId,notificationVisitRevision,tr}=useApp();
- const previous=React.useRef(null);const handled=React.useRef('');
+ const previous=React.useRef(null);const handled=React.useRef('');const handledDocument=React.useRef('');
  useEffect(()=>{
-  if(!user||requiresPasswordChange(user)){previous.current=null;handled.current='';return;}
+  if(!user||requiresPasswordChange(user)){previous.current=null;handled.current='';handledDocument.current='';return;}
   const href=location.pathname+location.search+location.hash;
   const params=new URLSearchParams(location.search),documentId=params.get('document');
+  const documentRequest=documentOpenRequest(location);
+  if(!documentRequest)handledDocument.current='';
   const announcementId=/^#announcement-(\d+)$/.exec(location.hash)?.[1];
   const identity=dialog?dialog.type+':'+dialog.item?.id:href;
   const openingLinkedDialog=previous.current?.identity===href&&((dialog?.type==='document'&&String(dialog.item?.id)===documentId)||(dialog?.type==='announcement'&&String(dialog.item?.id)===announcementId));
   if(previous.current&&previous.current.identity!==identity&&!openingLinkedDialog)leaveNotificationDestination(previous.current.identity);
   previous.current={identity};
-  if(documentId&&/^[1-9][0-9]*$/.test(documentId)&&handled.current!==href){const item=resources.find(r=>r.id===documentId)||{id:documentId,title:tr('Document source','Source document','المستند المصدر'),fileType:'PDF',filename:'source.pdf',downloadUrl:'/api/files/'+documentId+'?download=1'};handled.current=href;if(dialog?.type!=='document'||dialog.item?.id!==documentId)openDocument({...item,initialPage:params.has('page')?Math.max(1,Number(params.get('page'))||1):undefined,initialVersion:Number(params.get('version'))||undefined},{inPlace:true,study:params.get('mode')==='study'});}
+  if(documentRequest&&handledDocument.current!==documentRequest){const item=resources.find(r=>r.id===documentId)||{id:documentId,title:tr('Document source','Source document','المستند المصدر'),fileType:'PDF',filename:'source.pdf',downloadUrl:'/api/files/'+documentId+'?download=1'};handledDocument.current=documentRequest;openDocument({...item,initialPage:params.has('page')?Math.max(1,Number(params.get('page'))||1):undefined,initialVersion:Number(params.get('version'))||undefined},{inPlace:true,study:params.get('mode')==='study',linkedRequest:documentRequest});}
   if(announcementId&&!dialog&&handled.current!==href){const item=announcements.find(a=>a.id===announcementId);if(item){handled.current=href;openAnnouncement(item);}}
   if(!activeNotificationId)return;
   function visible(node){if(!node?.getClientRects().length)return false;const rect=node.getBoundingClientRect();return rect.bottom>0&&rect.top<window.innerHeight&&rect.right>0&&rect.left<window.innerWidth;}

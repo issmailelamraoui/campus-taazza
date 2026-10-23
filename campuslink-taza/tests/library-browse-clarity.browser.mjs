@@ -73,7 +73,7 @@ async function fixture(settings) {
     const request = route.request(), path = new URL(request.url()).pathname;
     requests.push(`${request.method()} ${path}`);
     if (path === '/api/session') return route.fulfill({ json: { user } });
-    if (path === '/api/bootstrap') return route.fulfill({ json: { user, faculty: { id: 'fsa', code: 'FSA', name: 'Fixture faculty' }, resources: items,
+    if (path === '/api/bootstrap' || path === '/api/live') return route.fulfill({ json: { user, faculty: { id: 'fsa', code: 'FSA', name: 'Fixture faculty' }, resources: items,
       messages: [], announcements: [], notifications: [], saved: [], history: [], events: [], members: [], channels: [{ id: 'general', read_only: false }] } });
     if (path === '/api/history') { writes.push({ path, body: request.postDataJSON() }); return route.fulfill({ json: { ok: true } }); }
     if (path === '/api/reading') return route.fulfill({ json: { positions: [] } });
@@ -205,16 +205,21 @@ try {
       await expect(page.locator('.library-results-count')).toContainText('5');
       await fits(page, `${label}: open module`);
       const categories = page.locator('.library-category-tabs [role="tab"]');
-      await expect(categories).toHaveCount(7);
+      await expect(categories).toHaveCount(8);
       for (const tab of await categories.all()) await usable(tab, `${label}: category`);
       await readable(page.locator('#resource-101 .document-copy h3'), `${label}: full module name`);
       await expect(page.locator('#resource-101 .document-main')).toHaveAttribute('aria-label', `${ar ? 'فتح المستند' : 'Ouvrir le document'} : ${f.items[0].title}`);
       await expect(page.locator('#resource-101 .document-open-label')).toHaveText(ar ? 'فتح المستند' : 'Ouvrir le document');
       await usable(page.locator('#resource-101 .save-btn'), `${label}: save document`);
-      for (const selector of ['.document-copy h3', '.document-uploader bdi', '.part-label']) {
+      for (const selector of ['.document-copy h3', '.document-uploader bdi', '.document-type', '.part-label']) {
         await readable(page.locator(`#resource-101 ${selector}`), `${label}: ${selector}`);
       }
-      await expect(page.locator('#resource-101 .document-filename,#resource-101 .document-author,#resource-101 .document-filiere,#resource-101 .document-category,#resource-101 .document-date,#resource-101 .document-file-details')).toHaveCount(0);
+      for (const [id, text] of [[101, ar ? 'الدروس' : 'Cours'], [102, ar ? 'التمارين' : 'Exercices'], [103, ar ? 'الامتحانات' : 'Examens'], [104, ar ? 'الدروس' : 'Cours'], [105, ar ? 'التصحيحات' : 'Corrections']]) {
+        const type = page.locator(`#resource-${id} .document-type`);
+        await expect(type).toHaveText(text);
+        await expect(type).toBeVisible();
+      }
+      await expect(page.locator('#resource-101 .document-filename,#resource-101 .document-author,#resource-101 .document-filiere,#resource-101 .document-date,#resource-101 .document-file-details')).toHaveCount(0);
       await expect(page.locator('#resource-101 .document-uploader bdi')).toHaveText('@library-fixture');
       await page.screenshot({ path: `${directory}/${label}-module.png`, fullPage: true });
       const pdfSearch = page.locator('.library-pdf-search'), pdfSummary = pdfSearch.locator('summary');
@@ -278,7 +283,7 @@ try {
       await expect(categories.nth(1)).toHaveAttribute('aria-selected', 'true');
       await expect(page.locator('.document-card')).toHaveCount(2);
       await page.keyboard.press('End');
-      await expect(categories.nth(6)).toHaveAttribute('aria-selected', 'true');
+      await expect(categories.nth(7)).toHaveAttribute('aria-selected', 'true');
       await expect(page.locator('.document-card')).toHaveCount(0);
       await expect(page.locator('.empty-state')).toBeVisible();
       await page.locator('.empty-state').getByRole('button').click();

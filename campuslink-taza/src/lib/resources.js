@@ -95,7 +95,7 @@ export function groupResourcesByModule(resources) {
 }
 
 // Relative paths describe the uploaded hierarchy. Keep each uploader's tree
-// separate when two people upload folders with the same name.
+// and document type separate when their folder names match.
 export function resourceDirectory(resource) {
   return String(resource?.path || resource?.relative_path || resource?.originalName || '')
     .split('/').filter(Boolean).slice(0, -1).join('/');
@@ -103,11 +103,12 @@ export function resourceDirectory(resource) {
 export function resourceFolderOwner(resource) {
   return String(resource?.author_id || resource?.uploaderUsername || resource?.uploader_username || resource?.uploader || '');
 }
-export function browseResourceDirectory(resources, path = '', owner = '') {
+export function browseResourceDirectory(resources, path = '', owner = '', category = '') {
   const folders = new Map(), documents = [];
   const prefix = path ? `${path}/` : '';
   for (const resource of resources) {
-    if (resource.status === 'removed' || (owner && resourceFolderOwner(resource) !== owner)) continue;
+    if (resource.status === 'removed' || (owner && resourceFolderOwner(resource) !== owner)
+      || (category && resource.category !== category)) continue;
     const directory = resourceDirectory(resource);
     if (directory === path) { documents.push(resource); continue; }
     if (path && !directory.startsWith(prefix)) continue;
@@ -118,7 +119,8 @@ export function browseResourceDirectory(resources, path = '', owner = '') {
     if (!folders.has(key)) folders.set(key, { key, name, category:resource.category||'', path: folderPath, owner: folderOwner, uploader: resource.uploaderUsername ? `@${resource.uploaderUsername.replace(/^@/, '')}` : resource.uploader || '', count: 0 });
     folders.get(key).count++;
   }
-  return { folders: [...folders.values()].sort((a, b) => a.name.localeCompare(b.name) || a.owner.localeCompare(b.owner)), documents };
+  return { folders: [...folders.values()].sort((a, b) => a.name.localeCompare(b.name)
+    || a.owner.localeCompare(b.owner) || a.category.localeCompare(b.category)), documents };
 }
 
 // Suggestions come exclusively from classified resources in the selected
