@@ -66,11 +66,15 @@ export default function PasswordRecovery({ email: accountEmail = '', disabled = 
     try {
       const result = await api('/auth/password-recovery/complete', { method: 'POST', timeout: 60000, body: { email, code, newPassword: password } });
       if (result.success !== true) throw Object.assign(new Error('Unconfirmed recovery'), { data: { code: 'PASSWORD_RECOVERY_UNKNOWN' } });
+      // Bound accounts lose their session after reset. Carry only a public
+      // outcome through a full reload, even if live refresh unmounted the form.
+      if (accountEmail) { window.location.replace('/login?password_reset=success'); return; }
       if (alive.current) { setPassword(''); setConfirmation(''); setCode(''); setVisible(false); setStep('done'); }
     } catch (failure) {
       // A lost response can follow a committed password change. Never invite
       // another mutation until the user has tried the new password.
       const outcome = failure.data?.code ? failure : { data: { code: 'PASSWORD_RECOVERY_UNKNOWN' } };
+      if (accountEmail && outcome.data?.code === 'PASSWORD_RECOVERY_UNKNOWN') { window.location.replace('/login?password_reset=unknown'); return; }
       if (alive.current) { setError(failureMessage(outcome)); setCode(''); setPassword(''); setConfirmation(''); setVisible(false); setTimeout(() => errorBox.current?.focus(), 0); }
     } finally { request.current = false; if (alive.current) setPhase(''); onBusyChange?.(false); }
   }

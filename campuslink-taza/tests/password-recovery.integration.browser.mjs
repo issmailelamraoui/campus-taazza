@@ -73,10 +73,10 @@ try {
   await expect(page.locator('[name="recoveryCode"]')).toBeVisible(); assert.deepEqual(provider.sent, [email]);
   await mkdir('test-results/password-recovery', { recursive: true });
   await page.screenshot({ path: 'test-results/password-recovery/real-api-390-code.png', fullPage: true });
-  async function enter(code) {
+  async function enter(code, password = chosen) {
     await page.locator('[name="recoveryCode"]').fill(code);
-    await page.locator('[name="newPassword"]').fill(chosen);
-    await page.locator('[name="confirmation"]').fill(chosen);
+    await page.locator('[name="newPassword"]').fill(password);
+    await page.locator('[name="confirmation"]').fill(password);
   }
   await enter('654321');
   const rejected = page.waitForResponse(response => new URL(response.url()).pathname === '/api/auth/password-recovery/complete' && response.request().method() === 'POST');
@@ -109,6 +109,25 @@ try {
   await page.locator('#login-username').fill('sara'); await page.locator('#login-password').fill(chosen);
   await page.getByRole('button', { name: 'Se connecter', exact: true }).click(); await expect(page).toHaveURL(origin + '/app');
   assert.deepEqual(errors, []); console.log('PASS browser signs in through the real API with the new password and reaches campus');
+  // Exercise the authenticated profile with native EventSource, including the
+  // post-reset session cutoff and any resulting navigation after SSE closes.
+  const stream = page.waitForResponse(response => new URL(response.url()).pathname === '/api/events/stream' && response.status() === 200);
+  await page.goto(origin + '/app/profile'); await stream;
+  await expect(page.locator('[name="recoveryEmail"]')).toHaveValue(email); await expect(page.locator('[name="recoveryEmail"]')).toHaveAttribute('readonly', '');
+  const previousProfileCookie = (await context.cookies()).find(value => value.name === 'campus_neon_test_session');
+  assert.ok(previousProfileCookie);
+  await page.locator('.password-recovery-form').getByRole('button', { name: 'Recevoir le code', exact: true }).click(); await expect(page.locator('[name="recoveryCode"]')).toBeVisible();
+  const second = '24681357'; await enter(otp, second);
+  const profileCompleted = page.waitForResponse(response => new URL(response.url()).pathname === '/api/auth/password-recovery/complete' && response.request().method() === 'POST');
+  await page.locator('.password-recovery-form').getByRole('button', { name: 'Enregistrer mon mot de passe', exact: true }).click(); assert.equal((await profileCompleted).status(), 200);
+  await expect(page).toHaveURL(origin + '/login?password_reset=success');
+  await expect(page.getByRole('status').filter({ hasText: 'Mot de passe mis à jour.' })).toBeVisible();
+  await page.reload(); await expect(page.getByRole('status').filter({ hasText: 'Mot de passe mis à jour.' })).toBeVisible();
+  await page.screenshot({ path: 'test-results/password-recovery/real-api-390-profile-success.png', fullPage: true });
+  assert.equal(provider.completed.length, 2); assert.equal((await request('/session', { cookie: `${previousProfileCookie.name}=${previousProfileCookie.value}` })).data.user, null);
+  assert.equal((await login(chosen)).status, 401); assert.equal((await login(second)).status, 200);
+  await page.locator('#login-username').fill('sara'); await page.locator('#login-password').fill(second); await page.getByRole('button', { name: 'Se connecter', exact: true }).click(); await expect(page).toHaveURL(origin + '/app');
+  assert.deepEqual(errors, []); console.log('PASS authenticated profile reset retains login success feedback after native SSE cutoff and accepts the second eight-digit password');
 } finally {
   await browser?.close();
   if (server) { app?.locals.endStreams(); server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); }

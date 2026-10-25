@@ -37,7 +37,7 @@ async function fixture({ width = 390, theme = 'dark', language = 'fr', profile =
       state.completions.push(request.postDataJSON());
       if (state.delay) await new Promise(resolve => setTimeout(resolve, state.delay));
       if (state.completeAbort) return route.abort('failed');
-      if (state.completeFailure) return send({ error: 'Private provider detail', ...state.completeFailure }, state.completeFailure.status || 400);
+      if (state.completeFailure) { if (state.completeFailure.code === 'PASSWORD_RECOVERY_UNKNOWN') state.user = null; return send({ error: 'Private provider detail', ...state.completeFailure }, state.completeFailure.status || 400); }
       state.user = null; return send(state.completeResult);
     }
     if (path === '/bootstrap' || path === '/live') return send({ user: state.user, faculty: { id: 'fsa', code: 'FSA', name: 'Faculty fixture' }, resources: [], announcements: [], messages: [], notifications: [], channels: [], members: [], saved: [], history: [], unread_count: 0 });
@@ -53,7 +53,7 @@ const form = page => page.locator('.password-recovery-form');
 async function sent(page) { await page.locator('[name="recoveryEmail"]').fill(` ${email.toUpperCase()} `); await form(page).getByRole('button', { name: 'Recevoir le code', exact: true }).click(); await expect(page.locator('[name="recoveryCode"]')).toBeVisible(); }
 async function choose(page, value = password, confirmation = value) { await page.locator('[name="recoveryCode"]').fill(code); await page.locator('[name="newPassword"]').fill(value); await page.locator('[name="confirmation"]').fill(confirmation); }
 async function noSecrets(page) { const storage = await page.evaluate(() => JSON.stringify({ local: { ...localStorage }, session: { ...sessionStorage } })); for (const secret of [email, code, password]) assert.equal(storage.includes(secret), false); }
-async function scenario(name, run) { await run(); passed.push(name); console.log(`PASS ${name}`); }
+async function scenario(name, run) { if (process.env.CAMPUS_RECOVERY_UI_SCENARIO && !name.includes(process.env.CAMPUS_RECOVERY_UI_SCENARIO)) return; await run(); passed.push(name); console.log(`PASS ${name}`); }
 try {
   await scenario('Forgot password opens dedicated recovery; Google needs no manual email or code', async () => {
     const { context, page, state } = await fixture();
@@ -109,6 +109,20 @@ try {
     await expect(page).toHaveURL(/\/change-password$/); await expect(page.locator('[name="recoveryEmail"]')).toHaveValue(email); await expect(page.locator('[name="recoveryEmail"]')).toHaveAttribute('readonly', '');
     await expect(page.locator('.password-change-card')).toContainText('Essayez de vous reconnecter');
     await form(page).getByRole('button', { name: 'Recevoir le code', exact: true }).click(); await expect(page.locator('[name="recoveryCode"]')).toBeVisible(); assert.deepEqual(state.starts, [{ email }]); await context.close();
+  });
+  await scenario('Confirmed bound-account resets reload login with durable feedback even when session expiry unmounts the form', async () => {
+    const { context, page, state } = await fixture({ profile: true }); await page.goto(baseURL + '/app/profile');
+    await form(page).getByRole('button', { name: 'Recevoir le code', exact: true }).click(); await expect(page.locator('[name="recoveryCode"]')).toBeVisible(); await choose(page);
+    state.delay = 350; await form(page).getByRole('button', { name: 'Enregistrer mon mot de passe', exact: true }).click(); await expect.poll(() => state.completions.length).toBe(1);
+    await page.evaluate(() => window.dispatchEvent(new Event('campus-session-expired'))); await expect(page).toHaveURL(/\/login\?password_reset=success$/);
+    await expect(page.getByRole('status').filter({ hasText: 'Mot de passe mis à jour.' })).toBeVisible(); await page.reload(); await expect(page.getByRole('status').filter({ hasText: 'Mot de passe mis à jour.' })).toBeVisible(); await context.close();
+  });
+  await scenario('Bound-account ambiguous outcomes reload login with recovery guidance; invalid codes stay on profile', async () => {
+    const { context, page, state } = await fixture({ profile: true }); await page.goto(baseURL + '/app/profile');
+    await form(page).getByRole('button', { name: 'Recevoir le code', exact: true }).click(); await expect(page.locator('[name="recoveryCode"]')).toBeVisible(); await choose(page);
+    state.completeFailure = { code: 'PASSWORD_RECOVERY_INVALID' }; await form(page).getByRole('button', { name: 'Enregistrer mon mot de passe', exact: true }).click(); await expect(form(page).getByRole('alert')).toContainText('incorrect ou a expiré'); await expect(page).toHaveURL(/\/app\/profile$/);
+    await choose(page); state.completeFailure = { status: 503, code: 'PASSWORD_RECOVERY_UNKNOWN' }; await form(page).getByRole('button', { name: 'Enregistrer mon mot de passe', exact: true }).click(); await expect(page).toHaveURL(/\/login\?password_reset=unknown$/);
+    await expect(page.getByRole('status').filter({ hasText: 'Essayez votre nouveau mot de passe ou demandez un nouveau code.' })).toBeVisible(); await expect(page.getByRole('button', { name: 'Mot de passe oublié ?', exact: true })).toBeVisible(); await context.close();
   });
   await scenario('Existing personal-email accounts retain current-password change with eight digits', async () => {
     const { context, page, state } = await fixture({ profile: true, accountEmail: 'legacy@example.test' }); await page.goto(baseURL + '/app/profile');

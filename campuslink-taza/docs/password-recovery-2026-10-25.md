@@ -13,8 +13,8 @@ Validation isolée, sans email ni modification d’un compte réel :
 - 224 tests de transport Auth/Google/récupération réussis, sans échec ni test ignoré.
 - 15 tests des routes de récupération réussis dans un schéma jetable d’une base de test indépendante, y compris un échec de base après succès du fournisseur.
 - 57 tests Google réussis avec une base isolée, dont les drapeaux historiques faux, preuves falsifiées, domaines et conflits.
-- Scénarios UI avec API simulée : 18 combinaisons de largeur (320/768/1280), langue (fr/en/ar) et thème, plus erreurs, doubles clics, restrictions, réponses perdues et changement des comptes classiques.
-- Parcours réel navigateur → API Express → schéma PostgreSQL jetable : code incorrect sans mutation, choix d’un mot de passe de huit chiffres, opération confirmée, refus de l’ancien cookie/mot de passe et connexion avec le nouveau jusqu’à `/app`. Seuls l’identité distante et l’envoi d’email sont simulés.
+- 12 scénarios UI avec API simulée : 18 combinaisons de largeur (320/768/1280), langue (fr/en/ar) et thème, plus erreurs, doubles clics, restrictions, réponses perdues et changement des comptes classiques. Une régression supplémentaire confirme la redirection avec statut même si la fermeture de session démonte le formulaire avant sa réponse.
+- Quatre contrôles du parcours réel navigateur → API Express → schéma PostgreSQL jetable : code incorrect sans mutation, choix d’un mot de passe de huit chiffres, opération confirmée, refus de l’ancien cookie/mot de passe et connexion avec le nouveau jusqu’à `/app`. Le changement depuis le profil confirme aussi la redirection après révocation vers une page de connexion avec message de succès persistant au rechargement. Seuls l’identité distante et l’envoi d’email sont simulés.
 - Build Vite réussi sous Node 22.
 
 Commandes : `npm run test:password-recovery-unit`, `npm run test:password-recovery-ui`, `npm run test:password-recovery-e2e`. Les tests d’intégration exigent `CAMPUS_TEST_DATABASE_URL` pointant vers une base indépendante ; ils ne doivent jamais utiliser la base de production. Les captures et journaux restent dans `test-results/`, exclus de Git.
