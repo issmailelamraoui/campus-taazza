@@ -61,7 +61,7 @@
     "test:resource-supplements": "node tests/resource-supplements.browser.mjs",
     "test:forum-attachments": "node tests/forum-attachments.browser.mjs",
     "test:labs-languages": "node tests/labs-languages.browser.mjs",
-    "test:password-recovery": "node --test tests/backend-auth.test.mjs tests/backend-password-reset.test.mjs",
+    "test:password-recovery": "node --test tests/backend-auth.test.mjs tests/backend-password-reset.test.mjs tests/password-recovery-transport.test.mjs tests/backend-self-service-password.test.mjs",
     "test:password-reset-ui": "node tests/admin-password-reset.browser.mjs",
     "test:password-change-ui": "node tests/password-change.browser.mjs",
     "test:feedback": "node tests/feedback.browser.mjs",
@@ -83,7 +83,10 @@
     "test:live-admin-ui": "node tests/live-admin.browser.mjs",
     "test:feedback-deletion": "node --test tests/backend-feedback-deletion.test.mjs",
     "test:feedback-deletion-ui": "node tests/feedback-deletion.browser.mjs",
-    "test:responsive-native-pdf": "node tests/responsive-native-pdf.browser.mjs"
+    "test:responsive-native-pdf": "node tests/responsive-native-pdf.browser.mjs",
+    "test:password-recovery-unit": "node --test tests/password-recovery-transport.test.mjs",
+    "test:password-recovery-ui": "node tests/password-recovery.browser.mjs",
+    "test:password-recovery-e2e": "node tests/password-recovery.integration.browser.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1146.0",

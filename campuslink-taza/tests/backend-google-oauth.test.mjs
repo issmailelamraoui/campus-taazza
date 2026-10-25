@@ -212,7 +212,9 @@ integration('manual email confirmation requires a fresh authoritative Google log
   for(const status of ['approved','pending'])await t.test(status,async t=>{
     const f=await fixture(t),user=await f.createUser({status});
     f.chooseGoogle({subject:user.auth_user_id,email:user.email,verified:false,hostedDomain:'usmba.ac.ma'});
-    assert.match((await f.callback(await f.start())).headers.get('location'),/GOOGLE_LINK_REQUIRED/);
+    // Managed Neon may refuse implicit linking before releasing Google proof.
+    // Model that upstream refusal separately from CampusLink's callback policy.
+    assert.match((await f.callback(await f.start(),'error=account_not_linked')).headers.get('location'),/GOOGLE_LINK_REQUIRED/);
     assert.equal((await f.request('/auth/google/email-verification/start',{method:'POST',body:{email:user.email}})).status,200);
     const confirmed=await f.request('/auth/google/email-verification/confirm',{method:'POST',body:{email:user.email,code:'123456'}});
     assert.equal(confirmed.status,200);assert.deepEqual(confirmed.cookies,[]);assert.equal(f.state.committed,0);assert.equal(f.sessions.size,0);
@@ -308,13 +310,16 @@ integration('existing profiles without authoritative first-association proof can
   f.chooseGoogle({subject:user.auth_user_id,email:user.email});const login=await f.callback(await f.start());assert.equal(login.headers.get('location'),publicOrigin+'/account-review');
 });
 
-integration('verified existing canonical Neon users continue directly with authoritative Google Workspace proof while retaining roles and approval',async t=>{
-  for(const [name,options]of Object.entries({approved:{role:'student',status:'approved'},pending:{role:'student',status:'pending'},facultyAdmin:{role:'faculty_admin',status:'approved'},globalAdmin:{role:'global_admin',status:'approved'}}))await t.test(name,async t=>{
+integration('existing canonical Neon users continue directly with authoritative Google Workspace proof while retaining roles and approval',async t=>{
+  for(const [name,options]of Object.entries({approved:{role:'student',status:'approved'},pending:{role:'student',status:'pending'},facultyAdmin:{role:'faculty_admin',status:'approved'},globalAdmin:{role:'global_admin',status:'approved'},legacyUnverified:{role:'student',status:'approved',verified:false},legacyStringFlag:{role:'student',status:'approved',verified:'true'}}))await t.test(name,async t=>{
     const f=await fixture(t),user=await f.createUser(options);
-    const identity=f.chooseGoogle({subject:user.auth_user_id,email:user.email,hostedDomain:'usmba.ac.ma'});
+    const identity=f.chooseGoogle({subject:user.auth_user_id,email:user.email,hostedDomain:'usmba.ac.ma',...(Object.hasOwn(options,'verified')?{verified:options.verified}:{})});
     const callback=await f.callback(await f.start());
     assert.equal(callback.headers.get('location'),publicOrigin+(options.status==='approved'?'/app':'/account-review'));
     assert.equal(f.state.passwordChecks,0,'Google continuation does not ask for the existing username or password.');
+    assert.deepEqual(f.state.verificationSends,[],'Strict Google proof never requests an extra email code.');
+    assert.deepEqual(f.state.verificationConfirms,[]);
+    assert.equal(identity.authUser.emailVerified,options.verified??true,'The legacy Neon flag is not rewritten.');
     assert.equal(f.state.begin[0].link,false);
     const cookie=callback.cookies.find(value=>value.startsWith('test_session='));
     assert.ok(cookie);assert.equal((await f.request('/bootstrap',{cookie})).status,options.status==='approved'?200:403);
@@ -327,11 +332,11 @@ integration('verified existing canonical Neon users continue directly with autho
   });
 });
 
-integration('automatic Google association rejects unverified local email, non-authoritative proof, conflicting bindings and different canonical subjects',async t=>{
+integration('automatic Google association rejects unverified Google evidence, non-authoritative proof, conflicting bindings and different canonical subjects',async t=>{
   const scenarios={
-    localUnverified:{identity:{verified:false},code:'GOOGLE_LINK_REQUIRED'},
-    localStringVerification:{identity:{verified:'true'},code:'GOOGLE_LINK_REQUIRED'},
     googleUnverified:{identity:{googleVerified:false},code:'GOOGLE_EMAIL_UNVERIFIED'},
+    googleStringVerification:{identity:{verified:false,googleVerified:'true'},code:'GOOGLE_EMAIL_UNVERIFIED'},
+    unverifiedWithoutWorkspace:{identity:{verified:false,hostedDomain:null},code:'GOOGLE_LINK_REQUIRED'},
     missingWorkspace:{identity:{hostedDomain:null},code:'GOOGLE_LINK_REQUIRED'},
     wrongWorkspace:{identity:{hostedDomain:'other.ac.ma'},code:'GOOGLE_DOMAIN_REJECTED'},
     differentCanonicalSubject:{identity:{subject:randomUUID()},code:'GOOGLE_LINK_REQUIRED'},

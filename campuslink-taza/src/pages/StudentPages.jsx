@@ -1,5 +1,5 @@
 import { Select } from '../components/Select';
-import React,{useEffect,useState} from 'react';
+import React,{useEffect,useRef,useState} from 'react';
 import {Link,useNavigate} from 'react-router-dom';
 import {ArrowRight,BookOpen,FileText,PenLine,GraduationCap,ClipboardList,RotateCcw,CalendarDays,MessageSquare,Bookmark,BookmarkCheck,Bell,Check,CheckCheck,Search,SlidersHorizontal,Lock,LogOut,Mail,Sun,Moon,ChevronRight,ShieldCheck,UserRound,Settings} from 'lucide-react';
 import {useApp} from '../context';
@@ -13,6 +13,7 @@ import {RecentResourceCards} from '../components/ResourceStack';
 import {InstallAppCard} from '../components/InstallApp';
 import MemberAchievements from '../components/MemberAchievements';
 import ProfilePhotoEditor from '../components/ProfilePhotoEditor';
+import PasswordRecovery from '../components/PasswordRecovery';
 import {GoogleAuthError,GoogleLinkAccount} from '../components/GoogleAuth';
 
 export function HomePage(){
@@ -70,18 +71,24 @@ function AcademicSettings(){
  if(user.filiereId)return <section className="card settings-card academic-settings"><h3>{tr('Votre parcours universitaire','Your academic programme','مسارك الجامعي')}</h3><p>{getFilieres(user.facultyId).find(p=>p.id===user.filiereId)?.name} · S{user.semester}</p><p className="muted">{tr('Votre filière et votre niveau sont attribués par l’administration.','Your programme and study year are assigned by administration.','تُحدد الإدارة مسلكك ومستواك الدراسي.')}</p><Link className="text-link" to="/app/feedback">{tr('Demander une correction','Request a correction','طلب تصحيح')}</Link></section>;
  return <section className="card settings-card academic-settings"><h3>{tr('Votre parcours universitaire','Your academic program','مسارك الجامعي')}</h3><form className="stack" onSubmit={submit} aria-busy={busy}><Field label={tr('Votre filière','Your program','مسلكك')}><Select required value={program} disabled={busy} onChange={event=>{setProgram(event.target.value);setError('');}}><option value="">{tr('Choisir une filière','Choose a program','اختر مسلكاً')}</option>{programs.map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</Select></Field><Field label={tr('Votre semestre actuel','Your current semester','فصلك الحالي')}><Select value={semester} disabled={busy} onChange={event=>{setSemester(Number(event.target.value));setError('');}}>{[1,2,3,4,5,6].map(value=><option key={value} value={value}>S{value}</option>)}</Select></Field><p className="muted" style={{fontSize:11}}>{tr('Choisissez une filière de votre faculté. Le semestre détermine votre contexte par défaut ; les autres semestres restent accessibles.','Choose a program within your faculty. This semester sets your default context; other semesters remain accessible.','اختر مسلكاً داخل كليتك. يحدد الفصل سياقك الافتراضي وتبقى الفصول الأخرى متاحة.')}</p>{error&&<p className="public-form-error" role="alert">{error}</p>}<Button type="submit" icon={GraduationCap} disabled={busy||!program}>{busy?tr('Enregistrement…','Saving…','جارٍ الحفظ…'):tr('Enregistrer mon parcours','Save my program','حفظ مساري')}</Button></form></section>;
 }
-function PasswordSettings(){
- const {t,tr,updateProfile}=useApp();
+function PasswordWithCurrent(){
+ const {tr,updateProfile}=useApp();
  const [current,setCurrent]=useState(''),[password,setPassword]=useState(''),[confirmation,setConfirmation]=useState('');
- const [busy,setBusy]=useState(false),[error,setError]=useState(''),[success,setSuccess]=useState(false);
+ const [busy,setBusy]=useState(false),[error,setError]=useState(''),[success,setSuccess]=useState(false),request=useRef(false);
  async function submit(event){
-  event.preventDefault();if(busy)return;
+  event.preventDefault();if(request.current)return;
+  if(password.length<8||password.length>256){setError(tr('Choisissez un mot de passe de 8 à 256 caractères.','Choose a password of 8–256 characters.','اختر كلمة مرور من 8 إلى 256 حرفًا.'));return;}
   if(password!==confirmation){setError(tr('Les nouveaux mots de passe ne correspondent pas.','New passwords do not match.','كلمتا المرور الجديدتان غير متطابقتين.'));return;}
-  setBusy(true);setError('');setSuccess(false);
-  try{await updateProfile({current_password:current,password});setCurrent('');setPassword('');setConfirmation('');setSuccess(true);}
-  catch(error){setError(error.message);}finally{setBusy(false);}
+  request.current=true;setBusy(true);setError('');setSuccess(false);
+  try{await updateProfile({current_password:current,password});setSuccess(true);}
+  catch(failure){setError(failure.message);}
+  finally{setCurrent('');setPassword('');setConfirmation('');request.current=false;setBusy(false);}
  }
- return <section className="card settings-card"><h3>{tr('Sécurité du compte','Account security','أمان الحساب')}</h3><form className="stack" onSubmit={submit} aria-busy={busy}><Field label={tr('Mot de passe actuel','Current password','كلمة المرور الحالية')}><input type="password" autoComplete="current-password" required maxLength={256} value={current} disabled={busy} onChange={event=>setCurrent(event.target.value)}/></Field><Field label={tr('Nouveau mot de passe','New password','كلمة المرور الجديدة')} hint={tr('10 caractères minimum','At least 10 characters','10 أحرف على الأقل')}><input type="password" autoComplete="new-password" required minLength={10} maxLength={256} value={password} disabled={busy} onChange={event=>setPassword(event.target.value)}/></Field><Field label={tr('Confirmer le nouveau mot de passe','Confirm new password','تأكيد كلمة المرور الجديدة')} error={error}><input type="password" autoComplete="new-password" required minLength={10} maxLength={256} value={confirmation} disabled={busy} onChange={event=>setConfirmation(event.target.value)}/></Field>{success&&<p className="muted" role="status">{tr('Mot de passe modifié.','Password updated.','تم تغيير كلمة المرور.')}</p>}<Button type="submit" icon={Lock} disabled={busy}>{busy?tr('Enregistrement…','Saving…','جارٍ الحفظ…'):tr('Modifier le mot de passe','Change password','تغيير كلمة المرور')}</Button></form></section>;
+ return <form className="stack" onSubmit={submit} aria-busy={busy}><Field label={tr('Mot de passe actuel','Current password','كلمة المرور الحالية')}><input type="password" name="currentPassword" autoComplete="current-password" required maxLength={256} value={current} disabled={busy} onChange={event=>{setCurrent(event.target.value);setSuccess(false);setError('');}}/></Field><Field label={tr('Nouveau mot de passe','New password','كلمة المرور الجديدة')} hint={tr('8 caractères minimum. Les chiffres seuls sont acceptés.','At least 8 characters. Digits only are accepted.','8 أحرف على الأقل. يمكن استعمال الأرقام فقط.')}><input type="password" name="newPassword" autoComplete="new-password" required minLength={8} maxLength={256} value={password} disabled={busy} onChange={event=>{setPassword(event.target.value);setSuccess(false);setError('');}}/></Field><Field label={tr('Confirmer le nouveau mot de passe','Confirm new password','تأكيد كلمة المرور الجديدة')} error={error}><input type="password" name="confirmation" autoComplete="new-password" required minLength={8} maxLength={256} value={confirmation} disabled={busy} onChange={event=>{setConfirmation(event.target.value);setSuccess(false);setError('');}}/></Field>{success&&<p className="muted" role="status">{tr('Mot de passe modifié.','Password updated.','تم تغيير كلمة المرور.')}</p>}<Button type="submit" icon={Lock} disabled={busy}>{busy?tr('Enregistrement…','Saving…','جارٍ الحفظ…'):tr('Modifier le mot de passe','Change password','تغيير كلمة المرور')}</Button></form>;
+}
+function PasswordSettings(){
+ const {tr,user}=useApp(),academic=/^[^\s@]+@usmba\.ac\.ma$/i.test(user.email||'');
+ return <section className="card settings-card"><h3>{tr('Sécurité du compte','Account security','أمان الحساب')}</h3>{academic?<><p className="password-settings-description">{tr('Changez votre mot de passe avec un code envoyé à votre adresse universitaire. Vous n’avez pas besoin de l’ancien mot de passe.','Change your password with a code sent to your academic email. You do not need your old password.','غيّر كلمة المرور برمز يصلك في بريدك الجامعي. لا تحتاج إلى كلمة المرور القديمة.')}</p><PasswordRecovery key={user.id} email={user.email}/></>:<PasswordWithCurrent key={user.id}/>}</section>;
 }
 export function ProfilePage(){const {t,tr,user,faculty,filiere,selection,language,setLanguage,theme,setTheme,updateProfile,setDialog,logout,notify}=useApp();const [name,setName]=useState(user.name);const [bio,setBio]=useState(user.bio||'');const [avatarDraft,setAvatarDraft]=useState(null),[avatarReading,setAvatarReading]=useState(false);const [error,setError]=useState('');const [busy,setBusy]=useState(false);const navigate=useNavigate();async function save(e){e.preventDefault();if(busy||avatarReading)return;if(name.trim().length<2){setError(tr('Saisissez un nom d’au moins deux caractères.','Enter a name with at least two characters.','أدخل اسماً من حرفين على الأقل.'));return;}setError('');setBusy(true);try{await updateProfile({name,bio,...(avatarDraft!==null&&avatarDraft!==(user.avatar||'')?{avatar:avatarDraft}:{})});setAvatarDraft(null);}catch(error){setError(error.message);}finally{setBusy(false);}}
 

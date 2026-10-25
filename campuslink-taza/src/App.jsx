@@ -8,7 +8,7 @@ import {accountDestination,requiresPasswordChange} from './lib/backend';
 import {documentOpenRequest} from './lib/document-open';
 const AppShell=React.lazy(()=>import('./components/AppShell'));
 const Dialogs=React.lazy(()=>import('./components/Modals'));
-import {LandingPage,LoginPage,OnboardingPage,RegisterPage,AccountReviewPage} from './pages/PublicPages';
+import {LandingPage,LoginPage,ForgotPasswordPage,OnboardingPage,RegisterPage,AccountReviewPage} from './pages/PublicPages';
 const LibraryPage=React.lazy(()=>import('./pages/LibraryPage'));
 const CommunityPage=React.lazy(()=>import('./pages/CommunityPage'));
 const AdminPage=React.lazy(()=>import('./pages/AdminPage'));
@@ -79,6 +79,7 @@ export default function App(){
   <Route path="/" element={<LandingPage/>}/>
   <Route path="/support" element={<AccessSupportPage/>}/>
   <Route path="/login" element={loading?<SessionStatus/>:user?<Navigate to={destination} replace/>:<LoginPage/>}/>
+  <Route path="/forgot-password" element={loading?<SessionStatus/>:<ForgotPasswordPage/>}/>
   <Route path="/register" element={loading?<SessionStatus/>:user?<Navigate to={destination} replace/>:<RegisterPage/>}/>
   <Route path="/auth/google/complete" element={loading?<SessionStatus/>:<GoogleProfilePage/>}/>
   <Route path="/change-password" element={loading?<SessionStatus/>:!user?<Navigate to="/login" replace/>:!requiresPasswordChange(user)?<Navigate to={destination} replace/>:<PasswordChangePage/>}/>

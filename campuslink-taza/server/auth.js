@@ -230,6 +230,66 @@ export function createAuthService({db,sessionPolicy,baseUrl=process.env.NEON_AUT
       return {verified:true};
     } finally {await discardGoogleVerificationSession(req,result);}
   }
+  function recoveryFailure(status=503,unknown=false) {
+    return new AuthError(status,unknown?'Le résultat du changement n’a pas pu être confirmé. Essayez de vous connecter avant de demander un nouveau code.':status===400?'Le code est invalide ou a expiré. Vérifiez les informations puis réessayez.':status===429?'Trop de demandes. Réessayez plus tard.':'La récupération du mot de passe est temporairement indisponible.',unknown?'PASSWORD_RECOVERY_UNKNOWN':status===400?'PASSWORD_RECOVERY_INVALID':status===429?'PASSWORD_RECOVERY_RATE_LIMITED':'PASSWORD_RECOVERY_UNAVAILABLE');
+  }
+  function recoveryEmail(value) {
+    try{return emailValue(value);}catch{throw recoveryFailure(400);}
+  }
+  function recoveryResponseError(result,{mutation=false}={}) {
+    if(result.status===429) {
+      const error=recoveryFailure(429);error.retryAfter=result.retryAfter;return error;
+    }
+    if(['INVALID_ORIGIN','MISSING_OR_NULL_ORIGIN','INVALID_CALLBACK_URL'].includes(result.data?.code))return recoveryFailure();
+    if(mutation&&(result.status>=500||result.ok))return recoveryFailure(503,true);
+    return recoveryFailure([400,401,403].includes(result.status)||result.status===404&&result.data?.code==='USER_NOT_FOUND'?400:503);
+  }
+  async function requestPasswordRecovery(req,{email}={}) {
+    const normalized=recoveryEmail(email);
+    let result;
+    try{result=await call('email-otp/request-password-reset',{req,cookies:'',body:{email:normalized}});}
+    catch{throw recoveryFailure();}
+    try {
+      if(!result.ok) {
+        const failure=recoveryResponseError(result);
+        // The provider must not disclose whether an academic address exists.
+        if(failure.status===400)return {success:true};
+        throw failure;
+      }
+      if(result.data?.success!==true)throw recoveryFailure();
+      return {success:true};
+    } finally {
+      try{await discardGoogleVerificationSession(req,result);}catch{throw recoveryFailure();}
+    }
+  }
+  async function checkPasswordRecoveryCode(req,{email,code}={}) {
+    const normalized=recoveryEmail(email);
+    if(typeof code!=='string'||!/^\d{6}$/.test(code))throw recoveryFailure(400);
+    let result;
+    try{result=await call('email-otp/check-verification-otp',{req,cookies:'',body:{email:normalized,type:'forget-password',otp:code}});}
+    catch{throw recoveryFailure();}
+    try {
+      if(!result.ok||result.data?.success!==true)throw recoveryResponseError(result);
+      return {success:true};
+    } finally {
+      try{await discardGoogleVerificationSession(req,result);}catch{throw recoveryFailure();}
+    }
+  }
+  async function completePasswordRecovery(req,{email,code,newPassword}={}) {
+    const normalized=recoveryEmail(email);
+    if(typeof code!=='string'||!/^\d{6}$/.test(code)||typeof newPassword!=='string'||newPassword.length<8||newPassword.length>128)throw recoveryFailure(400);
+    let result;
+    try{result=await call('email-otp/reset-password',{req,cookies:'',body:{email:normalized,otp:code,password:newPassword},uncertainPasswordReset:true});}
+    catch{throw recoveryFailure(503,true);}
+    try {
+      if(!result.ok||result.data?.success!==true)throw recoveryResponseError(result,{mutation:true});
+      return {success:true};
+    } finally {
+      // Recovery never creates a browser session. Dispose any unexpected
+      // provider session without touching the browser's initiating session.
+      try{await discardGoogleVerificationSession(req,result);}catch{throw recoveryFailure(503,true);}
+    }
+  }
   async function verifyGoogleIdentity(req,authIdentity,cookies) {
     if(!authIdentity?.authUser)throw oauthFailure('GOOGLE_EMAIL_UNVERIFIED');
     const result=await call('list-accounts',{req,cookies});
@@ -418,7 +478,7 @@ export function createAuthService({db,sessionPolicy,baseUrl=process.env.NEON_AUT
     const result=await call('admin/remove-user',{req,body:{userId:authUserId}});
     if(!result.ok)errorFor(result);return {ok:true};
   }
-  return {authenticate,signIn,signOut,createUser,changePassword,resetUserPassword,revokeUserSessions,removeUser,proveIdentity,clearCookie,
+  return {authenticate,signIn,signOut,createUser,changePassword,resetUserPassword,revokeUserSessions,removeUser,proveIdentity,clearCookie,requestPasswordRecovery,checkPasswordRecoveryCode,completePasswordRecovery,
     googleAuthorizationEndpoint:googleAuthorizationEndpoint.href,
     readIdentity:identity,beginGoogle,completeGoogle,verifyGoogleIdentity,commitGoogleSession,discardGoogleSession,clearGoogleChallenge,sendGoogleEmailVerification,confirmGoogleEmailVerification,
     session:authenticate,login:signIn,logout:signOut};

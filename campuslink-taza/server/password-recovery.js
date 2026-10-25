@@ -100,7 +100,7 @@ export function installPasswordRecovery(app,{db,auth,permissions,requireUser,sel
 
   app.post('/api/password-reset/complete',requireUser,async(req,res)=>{
     const {currentPassword,newPassword}=req.body;
-    if(typeof currentPassword!=='string'||!currentPassword.length||currentPassword.length>128||typeof newPassword!=='string'||newPassword.length<10||newPassword.length>128||newPassword===currentPassword)throw fail(400,'Choisissez un nouveau mot de passe de 10 à 128 caractères différent du mot de passe temporaire.');
+    if(typeof currentPassword!=='string'||!currentPassword.length||currentPassword.length>128||typeof newPassword!=='string'||newPassword.length<8||newPassword.length>128||newPassword===currentPassword)throw fail(400,'Choisissez un nouveau mot de passe de 8 à 128 caractères différent du mot de passe temporaire.');
     const op=await db.transaction(async()=>{
       await lock(req.user.id);const user=await db.prepare('SELECT * FROM users WHERE id=? FOR UPDATE').get(req.user.id);
       if(!user?.password_change_required||!user.password_reset_operation_id)throw fail(409,'Aucun changement obligatoire en cours.');

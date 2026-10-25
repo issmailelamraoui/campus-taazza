@@ -167,11 +167,12 @@ export function installGoogleOAuthRoutes(app,{db,auth,sessionPolicy,config,appOr
           if(mapped.email?.toLowerCase()!==evidence.email||link&&(link.user_id!==mapped.id||link.google_sub!==evidence.googleSub||link.auth_user_id!==identity.authUser.id||link.email!==evidence.email))throw failure(409,'Ce compte Google est déjà associé à un autre profil.','GOOGLE_LINK_CONFLICT');
           if(!link) {
             // Record only a binding Neon has already authenticated for this
-            // exact canonical subject. A verified local email and matching
-            // authoritative Workspace domain are required for the first
-            // automatic association; email equality never merges subjects.
+            // exact canonical subject. Strict verified Google proof and a
+            // matching authoritative Workspace domain are sufficient here;
+            // the legacy Neon email flag is not Google ownership evidence.
+            // Email equality never merges different canonical subjects.
             const domain=evidence.email.split('@')[1];
-            if(identity.authUser.emailVerified!==true||evidence.hostedDomain!==domain)throw failure(403,'Cette adresse doit être confirmée avant d’associer Google.','GOOGLE_LINK_REQUIRED');
+            if(evidence.hostedDomain!==domain)throw failure(403,'Cette adresse doit être confirmée avant d’associer Google.','GOOGLE_LINK_REQUIRED');
             await db.prepare('INSERT INTO google_auth_links (user_id,auth_user_id,google_sub,email,hosted_domain) VALUES (?,?,?,?,?)').run(mapped.id,identity.authUser.id,evidence.googleSub,evidence.email,evidence.hostedDomain);
           }
           target=mapped;

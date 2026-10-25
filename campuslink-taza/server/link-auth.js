@@ -28,7 +28,7 @@ try {
   if(process.stdin.isTTY)process.stdout.write(args.has('--create')?'New Neon password (input hidden): ':'Neon password (input hidden): ');
   const password=await readline.question('');readline.close();muted=false;
   if(process.stdin.isTTY)process.stdout.write('\n');
-  if(password.length<10||password.length>256)throw new AuthError(400,'Use a password containing 10 to 256 characters.');
+  if(password.length<8||password.length>256)throw new AuthError(400,'Use a password containing 8 to 256 characters.');
   const auth=createAuthService({db});
   const email=args.get('--email').trim().toLowerCase();
   if(args.has('--create'))created=await auth.createUser({headers:{origin:process.env.APP_ORIGIN||'http://localhost:5173'}},{email,password,name:profile.name});

@@ -36,6 +36,7 @@ import { installDocumentRepairRoutes } from './document-repairs.js';
 import { installResourceSupplementRoutes, canReadSupplement, supplementScopeMatches } from './resource-supplements.js';
 import { installForumAttachmentRoutes } from './forum-attachments.js';
 import {installPasswordRecovery,basicResetEligibility} from './password-recovery.js';
+import {installSelfServicePassword} from './self-service-password.js';
 import {assertSchemaReady,createSchemaReadinessCheck} from './schema-readiness.js';
 import { slug } from '../shared/paths.js';
 import { getFilieres, filiereBelongsToFaculty, getChatSemester, getChatSemesterLabel } from '../shared/studies.js';
@@ -142,9 +143,9 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
       if(req.user.disabled)throw problem(403,'Ce compte est désactivé.');
       if(req.user.account_status==='deleted')throw problem(401,'Connectez-vous pour accéder à votre communauté.');
       if(req.user.account_status!=='approved') {
-        if(!req.path.startsWith('/support/')&&!req.path.startsWith('/auth/google/')&&!['/session','/login','/logout','/register','/registration-options','/health','/contact'].includes(req.path))throw admissionProblem(req.user);
+        if(!req.path.startsWith('/support/')&&!req.path.startsWith('/auth/password-recovery/')&&!req.path.startsWith('/auth/google/')&&!['/session','/login','/logout','/register','/registration-options','/health','/contact'].includes(req.path))throw admissionProblem(req.user);
       } else {
-        if(req.user.password_change_required&&!req.path.startsWith('/support/')&&!['/session','/login','/logout','/health','/contact','/password-reset/complete'].includes(req.path))throw Object.assign(problem(403,'Changez votre mot de passe temporaire avant de continuer.'),{code:'PASSWORD_CHANGE_REQUIRED'});
+        if(req.user.password_change_required&&!req.path.startsWith('/auth/password-recovery/')&&!req.path.startsWith('/support/')&&!['/session','/login','/logout','/health','/contact','/password-reset/complete'].includes(req.path))throw Object.assign(problem(403,'Changez votre mot de passe temporaire avant de continuer.'),{code:'PASSWORD_CHANGE_REQUIRED'});
         req.user.chat_blocked=await isChatBlocked(req.user);
         await db.prepare('UPDATE users SET last_seen=? WHERE id=? AND (last_seen IS NULL OR last_seen<?)').run(now(),req.user.id,new Date(Date.now()-60000).toISOString());
       }
@@ -475,7 +476,7 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
     const username=string(req.body.username,'Nom d’utilisateur',40),name=string(req.body.name,'Nom',100),email=string(req.body.email,'Adresse e-mail',160).toLowerCase(),password=passwordValue(req.body.password);
     if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))throw problem(400,'Adresse e-mail invalide.');
     if(!/^[\p{L}\p{N}_.-]{3,40}$/u.test(username))throw problem(400,'Nom d’utilisateur invalide.');
-    if(password.length<10)throw problem(400,'Le mot de passe doit contenir au moins 10 caractères.');
+    if(password.length<8)throw problem(400,'Le mot de passe doit contenir au moins 8 caractères.');
     const faculty=string(req.body.faculty_id,'Faculté',30),filiere=string(req.body.filiere_id,'Filière',80),semester=semesterValue(req.body.current_semester);
     if(!filiereBelongsToFaculty(faculty,filiere)||!await db.prepare('SELECT 1 FROM faculties WHERE id=?').get(faculty))throw problem(400,'Choisissez une filière de votre faculté.');
     if(await db.prepare('SELECT 1 FROM users WHERE LOWER(username)=LOWER(?)').get(username))throw problem(409,'Ce nom d’utilisateur est déjà utilisé.');
@@ -968,7 +969,7 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
     }
     if(req.body.preferences!==undefined){if(!req.body.preferences||typeof req.body.preferences!=='object'||Array.isArray(req.body.preferences))throw problem(400,'Préférences invalides.');const prefs=JSON.parse(req.user.preferences);for(const [key,value] of Object.entries(req.body.preferences)){if(!PREF_KEYS.includes(key)||typeof value!=='boolean')throw problem(400,'Préférences invalides.');prefs[key]=value;}values.preferences=JSON.stringify(prefs);}
     const changingPassword=req.body.password!==undefined;
-    if(changingPassword){const password=passwordValue(req.body.password,'Nouveau mot de passe');if(password.length<10)throw problem(400,'Le mot de passe doit contenir au moins 10 caractères.');await auth.changePassword(req,res,{currentPassword:passwordValue(req.body.current_password,'Mot de passe actuel'),newPassword:password});}
+    if(changingPassword){const password=passwordValue(req.body.password,'Nouveau mot de passe');if(password.length<8)throw problem(400,'Le mot de passe doit contenir au moins 8 caractères.');await auth.changePassword(req,res,{currentPassword:passwordValue(req.body.current_password,'Mot de passe actuel'),newPassword:password});}
     try {
       if(avatarFile){
         avatarKey=storageObjectKey(`avatars/${req.user.id}/${randomUUID()}.${avatarFile.extension}`);
@@ -1137,7 +1138,7 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
     const email=string(req.body.email,'Adresse e-mail',160).toLowerCase();
     if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))throw problem(400,'Adresse e-mail invalide.');
     if(!/^[\p{L}\p{N}_.-]{3,40}$/u.test(username))throw problem(400,'Nom d’utilisateur invalide.');
-    if(password.length<10)throw problem(400,'Le mot de passe doit contenir au moins 10 caractères.');
+    if(password.length<8)throw problem(400,'Le mot de passe doit contenir au moins 8 caractères.');
     const roleValue=req.body.role||'student',faculty=req.body.faculty_id||null;
     if(!ROLES.includes(roleValue)||['global_admin','faculty_leader'].includes(roleValue))throw problem(400,'Rôle invalide : le propriétaire existant ne peut pas être dupliqué.');
     if(roleValue!=='student'&&!faculty)throw problem(400,'Attribuez une faculté à ce rôle.');
@@ -1509,6 +1510,7 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
   coreRoutes=installCoreRoutes(app,{db,requireFaculty,problem,permissions,asId,string,resource,scoped,broadcast,broadcastUserUpdate,author,authorizeNotificationTarget,notificationStore,notifyDirect,upload,storage,notifyAdminInbox,broadcastAdminInbox});
 
   installAccessSupport(app,{db,problem,limiter:contactAttempts,notifyAdminInbox,broadcastAdminInbox,broadcast,ticketDTO:coreRoutes.ticketDTO,supportStreams,notifyDirect,broadcastUserUpdate,heartbeats});
+  installSelfServicePassword(app,{db,auth,domains:googleConfig.domains,permissions,endUserStreams:id=>{for(const stream of clients.get(id)||[])stream.end();}});
   installPasswordRecovery(app,{db,auth,permissions,requireUser,selfUser,endUserStreams:id=>{for(const stream of clients.get(id)||[])stream.end();}});
   app.use('/api', (_req,_res,next)=>next(problem(404,'Route API introuvable.')));
   const dist=resolve('dist');
@@ -1519,8 +1521,8 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
     const message=err instanceof multer.MulterError?(err.code==='LIMIT_FILE_SIZE'?'Le fichier dépasse la limite de 20 Mo.':'Téléversement invalide.'):(err.type==='entity.parse.failed'?'Requête JSON invalide.':err.code==='23505'?'Cet élément existe déjà.':status===500?'Une erreur serveur est survenue. Réessayez.':err.message);
     if(status===500)console.error('[CampusLink API]',err.code||'UNEXPECTED_ERROR');
     if(Number.isSafeInteger(err.retryAfter)&&err.retryAfter>0)res.set('Retry-After',String(err.retryAfter));
-    const verificationRetryAfter=status===429&&err.code==='GOOGLE_VERIFICATION_RATE_LIMITED'&&Number.isSafeInteger(err.retryAfter)&&err.retryAfter>0?Math.min(err.retryAfter,900):0;
-    res.status(status).json({error:message,...(err.code&&(['ACCOUNT_PENDING','ACCOUNT_REJECTED','RESOURCE_SLOT_CONFLICT','DOCUMENT_INDEX_REQUIRED','READING_SESSION_REPLACED','ATTACHMENT_RETRY_REQUIRED','PASSWORD_CHANGE_REQUIRED','PASSWORD_RESET_PENDING','PASSWORD_RESET_UNKNOWN','PASSWORD_RESET_EXPIRED','AUTH_ADMIN_CONFIGURATION','AUTH_ADMIN_SESSION_EXPIRED'].includes(err.code)||/^GOOGLE_[A-Z_]+$/.test(err.code))?{code:err.code}:{}),...(verificationRetryAfter?{retryAfter:verificationRetryAfter}:{}),...(err.resource?{resource:err.resource}:{})});
+    const verificationRetryAfter=status===429&&['GOOGLE_VERIFICATION_RATE_LIMITED','PASSWORD_RECOVERY_RATE_LIMITED'].includes(err.code)&&Number.isSafeInteger(err.retryAfter)&&err.retryAfter>0?Math.min(err.retryAfter,900):0;
+    res.status(status).json({error:message,...(err.code&&(['ACCOUNT_PENDING','ACCOUNT_REJECTED','RESOURCE_SLOT_CONFLICT','DOCUMENT_INDEX_REQUIRED','READING_SESSION_REPLACED','ATTACHMENT_RETRY_REQUIRED','PASSWORD_CHANGE_REQUIRED','PASSWORD_RESET_PENDING','PASSWORD_RESET_UNKNOWN','PASSWORD_RESET_EXPIRED','AUTH_ADMIN_CONFIGURATION','AUTH_ADMIN_SESSION_EXPIRED'].includes(err.code)||/^GOOGLE_[A-Z_]+$/.test(err.code)||/^PASSWORD_RECOVERY_[A-Z_]+$/.test(err.code))?{code:err.code}:{}),...(verificationRetryAfter?{retryAfter:verificationRetryAfter}:{}),...(err.resource?{resource:err.resource}:{})});
   });
   return app;
   } catch(error) {
