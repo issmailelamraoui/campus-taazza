@@ -193,6 +193,14 @@ export function AppProvider({children}){
   const result=await api('/register',{method:'POST',body});clearSession();
   const next={...normalizeUser(result.user),registration_session:result.authenticated!==false};setData(previous=>({...previous,user:next}));return next;
  }
+ async function completeGoogleProfile(body){
+  const owner=epoch.current,result=await api('/auth/google/profile',{method:'POST',body});requireCurrent(owner);
+  const next={...normalizeUser(result.user),registration_session:result.authenticated!==false};
+  clearSession();localStorage.removeItem(key+'logout-pending');current.current={...emptyData(),user:next};setData(current.current);
+  if(next.language)changeLanguage(next.language);
+  // A Google registration is pending review: never fetch private bootstrap data here.
+  return next;
+ }
  async function completeOnboarding(value){
   const owner=epoch.current;
   if(!user||!filiereBelongsToFaculty(value.facultyId,value.filiereId)||![1,2,3,4,5,6].includes(Number(value.semester)))return false;
@@ -433,7 +441,7 @@ export function AppProvider({children}){
   });
  }
  async function requestSupport({username,reason,message,name,email}){return api('/contact',{method:'POST',body:{name:name||user?.name||username,email:email||user?.email,subject:reason==='assignment'?'faculty':reason==='help'?'general':reason||'general',message}});}
- const value={...data,user,selection,faculty,filiere,isAdmin,loading,connectionError,error:connectionError,refresh,refreshAccount,scheduleRefresh,registrationRevision,register,login,logout,completeOnboarding,
+ const value={...data,user,selection,faculty,filiere,isAdmin,loading,connectionError,error:connectionError,refresh,refreshAccount,scheduleRefresh,registrationRevision,register,login,logout,completeOnboarding,completeGoogleProfile,
   language,setLanguage,theme,setTheme,lowData,setLowData,t,tr,updateProfile,preferences:preferencesFor(user),setPreferences,resources:data.resources,allResources:data.resources,announcements:data.announcements,allAnnouncements:data.announcements,
   messages:data.messages.filter(item=>!['help','life'].includes(item.channel)),allMessages:data.messages,notifications:data.notifications,allNotifications:data.notifications,saved:data.saved,history:data.history,
   saveItem,isSaved,isPending,pendingActions,networkActivity,connectionState,refreshing:networkActivity.reads>0,openDocument,openAnnouncement,openNotification,markNotificationsRead,adminNotificationPopups,dismissAdminNotificationPopup,activeNotificationId,notificationVisitRevision,beginNotificationVisit,notificationDestinationViewed,leaveNotificationDestination,loadMoreNotifications,markDiscussionRead,uploadResource,updateResourceAcademicYears,sendMessage,retryMessage,discardMessage,deleteMessage,toggleMessageReaction,toggleMessagePin,reportMessage,promoteMessage,editAnnouncement,deleteAnnouncement,applyAdminChanges,requestSupport,

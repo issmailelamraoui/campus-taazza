@@ -31,6 +31,7 @@ async function setup(config, failOptions = false) {
   await context.route('**/api/**', async route => {
     const request = route.request(), path = new URL(request.url()).pathname;
     if (path === '/api/session') return route.fulfill({ json: { user: null } });
+    if (path === '/api/auth/google/config' && request.method() === 'GET') return route.fulfill({ json: { enabled: false, domains: [] } });
     if (path === '/api/registration-options') {
       await new Promise(resolve => setTimeout(resolve, 80));
       return route.fulfill(fail ? { status: 503, json: { error: 'Facultés temporairement indisponibles.' } } : { json: { faculties } }).catch(() => {});

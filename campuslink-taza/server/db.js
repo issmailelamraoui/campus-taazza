@@ -15,6 +15,7 @@ applicationTables.add('discussion_reads');
 applicationTables.add('realtime_events');
 applicationTables.add('chat_presence');
 applicationTables.add('contact_reactions');
+for(const table of ['auth_session_cutover','auth_legacy_subjects','google_auth_links','auth_session_admissions','google_oauth_attempts'])applicationTables.add(table);
 const migrationDirectory = new URL('./migrations/', import.meta.url);
 const connectionCodes = new Set(['ECONNRESET', 'ECONNREFUSED', 'ETIMEDOUT', 'EPIPE', 'ENETUNREACH', 'EHOSTUNREACH', 'ENOTFOUND', 'EAI_AGAIN', '57P01', '57P02', '57P03', '53300']);
 function connectionFailure(error) {

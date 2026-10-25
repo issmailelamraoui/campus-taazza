@@ -21,6 +21,7 @@ const FeedbackPage=React.lazy(()=>import('./pages/FeedbackPage'));
 const XPPage=React.lazy(()=>import('./pages/XPPage'));
 const PermissionsPage=React.lazy(()=>import('./pages/PermissionsPage'));
 const PasswordChangePage=React.lazy(()=>import('./pages/PasswordChangePage'));
+const GoogleProfilePage=React.lazy(()=>import('./pages/GoogleProfilePage'));
 const studentPage=name=>React.lazy(()=>import('./pages/StudentPages').then(module=>({default:module[name]})));
 const HomePage=studentPage('HomePage');
 const AnnouncementsPage=studentPage('AnnouncementsPage');
@@ -79,6 +80,7 @@ export default function App(){
   <Route path="/support" element={<AccessSupportPage/>}/>
   <Route path="/login" element={loading?<SessionStatus/>:user?<Navigate to={destination} replace/>:<LoginPage/>}/>
   <Route path="/register" element={loading?<SessionStatus/>:user?<Navigate to={destination} replace/>:<RegisterPage/>}/>
+  <Route path="/auth/google/complete" element={loading?<SessionStatus/>:<GoogleProfilePage/>}/>
   <Route path="/change-password" element={loading?<SessionStatus/>:!user?<Navigate to="/login" replace/>:!requiresPasswordChange(user)?<Navigate to={destination} replace/>:<PasswordChangePage/>}/>
   <Route path="/account-review" element={loading?<SessionStatus/>:!user?<Navigate to="/login" replace/>:user.accountStatus==='approved'?<Navigate to={destination} replace/>:<AccountReviewPage/>}/>
   <Route path="/onboarding" element={loading?<SessionStatus/>:!user?<Navigate to="/login" replace/>:requiresPasswordChange(user)?<Navigate to="/change-password" replace/>:user.accountStatus!=='approved'?<Navigate to="/account-review" replace/>:selection?<Navigate to={destination} replace/>:<OnboardingPage/>}/>

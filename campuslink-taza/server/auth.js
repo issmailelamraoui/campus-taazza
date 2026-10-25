@@ -4,6 +4,11 @@ const PROVIDER_COOKIE = '__Secure-neon-auth.session_token';
 // The value remains the opaque Neon-issued session token. Renaming the cookie
 // allows the same server proxy to work on localhost HTTP and deployed HTTPS.
 export const AUTH_COOKIE = 'campus_neon_session';
+const GOOGLE_CHALLENGES = [
+  ['__Secure-neon-auth.session_challenge','campus_neon_oauth_challenge'],
+  ['__Secure-neon-auth.session_challange','campus_neon_oauth_challange'],
+];
+const boundedString=(value,max=4096)=>typeof value==='string'&&value.length>0&&value.length<=max&&!/[\r\n\u0000]/.test(value);
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export class AuthError extends Error {
   constructor(status,message,code='AUTH_ERROR') {super(message);this.status=status;this.code=code;}
@@ -34,16 +39,17 @@ const emailValue=value=>{
 };
 const passwordValue=value=>{if(typeof value!=='string'||!value.length||value.length>256)throw new AuthError(400,'Mot de passe invalide.');return value;};
 
-export function createAuthService({db,baseUrl=process.env.NEON_AUTH_BASE_URL,jwksUrl=process.env.NEON_AUTH_JWKS_URL,appOrigin=process.env.APP_ORIGIN||'http://localhost:5173',fetchImpl=globalThis.fetch,timeoutMs=10000}={}) {
+export function createAuthService({db,sessionPolicy,baseUrl=process.env.NEON_AUTH_BASE_URL,jwksUrl=process.env.NEON_AUTH_JWKS_URL,appOrigin=process.env.APP_ORIGIN||'http://localhost:5173',fetchImpl=globalThis.fetch,timeoutMs=10000}={}) {
   let base,jwks;
   try {base=new URL(baseUrl.replace(/\/?$/,'/'));jwks=new URL(jwksUrl);if(base.protocol!=='https:'||jwks.protocol!=='https:')throw Error();}
   catch {throw new AuthError(503,'La configuration Neon Auth est incomplète.','AUTH_CONFIGURATION');}
   const issuer=base.origin;
+  const googleAuthorizationEndpoint=new URL('sign-in/social/init',base);
   const keys=createRemoteJWKSet(jwks,{[customFetch]:fetchImpl,timeoutDuration:timeoutMs,cooldownDuration:1000});
   // Browser origins are checked by Express. The provider receives the configured
   // trusted origin even when the browser opens this proxy through a LAN address.
   function origin(req) {return appOrigin||header(req,'origin')||`${req?.protocol||'http'}://${header(req,'host')||'localhost:5173'}`;}
-  function cookieHeader(req) {const token=parseCookie(header(req,'cookie'),AUTH_COOKIE);return token?`${PROVIDER_COOKIE}=${token}`:'';}
+  function cookieHeader(req) {const token=parseCookie(header(req,'cookie'),AUTH_COOKIE);return boundedString(token)&&!/[;\s]/.test(token)?`${PROVIDER_COOKIE}=${token}`:'';}
   function applyCookies(req,res,cookies) {
     if(!res)return;
     for(const cookie of cookies)if(cookie.name===PROVIDER_COOKIE)res.append('Set-Cookie',serializeSetCookie({
@@ -53,7 +59,7 @@ export function createAuthService({db,baseUrl=process.env.NEON_AUTH_BASE_URL,jwk
   }
   function clearCookie(req,res) {if(res)res.append('Set-Cookie',serializeSetCookie({name:AUTH_COOKIE,value:'',path:'/',httpOnly:true,sameSite:'lax',secure:!!req?.secure||process.env.COOKIE_SECURE==='true',maxAge:0}));}
   async function call(path,{req,res,body,cookies,uncertainPasswordReset=false}={}) {
-    const requestHeaders={'origin':origin(req),'x-neon-auth-proxy':'express','accept':'application/json'};
+    const requestHeaders={'origin':origin(req),'x-neon-auth-proxy':'express','x-neon-auth-middleware':'true','accept':'application/json'};
     const cookie=cookies??cookieHeader(req);if(cookie)requestHeaders.cookie=cookie;
     if(body!==undefined)requestHeaders['content-type']='application/json';
     let response;
@@ -89,13 +95,15 @@ export function createAuthService({db,baseUrl=process.env.NEON_AUTH_BASE_URL,jwk
       const {payload}=await jwtVerify(token,keys,{issuer,audience:issuer,algorithms:['EdDSA','ES256','RS256'],requiredClaims:['sub','exp','iat']});
       if(payload.sub!==user.id||payload.banned===true)return null;
     } catch {return null;}
-    return {authUser:{id:user.id,email:emailValue(user.email),name:user.name||'',emailVerified:!!user.emailVerified,role:user.role||'user'},sessionId:session.id,createdAt:session.createdAt,expiresAt:session.expiresAt};
+    if(!boundedString(session.id,256))return null;
+    return {authUser:{id:user.id,email:emailValue(user.email),name:user.name||'',emailVerified:user.emailVerified===true,role:user.role||'user'},sessionId:session.id,createdAt:session.createdAt,expiresAt:session.expiresAt};
   }
-  async function profileFor(authIdentity) {
+  async function profileFor(authIdentity,{checkPolicy=true}={}) {
     if(!authIdentity||!db)return null;
     const user=await db.prepare('SELECT * FROM users WHERE auth_user_id=?').get(authIdentity.authUser.id);
     if(!user||user.disabled||user.email?.toLowerCase()!==authIdentity.authUser.email)return null;
     if(user.auth_revoked_at&&Date.parse(authIdentity.createdAt)<=Date.parse(user.auth_revoked_at))return null;
+    if(checkPolicy&&sessionPolicy&&!await sessionPolicy.allows(authIdentity,user))return null;
     return {...authIdentity,user,authUserId:authIdentity.authUser.id};
   }
   async function authenticate(req,res) {if(!cookieHeader(req))return null;return profileFor(await identity(req,res));}
@@ -108,14 +116,210 @@ export function createAuthService({db,baseUrl=process.env.NEON_AUTH_BASE_URL,jwk
       if(providerCookies)await call('sign-out',{req,cookies:providerCookies,body:{}}).catch(()=>{});
       clearCookie(req,res);throw invalidCredentials();
     }
-    const authenticated=await profileFor(authIdentity);
+    const authenticated=await profileFor(authIdentity,{checkPolicy:false});
     if(!authenticated) {await call('sign-out',{req,cookies:providerCookies,body:{}}).catch(()=>{});clearCookie(req,res);throw invalidCredentials();}
+    try {if(sessionPolicy)await sessionPolicy.authorize(authIdentity,{method:'password',userId:authenticated.user.id});}
+    catch(error) {await call('sign-out',{req,cookies:providerCookies,body:{}}).catch(()=>{});clearCookie(req,res);throw error;}
     applyCookies(req,res,result.cookies);return authenticated;
   }
   async function signOut(req,res) {
-    try {if(cookieHeader(req)){const result=await call('sign-out',{req,res,body:{}});if(!result.ok&&result.status!==401)errorFor(result);}}
+    try {if(cookieHeader(req)){const existing=sessionPolicy?await identity(req).catch(()=>null):null;const result=await call('sign-out',{req,res,body:{}});if(existing)await sessionPolicy.forget(existing);if(!result.ok&&result.status!==401)errorFor(result);}}
     finally {clearCookie(req,res);}
     return {ok:true};
+  }
+  const googleResults=new WeakMap();
+  const oauthFailure=(code='GOOGLE_IDENTITY_INVALID')=>new AuthError(401,'La connexion Google n’a pas pu être vérifiée. Réessayez.',''+code);
+  function clearGoogleChallenge(req,res) {
+    if(res)for(const [,name]of GOOGLE_CHALLENGES)res.append('Set-Cookie',serializeSetCookie({name,value:'',maxAge:0,secure:!!req?.secure||process.env.COOKIE_SECURE==='true'}));
+  }
+  function googleChallengeHeader(req) {
+    return GOOGLE_CHALLENGES.flatMap(([provider,name])=>{
+      const value=parseCookie(header(req,'cookie'),name);
+      return boundedString(value)&&!/[;\s]/.test(value)?[`${provider}=${value}`]:[];
+    }).join('; ');
+  }
+  function checkedCallback(value) {
+    try {const url=new URL(value),expected=new URL(appOrigin);if(url.origin!==expected.origin||url.username||url.password||url.hash||value.length>2048)throw Error();return url.href;}
+    catch {throw new AuthError(503,'La configuration du retour Google doit être vérifiée.','AUTH_CONFIGURATION');}
+  }
+  function checkedGoogleURL(value) {
+    try {
+      if(!boundedString(value,20000))throw Error();
+      const url=new URL(value);
+      if(url.protocol!=='https:'||url.username||url.password||url.hash)throw Error();
+      // Managed shared credentials begin with a browser navigation to this
+      // branch's Neon init endpoint. Its opaque token carries the provider
+      // handshake; following it on the server would consume the browser hop.
+      if(url.origin===googleAuthorizationEndpoint.origin&&url.pathname===googleAuthorizationEndpoint.pathname) {
+        const params=[...url.searchParams];
+        if(params.length!==1||params[0][0]!=='token'||!boundedString(params[0][1])||!/^[A-Za-z0-9._~-]+$/.test(params[0][1]))throw Error();
+        return url.href;
+      }
+      if(url.origin!=='https://accounts.google.com'||!['/o/oauth2/v2/auth','/o/oauth2/auth'].includes(url.pathname))throw Error();
+      if(url.searchParams.get('redirect_uri')!==new URL('callback/google',base).href||url.searchParams.get('response_type')!=='code'||!boundedString(url.searchParams.get('state'),2048)||!boundedString(url.searchParams.get('client_id'),512)||url.searchParams.get('code_challenge_method')!=='S256'||!/^[A-Za-z0-9_-]{43,128}$/.test(url.searchParams.get('code_challenge')||''))throw Error();
+      return url.href;
+    } catch {throw new AuthError(503,'La configuration Google OAuth doit être vérifiée.','AUTH_CONFIGURATION');}
+  }
+  async function beginGoogle(req,res,{callbackURL,errorCallbackURL,link=false}={}) {
+    const callbacks={callbackURL:checkedCallback(callbackURL),errorCallbackURL:checkedCallback(errorCallbackURL)};
+    if(link&&!cookieHeader(req))throw oauthFailure('GOOGLE_LINK_SESSION_REQUIRED');
+    clearGoogleChallenge(req,res);
+    const result=await call(link?'link-social':'sign-in/social',{req,cookies:link?cookieHeader(req):'',body:{provider:'google',...callbacks,disableRedirect:true,additionalParams:{prompt:'select_account'}}});
+    if(!result.ok)errorFor(result);
+    const url=checkedGoogleURL(result.data?.url);
+    const challenges=result.cookies.filter(cookie=>GOOGLE_CHALLENGES.some(([provider])=>provider===cookie.name)&&boundedString(cookie.value)&&cookie.maxAge!==0);
+    if(!challenges.length)throw new AuthError(503,'Le service Google ne prend pas en charge la connexion sécurisée par proxy.','AUTH_CONFIGURATION');
+    for(const cookie of challenges)if(res)res.append('Set-Cookie',serializeSetCookie({name:GOOGLE_CHALLENGES.find(([provider])=>provider===cookie.name)[1],value:cookie.value,maxAge:Math.min(600,Number.isFinite(cookie.maxAge)&&cookie.maxAge>0?cookie.maxAge:600),secure:!!req?.secure||process.env.COOKIE_SECURE==='true'}));
+    return {url,redirect:true};
+  }
+  function googleVerificationFailure(status=503) {
+    return new AuthError(status,status===400?'Le code de vérification est invalide ou a expiré.':status===429?'Trop de demandes. Réessayez plus tard.':'La vérification de l’adresse est temporairement indisponible.',status===400?'GOOGLE_VERIFICATION_INVALID':status===429?'GOOGLE_VERIFICATION_RATE_LIMITED':'GOOGLE_VERIFICATION_UNAVAILABLE');
+  }
+  function googleVerificationEmail(value) {
+    try{return emailValue(value);}catch{throw googleVerificationFailure(400);}
+  }
+  async function googleVerificationRequest(req,path,body) {
+    // Verification is not sign-in. Do not send an existing session or publish
+    // any response cookie, JWT, provider user, or token to the browser.
+    try{return await call(path,{req,cookies:'',body});}catch{throw googleVerificationFailure();}
+  }
+  function googleVerificationResponseError(result) {
+    const error=googleVerificationFailure(result.status===429?429:result.status>=500||result.status===404&&result.data?.code!=='USER_NOT_FOUND'?503:400);
+    if(error.status===429)error.retryAfter=result.retryAfter;
+    return error;
+  }
+  async function discardGoogleVerificationSession(req,result) {
+    let existing=parseCookie(header(req,'cookie'),AUTH_COOKIE);
+    try{existing=decodeURIComponent(existing);}catch{/* Keep malformed input opaque. */}
+    const temporary=[...new Set(result.cookies.filter(cookie=>cookie.name===PROVIDER_COOKIE&&boundedString(cookie.value)&&cookie.maxAge!==0&&cookie.value!==existing).map(cookie=>cookie.value))];
+    // Managed Neon may auto-sign-in after verifying email. Revoke only the
+    // newly returned opaque session; never revoke the initiating browser login.
+    for(const token of temporary) {
+      let discarded;
+      try{discarded=await call('sign-out',{req,cookies:`${PROVIDER_COOKIE}=${encodeURIComponent(token)}`,body:{}});}catch{throw googleVerificationFailure();}
+      if(!discarded.ok||discarded.data?.success!==true)throw googleVerificationFailure();
+    }
+  }
+  async function sendGoogleEmailVerification(req,{email}={}) {
+    const normalized=googleVerificationEmail(email);
+    const result=await googleVerificationRequest(req,'email-otp/send-verification-otp',{email:normalized,type:'email-verification'});
+    try {
+      if(!result.ok) {
+        // Match the provider's non-enumerating send contract. A nonexistent or
+        // ineligible account must not have a distinct public response.
+        if([400,401,403].includes(result.status)||result.status===404&&result.data?.code==='USER_NOT_FOUND')return {success:true};
+        throw googleVerificationResponseError(result);
+      }
+      if(result.data?.success!==true)throw googleVerificationFailure();
+      return {success:true};
+    } finally {await discardGoogleVerificationSession(req,result);}
+  }
+  async function confirmGoogleEmailVerification(req,{email,code}={}) {
+    const normalized=googleVerificationEmail(email);
+    if(typeof code!=='string'||!/^\d{6}$/.test(code))throw googleVerificationFailure(400);
+    const result=await googleVerificationRequest(req,'email-otp/verify-email',{email:normalized,otp:code});
+    try {
+      if(!result.ok)throw googleVerificationResponseError(result);
+      const user=result.data?.user;
+      let verifiedEmail;
+      try{verifiedEmail=emailValue(user?.email);}catch{throw googleVerificationFailure(400);}
+      if(result.data?.status!==true||user?.emailVerified!==true||!UUID.test(user?.id)||verifiedEmail!==normalized)throw googleVerificationFailure(400);
+      // A non-null token means the service created a temporary sign-in. It
+      // remains private; require its opaque cookie so it can be revoked below.
+      if(result.data.token!==null&&(!boundedString(result.data.token)||!result.cookies.some(cookie=>cookie.name===PROVIDER_COOKIE&&boundedString(cookie.value)&&cookie.maxAge!==0)))throw googleVerificationFailure();
+      return {verified:true};
+    } finally {await discardGoogleVerificationSession(req,result);}
+  }
+  async function verifyGoogleIdentity(req,authIdentity,cookies) {
+    if(!authIdentity?.authUser)throw oauthFailure('GOOGLE_EMAIL_UNVERIFIED');
+    const result=await call('list-accounts',{req,cookies});
+    if(!result.ok)errorFor(result);
+    if(!Array.isArray(result.data))throw oauthFailure();
+    const accounts=result.data.filter(account=>account?.providerId==='google');
+    if(accounts.length!==1)throw oauthFailure();
+    const account=accounts[0];
+    if(account.userId!==authIdentity.authUser.id||!boundedString(account.id,256)||!boundedString(account.accountId,256))throw oauthFailure();
+    const info=await call(`account-info?accountId=${encodeURIComponent(account.id)}`,{req,cookies});
+    if(!info.ok)errorFor(info);
+    const profile=info.data?.data,mapped=info.data?.user,provider=info.data?.account;
+    if(provider?.providerId!=='google'||provider.id!==account.id||provider.accountId!==account.accountId||profile?.sub!==account.accountId)throw oauthFailure();
+    if(profile.email_verified!==true||mapped?.emailVerified!==true)throw oauthFailure('GOOGLE_EMAIL_UNVERIFIED');
+    let email,mappedEmail;
+    try {email=emailValue(profile.email);mappedEmail=emailValue(mapped.email);}catch {throw oauthFailure();}
+    if(email!==authIdentity.authUser.email||mappedEmail!==email)throw oauthFailure();
+    if(profile.hd!==undefined&&(!boundedString(profile.hd,253)||!/^[a-z0-9.-]+$/i.test(profile.hd)))throw oauthFailure();
+    // Explicit linking can preserve an older credential user's local
+    // emailVerified=false. The verified Google profile, checked above, is the
+    // authority for Google sign-in; never rewrite or trust the local flag here.
+    return {subject:profile.sub,email,emailVerified:true,name:String(mapped.name||authIdentity.authUser.name||'').trim().slice(0,100),hostedDomain:profile.hd?.toLowerCase()||null};
+  }
+  async function discardGoogleSession(req,res,result) {
+    const provisional=result&&googleResults.get(result);
+    if(provisional&&!provisional.committed&&!provisional.discarded) {
+      provisional.discarded=true;
+      if(provisional.newSession&&provisional.providerCookies)await call('sign-out',{req,cookies:provisional.providerCookies,body:{}}).catch(()=>{});
+    }
+    clearGoogleChallenge(req,res);
+  }
+  async function completeGoogle(req,res,{verifier,linkExpected}={}) {
+    let providerCookies='',responseCookies=[],authIdentity,googleIdentity,newSession=false,result;
+    try {
+      let original;
+      if(linkExpected) {
+        const expectedSubject=linkExpected.authUserId||linkExpected.expectedAuthUserId;
+        if(!boundedString(linkExpected.sessionId,256)||!UUID.test(expectedSubject))throw oauthFailure('GOOGLE_LINK_SESSION_REQUIRED');
+        original=await identity(req);
+        if(!original||original.sessionId!==linkExpected.sessionId||original.authUser.id!==expectedSubject)throw oauthFailure('GOOGLE_LINK_SESSION_REQUIRED');
+      }
+      if(verifier!==undefined&&verifier!==null&&verifier!=='') {
+        if(!boundedString(verifier,2048)||!/^[A-Za-z0-9._~-]+$/.test(verifier))throw oauthFailure('GOOGLE_STATE_INVALID');
+        const challenge=googleChallengeHeader(req);
+        if(!challenge)throw oauthFailure('GOOGLE_STATE_INVALID');
+        const exchange=await call(`get-session?neon_auth_session_verifier=${encodeURIComponent(verifier)}&disableCookieCache=true`,{req,cookies:challenge});
+        responseCookies=exchange.cookies;providerCookies=jar(exchange);
+        newSession=!original&&!!providerCookies&&providerCookies!==cookieHeader(req);
+        if(!exchange.ok)errorFor(exchange);
+        if(!providerCookies)throw oauthFailure('GOOGLE_STATE_INVALID');
+        authIdentity=await identity(req,null,providerCookies);
+        if(original&&authIdentity)newSession=authIdentity.sessionId!==original.sessionId;
+        if(!authIdentity||original&&authIdentity.authUser.id!==original.authUser.id)throw oauthFailure();
+        if(original&&newSession) {
+          const exchangedGoogle=await verifyGoogleIdentity(req,authIdentity,providerCookies);
+          // Linking must preserve the credential session bound to the browser
+          // attempt. A managed provider may also mint a temporary session;
+          // revoke that session, then prove the initiating session still lives.
+          await call('sign-out',{req,cookies:providerCookies,body:{}});
+          newSession=false;providerCookies='';responseCookies=[];
+          const retained=await identity(req);
+          if(!retained||retained.sessionId!==original.sessionId||retained.authUser.id!==original.authUser.id)throw oauthFailure('GOOGLE_LINK_SESSION_REQUIRED');
+          authIdentity=retained;providerCookies=cookieHeader(req);
+          googleIdentity=await verifyGoogleIdentity(req,authIdentity,providerCookies);
+          if(googleIdentity.subject!==exchangedGoogle.subject||googleIdentity.email!==exchangedGoogle.email)throw oauthFailure();
+        }
+      } else {
+        if(!original)throw oauthFailure('GOOGLE_STATE_INVALID');
+        // Explicit linking preserves the bound credential session on providers
+        // that do not mint another session or verifier after linking.
+        authIdentity=original;providerCookies=cookieHeader(req);
+      }
+      result={identity:authIdentity,google:null,newSession};
+      googleResults.set(result,{providerCookies,cookies:responseCookies,newSession,committed:false,discarded:false});
+      result.google=googleIdentity||await verifyGoogleIdentity(req,authIdentity,providerCookies);
+      return result;
+    } catch(error) {
+      if(!result&&providerCookies){result={};googleResults.set(result,{providerCookies,cookies:responseCookies,newSession,committed:false,discarded:false});}
+      await discardGoogleSession(req,res,result);
+      throw error;
+    }
+  }
+  function commitGoogleSession(req,res,result) {
+    const provisional=result&&googleResults.get(result);
+    if(!provisional||provisional.discarded||provisional.committed||!result.google)throw oauthFailure();
+    provisional.committed=true;
+    // A provider can replace its opaque token while retaining the session ID.
+    // Forward validated cookies even when no distinct session was created.
+    applyCookies(req,res,provisional.cookies);
+    clearGoogleChallenge(req,res);
   }
   // This proof has no application role mapping. It is used only by the trusted
   // operator linking CLI; an auth subject alone never creates or elevates a role.
@@ -158,11 +362,22 @@ export function createAuthService({db,baseUrl=process.env.NEON_AUTH_BASE_URL,jwk
     // Better Auth confirms this mutation with the changed user's identity.
     // An unchanged valid session alone does not prove the password changed.
     if(result.data?.user?.id!==authenticated.authUserId||!Object.hasOwn(result.data,'token')||result.data.token!==null&&typeof result.data.token!=='string'||result.data.status===false||result.data.success===false)throw passwordResetUnknown();
-    applyCookies(req,res,result.cookies);
     // A provider may rotate the session cookie on password change.
     const cookies=jar(result)||cookieHeader(req);
-    const next=await profileFor(await identity(req,null,cookies));
+    const nextIdentity=await identity(req,null,cookies);
+    if(!nextIdentity||nextIdentity.authUser.id!==authenticated.authUserId)throw new AuthError(401,'Connectez-vous pour accéder à votre communauté.');
+    if(sessionPolicy&&nextIdentity&&nextIdentity.sessionId!==authenticated.sessionId) {
+      // A password mutation does not change how this session was admitted.
+      // In particular, a Google login must retain its academic restrictions.
+      // An authenticated session without an admission can only be an exact
+      // legacy subject/session preserved by the rollout cutoff. Its successful
+      // current-password proof admits a rotated credential session explicitly.
+      const admission=await sessionPolicy.get(authenticated)||{method:'password',userId:authenticated.user.id};
+      await sessionPolicy.authorize(nextIdentity,admission);
+    }
+    const next=await profileFor(nextIdentity);
     if(!next)throw new AuthError(401,'Connectez-vous pour accéder à votre communauté.');
+    applyCookies(req,res,result.cookies);
     return next;
   }
   async function revokeUserSessions(req,authUserId) {
@@ -204,5 +419,7 @@ export function createAuthService({db,baseUrl=process.env.NEON_AUTH_BASE_URL,jwk
     if(!result.ok)errorFor(result);return {ok:true};
   }
   return {authenticate,signIn,signOut,createUser,changePassword,resetUserPassword,revokeUserSessions,removeUser,proveIdentity,clearCookie,
+    googleAuthorizationEndpoint:googleAuthorizationEndpoint.href,
+    readIdentity:identity,beginGoogle,completeGoogle,verifyGoogleIdentity,commitGoogleSession,discardGoogleSession,clearGoogleChallenge,sendGoogleEmailVerification,confirmGoogleEmailVerification,
     session:authenticate,login:signIn,logout:signOut};
 }

@@ -10,6 +10,8 @@ import { pipeline } from 'node:stream/promises';
 import { openDatabase, digest } from './db.js';
 import { seedDatabase } from './seed.js';
 import { createAuthService } from './auth.js';
+import {createAuthSessionPolicy,googleOAuthConfiguration} from './auth-sessions.js';
+import {installGoogleOAuthRoutes} from './google-oauth.js';
 import { createStorage, resourceObjectKey, storageObjectKey } from './storage.js';
 import { uploadFilePath } from './upload-path.js';
 import { moduleName, RESOURCE_MODULE_SQL, resolveModule } from './modules.js';
@@ -75,14 +77,22 @@ function uploadBoolean(value, fallback) {
 }
 
 
-export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: suppliedStorage, connectionString = process.env.DATABASE_URL, schema, migrate = false, seed = false, appOrigin = process.env.APP_ORIGIN } = {}) {
+export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: suppliedStorage, connectionString = process.env.DATABASE_URL, schema, migrate = false, seed = false, appOrigin = process.env.APP_ORIGIN, googleOAuth } = {}) {
   const db = suppliedDb || await openDatabase({connectionString,schema,migrate});
   let app,storage=suppliedStorage,auth=suppliedAuth;
   try {
-  await assertSchemaReady(db);
-  const checkReadiness=createSchemaReadinessCheck(db);
+  const googleConfig=googleOAuthConfiguration(googleOAuth);
+  const readinessOptions={allowUnmigratedGoogleOAuth:!googleConfig.requested};
+  const schemaReadiness=await assertSchemaReady(db,readinessOptions);
+  const checkReadiness=createSchemaReadinessCheck(db,readinessOptions);
   storage = suppliedStorage || createStorage();
-  auth = suppliedAuth || createAuthService({db,appOrigin});
+  // Before migration036, disabled Google keeps the previous Neon/password
+  // session behavior. The durable admission policy requires its full schema;
+  // after migration and an API restart it remains enforced even when Google
+  // is later disabled.
+  const sessionPolicy=schemaReadiness.deferredMigrations.length?null:createAuthSessionPolicy({db,googleConfig});
+  auth = suppliedAuth || createAuthService({db,appOrigin,sessionPolicy});
+  suppliedAuth?.setSessionPolicy?.(sessionPolicy);
   if (seed) await seedDatabase(db);
   const permissions=await createPermissions(db);
   const {isOwner}=permissions;
@@ -99,11 +109,13 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
   const heartbeats = new Set();
   const attempts = createRateLimiter({limit:12,windowMs:900000,message:'Trop de tentatives. Réessayez dans 15 minutes.'});
   const registrationAttempts = createRateLimiter({limit:120,windowMs:900000,message:'Trop de demandes d’inscription. Réessayez dans 15 minutes.'});
+  const googleAttempts = createRateLimiter({limit:20,windowMs:900000,message:'Trop de demandes Google. Réessayez dans 15 minutes.'});
   const contactAttempts = createRateLimiter({limit:8,windowMs:3600000,message:'Trop de demandes. Réessayez dans une heure.'});
   const upload = multer({storage: multer.memoryStorage(), limits: {fileSize: 20 * 1024 * 1024, files: 1, fields: 20, fieldSize: 10000}});
   app.locals.db = db;
   app.locals.storage = storage;
   app.locals.auth = auth;
+  app.locals.sessionPolicy = sessionPolicy;
   const realtime=await createRealtimeBus({db,active:()=>clients.size>0||supportStreams.size>0,deliver:event=>event.ids?broadcastUserUpdateNow(event.ids,event.change):broadcastNow(event.faculty,event.filiereId,event.change)});
   let closed=false;
   app.locals.endStreams = () => { for(const set of supportStreams.values())for(const res of set)res.end();supportStreams.clear(); for(const heartbeat of heartbeats)clearInterval(heartbeat);heartbeats.clear();for(const stream of clients.values())for(const res of stream)res.end();clients.clear(); };
@@ -130,7 +142,7 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
       if(req.user.disabled)throw problem(403,'Ce compte est désactivé.');
       if(req.user.account_status==='deleted')throw problem(401,'Connectez-vous pour accéder à votre communauté.');
       if(req.user.account_status!=='approved') {
-        if(!req.path.startsWith('/support/')&&!['/session','/login','/logout','/register','/registration-options','/health','/contact'].includes(req.path))throw admissionProblem(req.user);
+        if(!req.path.startsWith('/support/')&&!req.path.startsWith('/auth/google/')&&!['/session','/login','/logout','/register','/registration-options','/health','/contact'].includes(req.path))throw admissionProblem(req.user);
       } else {
         if(req.user.password_change_required&&!req.path.startsWith('/support/')&&!['/session','/login','/logout','/health','/contact','/password-reset/complete'].includes(req.path))throw Object.assign(problem(403,'Changez votre mot de passe temporaire avant de continuer.'),{code:'PASSWORD_CHANGE_REQUIRED'});
         req.user.chat_blocked=await isChatBlocked(req.user);
@@ -451,6 +463,7 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
   }
 
   app.get('/api/health', async(_req,res)=>{const report=await checkReadiness();res.status(report.ok?200:503).json(report);});
+  installGoogleOAuthRoutes(app,{db,auth,sessionPolicy,config:googleConfig,appOrigin,transaction,string,semesterValue,filiereBelongsToFaculty,selfUser,notifyRegistration,broadcastRegistrations,limiter:googleAttempts});
   app.get('/api/session', (req, res) => res.json({user:req.user ? publicUser(req.user) : null}));
   app.get('/api/registration-options', async (_req,res)=>{
     const faculties=await db.prepare('SELECT id,code,name,arabic,icon,color FROM faculties ORDER BY id').all();
@@ -1506,7 +1519,8 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
     const message=err instanceof multer.MulterError?(err.code==='LIMIT_FILE_SIZE'?'Le fichier dépasse la limite de 20 Mo.':'Téléversement invalide.'):(err.type==='entity.parse.failed'?'Requête JSON invalide.':err.code==='23505'?'Cet élément existe déjà.':status===500?'Une erreur serveur est survenue. Réessayez.':err.message);
     if(status===500)console.error('[CampusLink API]',err.code||'UNEXPECTED_ERROR');
     if(Number.isSafeInteger(err.retryAfter)&&err.retryAfter>0)res.set('Retry-After',String(err.retryAfter));
-    res.status(status).json({error:message,...(err.code&&['ACCOUNT_PENDING','ACCOUNT_REJECTED','RESOURCE_SLOT_CONFLICT','DOCUMENT_INDEX_REQUIRED','READING_SESSION_REPLACED','ATTACHMENT_RETRY_REQUIRED','PASSWORD_CHANGE_REQUIRED','PASSWORD_RESET_PENDING','PASSWORD_RESET_UNKNOWN','PASSWORD_RESET_EXPIRED','AUTH_ADMIN_CONFIGURATION','AUTH_ADMIN_SESSION_EXPIRED'].includes(err.code)?{code:err.code}:{}),...(err.resource?{resource:err.resource}:{})});
+    const verificationRetryAfter=status===429&&err.code==='GOOGLE_VERIFICATION_RATE_LIMITED'&&Number.isSafeInteger(err.retryAfter)&&err.retryAfter>0?Math.min(err.retryAfter,900):0;
+    res.status(status).json({error:message,...(err.code&&(['ACCOUNT_PENDING','ACCOUNT_REJECTED','RESOURCE_SLOT_CONFLICT','DOCUMENT_INDEX_REQUIRED','READING_SESSION_REPLACED','ATTACHMENT_RETRY_REQUIRED','PASSWORD_CHANGE_REQUIRED','PASSWORD_RESET_PENDING','PASSWORD_RESET_UNKNOWN','PASSWORD_RESET_EXPIRED','AUTH_ADMIN_CONFIGURATION','AUTH_ADMIN_SESSION_EXPIRED'].includes(err.code)||/^GOOGLE_[A-Z_]+$/.test(err.code))?{code:err.code}:{}),...(verificationRetryAfter?{retryAfter:verificationRetryAfter}:{}),...(err.resource?{resource:err.resource}:{})});
   });
   return app;
   } catch(error) {

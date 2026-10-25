@@ -98,6 +98,15 @@
 
 .register-page .login-form-wrap { min-width:0; }
 .register-page .login-form .custom-select { height:49px; }
+.google-profile-card .login-form { margin-top: 0; }
+.google-login-recovery { display:grid; gap:18px; margin-top:22px; min-width:0; }
+.google-login-recovery .google-auth-status,.google-login-recovery .google-auth-error,.google-login-recovery .google-auth-section { margin:0; }
+.google-login-recovery .google-password-option { justify-content:center; width:100%; min-height:44px; white-space:normal; text-align:center; }
+.login-form .login-submit { white-space:normal; text-align:center; line-height:1.6; }
+.google-profile-card .onboarding-lock-note { margin-top: 0; }
+.google-profile-back { display: inline-flex; margin-top: 22px; min-height: 44px; align-items: center; }
+.account-review-page > .onboarding-main > .google-link-card { max-width: 650px; margin-inline: auto; }
+@media (max-width: 600px) { .google-profile-card .input { font-size: 16px; } }
 @media (max-width:800px), (max-width:1050px) and (max-height:500px) {
   .register-page .login-main {
     grid-template-columns:minmax(0,1fr);

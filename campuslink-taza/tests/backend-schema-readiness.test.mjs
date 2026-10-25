@@ -49,7 +49,7 @@ test('public readiness and unexpected startup failures never reveal provider det
 test('a fully migrated schema is ready while additional imported legacy migrations remain permitted', isolated, async () => {
   await rollback(async () => {
     await environment.db.prepare('INSERT INTO schema_migrations(name,sha256,applied_at) VALUES (?,?,?)').run('008_resource_folder_collections.sql', 'legacy-checksum', new Date().toISOString());
-    assert.deepEqual(await assertSchemaReady(environment.db), { ready: true, pendingMigrations: [], changedMigrations: [], missingTables: [], missingColumns: [] });
+    assert.deepEqual(await assertSchemaReady(environment.db), { ready: true, pendingMigrations: [], changedMigrations: [], missingTables: [], missingColumns: [], deferredMigrations: [] });
   });
 });
 

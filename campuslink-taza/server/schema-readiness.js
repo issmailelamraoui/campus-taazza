@@ -3,11 +3,17 @@ import { readdir, readFile } from 'node:fs/promises';
 
 const migrationsDirectory = new URL('./migrations/', import.meta.url);
 let manifestPromise;
+const googleOAuthMigration = '036_google_oauth_sessions.sql';
+const googleOAuthTables = ['auth_session_cutover', 'auth_legacy_subjects', 'google_auth_links', 'auth_session_admissions', 'google_oauth_attempts'];
 
 // This is the schema consumed by the API, rather than optional tables preserved
 // from an older import. Check actual objects as well as the migration ledger:
 // a copied or manually edited ledger alone does not make a database usable.
 const requiredSchema = {
+  auth_session_cutover:'singleton created_at', auth_legacy_subjects:'auth_user_id user_id',
+  google_auth_links:'user_id auth_user_id google_sub email hosted_domain linked_at',
+  auth_session_admissions:'session_id auth_user_id session_created_at expires_at method google_sub provider_email hosted_domain user_id',
+  google_oauth_attempts:'token_hash intent expires_at expected_auth_user_id expected_user_id expected_session_id expected_session_version expected_auth_revoked_at',
   contact_reactions:'reply_id actor_key reaction',
   realtime_events:'id origin faculty_id filiere_id user_ids change created_at',
   chat_presence:'id user_id faculty_id filiere_id channel semester expires_at',
@@ -72,7 +78,7 @@ async function migrationManifest() {
   catch (error) { manifestPromise = undefined; throw error; }
 }
 
-export async function inspectSchemaReadiness(db) {
+export async function inspectSchemaReadiness(db, { allowUnmigratedGoogleOAuth = false } = {}) {
   const manifest = await migrationManifest();
   const catalog = await db.query(`SELECT c.relname AS table_name, a.attname AS column_name
     FROM pg_catalog.pg_class c
@@ -94,18 +100,26 @@ export async function inspectSchemaReadiness(db) {
   const checksums = new Map(applied.map(row => [row.name, row.sha256]));
   const pendingMigrations = manifest.filter(row => !checksums.has(row.name)).map(row => row.name);
   const changedMigrations = manifest.filter(row => checksums.has(row.name) && checksums.get(row.name) !== row.sha256).map(row => row.name);
-  const ready = !pendingMigrations.length && !changedMigrations.length && !missingTables.length && !missingColumns.length;
-  return { ready, pendingMigrations, changedMigrations, missingTables, missingColumns };
+  // A rollout with Google explicitly disabled can still serve the previous
+  // password-only application schema. Never treat a partially applied or
+  // damaged OAuth schema as the pre-feature schema, or ignore other upgrades.
+  const deferGoogleOAuth = allowUnmigratedGoogleOAuth && pendingMigrations.includes(googleOAuthMigration)
+    && googleOAuthTables.every(table => !tables.has(table));
+  const deferredMigrations = deferGoogleOAuth ? [googleOAuthMigration] : [];
+  const ready = !pendingMigrations.some(name => !deferredMigrations.includes(name)) && !changedMigrations.length
+    && !missingTables.some(table => !(deferGoogleOAuth && googleOAuthTables.includes(table))) && !missingColumns.length;
+  return { ready, pendingMigrations, changedMigrations, missingTables, missingColumns, deferredMigrations };
 }
 
 function schemaError(report) {
+  const pendingMigrations = report.pendingMigrations.filter(name => !report.deferredMigrations.includes(name));
   const code = report.changedMigrations.length ? 'MIGRATION_CHECKSUM_MISMATCH'
-    : report.pendingMigrations.length ? 'SCHEMA_MIGRATIONS_PENDING' : 'DATABASE_SCHEMA_INCOMPLETE';
+    : pendingMigrations.length ? 'SCHEMA_MIGRATIONS_PENDING' : 'DATABASE_SCHEMA_INCOMPLETE';
   return Object.assign(new Error('The application database schema is not ready.'), { status: 503, code, readiness: report });
 }
 
-export async function assertSchemaReady(db) {
-  const report = await inspectSchemaReadiness(db);
+export async function assertSchemaReady(db, options) {
+  const report = await inspectSchemaReadiness(db, options);
   if (!report.ready) throw schemaError(report);
   return report;
 }
@@ -116,20 +130,22 @@ export function schemaReadinessDiagnostic(error) {
   if (error?.code === 'DATABASE_UNAVAILABLE') return 'CampusLink API startup failed: the PostgreSQL connection is temporarily unavailable after startup retries. Check database availability and network access, then restart npm run dev. No migrations or seed were run.';
   if (error?.code === 'AUTH_CONFIGURATION') return 'CampusLink API startup failed: Neon Auth configuration is incomplete. Check NEON_AUTH_BASE_URL and NEON_AUTH_JWKS_URL in the server environment.';
   if (!error?.readiness) return 'CampusLink API startup failed. Check server configuration and database availability.';
-  const { pendingMigrations, changedMigrations, missingTables, missingColumns } = error.readiness;
+  const { changedMigrations, missingTables, missingColumns, deferredMigrations = [] } = error.readiness;
+  const pendingMigrations = error.readiness.pendingMigrations.filter(name => !deferredMigrations.includes(name));
   if (changedMigrations.length) return `CampusLink API startup failed: applied migration checksums differ (${changedMigrations.join(', ')}). Restore the matching migration files before applying new migrations.`;
   if (pendingMigrations.length) return `CampusLink API startup failed: ${pendingMigrations.length} pending migrations (${pendingMigrations.join(', ')}). Run npm run db:migrate with the intended database configuration, then restart npm run dev.`;
-  return `CampusLink API startup failed: database schema is incomplete (${[...missingTables, ...missingColumns].join(', ')}). Check the selected schema and restore missing objects before restarting.`;
+  const requiredMissingTables = deferredMigrations.includes(googleOAuthMigration) ? missingTables.filter(table => !googleOAuthTables.includes(table)) : missingTables;
+  return `CampusLink API startup failed: database schema is incomplete (${[...requiredMissingTables, ...missingColumns].join(', ')}). Check the selected schema and restore missing objects before restarting.`;
 }
 
-export function createSchemaReadinessCheck(db, { cacheMillis = 5000, clock = Date.now } = {}) {
+export function createSchemaReadinessCheck(db, { cacheMillis = 5000, clock = Date.now, allowUnmigratedGoogleOAuth = false } = {}) {
   let successfulAt = -Infinity, pending;
   return async function checkReadiness() {
     if (clock() - successfulAt < cacheMillis) return { ok: true };
     if (pending) return pending;
     pending = (async () => {
       try {
-        await assertSchemaReady(db);
+        await assertSchemaReady(db, { allowUnmigratedGoogleOAuth });
         successfulAt = clock();
         return { ok: true };
       } catch (error) {
