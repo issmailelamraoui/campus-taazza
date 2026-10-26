@@ -391,9 +391,40 @@ html[data-input-modality="keyboard"] .community-search-bar input:focus-visible {
 }
 .community-history-wrap {
   position: relative;
+  isolation: isolate;
   display: flex;
   flex: 1;
   min-height: 0;
+}
+/* One cached vector tile stays behind the scrolling history. It neither adds
+   log content nor participates in message sizing, gestures, or focus. */
+@supports ((mask-image: url("")) or (-webkit-mask-image: url(""))) {
+  .community-history-wrap::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background-color: var(--accent);
+    opacity: 0.17;
+    -webkit-mask-image: var(--chat-background-image);
+    mask-image: var(--chat-background-image);
+    mask-mode: alpha;
+    -webkit-mask-size: 420px 336px;
+    mask-size: 420px 336px;
+    -webkit-mask-repeat: repeat;
+    mask-repeat: repeat;
+    -webkit-mask-position: center 12px;
+    mask-position: center 12px;
+  }
+  :root[data-theme="light"] .community-history-wrap::before {
+    opacity: 0.14;
+  }
+}
+@media (forced-colors: active), (prefers-reduced-transparency: reduce), print {
+  .community-history-wrap::before {
+    display: none;
+  }
 }
 .community-message-history {
   flex: 1;
@@ -502,6 +533,10 @@ html[data-input-modality="keyboard"] .community-message[tabindex]:focus-visible 
   flex-wrap: wrap;
   margin-bottom: 5px;
   line-height: 1.4;
+  /* Clear only the small metadata row so bold wallpaper never crosses text. */
+  background-color: var(--canvas);
+  box-shadow: 0 0 4px 2px var(--canvas);
+  border-radius: 3px;
 }
 .community-message-meta > strong {
   font-size: 14px;

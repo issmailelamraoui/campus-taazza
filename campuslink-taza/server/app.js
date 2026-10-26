@@ -14,7 +14,7 @@ import {createAuthSessionPolicy,googleOAuthConfiguration} from './auth-sessions.
 import {installGoogleOAuthRoutes} from './google-oauth.js';
 import { createStorage, resourceObjectKey, storageObjectKey } from './storage.js';
 import { uploadFilePath } from './upload-path.js';
-import { moduleName, RESOURCE_MODULE_SQL, resolveModule } from './modules.js';
+import { moduleName, RESOURCE_MODULE_SQL, SCOPED_MODULE_RESOURCE_SQL, resolveModule, lockResourceModule, pruneRemovedResourceModule } from './modules.js';
 import { moduleShareResourceId, attachModuleShare, assertSameModuleShare, moduleSharesFor } from './module-sharing.js';
 import { createPermissions } from './permissions.js';
 import { createRateLimiter } from './rate-limit.js';
@@ -423,6 +423,7 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
   }
   async function removeResourceData(r,note,decision={}) {
     await lockContentRemoval(r.faculty_id);
+    await lockResourceModule(db,r);
     const xpRevoked=await revokeFileContribution(db,r,decision);
     const parents=await db.prepare('SELECT DISTINCT m.* FROM messages m LEFT JOIN message_attachments a ON a.message_id=m.id WHERE m.removed=0 AND (m.resource_id=? OR a.resource_id=?)').all(r.id,r.id);
     await db.prepare('UPDATE resources SET removed=1 WHERE id=?').run(r.id);
@@ -438,6 +439,7 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
       const legacy=parent.resource_id&&parent.resource_id!==r.id?await db.prepare('SELECT 1 FROM resources WHERE id=? AND removed=0').get(parent.resource_id):null;
       if(!attachment&&!legacy)await removeChatMessageData(parent,note);
     }
+    await pruneRemovedResourceModule(db,r);
     return xpRevoked;
   }
   async function removeChatMessageData(m,note) {
@@ -564,7 +566,11 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
     if(!filiereBelongsToFaculty(req.user.faculty_id,filiere))throw problem(400,'Choisissez une filière de votre faculté.');
     if(filiere!==req.user.filiere_id&&!permissions.can(req.user,'resource.manage',req.user.faculty_id,filiere)&&!permissions.uploadCapabilities(req.user).scopes.some(scope=>scope.filiereId===filiere))throw problem(403,'Cette bibliothèque appartient à une autre filière.');
     const semester=semesterValue(req.query.semester);
-    const rows=await db.prepare('SELECT id,name,filiere_id,semester FROM modules WHERE faculty_id=? AND filiere_id=? AND semester=? ORDER BY id').all(req.user.faculty_id,filiere,semester);
+    const rows=await db.prepare(`SELECT m.id,m.name,m.filiere_id,m.semester FROM modules m
+      WHERE m.faculty_id=? AND m.filiere_id=? AND m.semester=? AND (
+        EXISTS(SELECT 1 FROM resources r WHERE ${SCOPED_MODULE_RESOURCE_SQL} AND r.removed=0)
+        OR NOT EXISTS(SELECT 1 FROM resources r WHERE ${SCOPED_MODULE_RESOURCE_SQL})
+      ) ORDER BY m.id`).all(req.user.faculty_id,filiere,semester);
     const unique=new Map();for(const row of rows){const key=moduleName(row.name).toLocaleLowerCase();if(!unique.has(key))unique.set(key,row);}
     res.json({modules:[...unique.values()].sort((a,b)=>a.name.localeCompare(b.name))});
   });
@@ -1348,6 +1354,8 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
     const years=req.body.academic_year!==undefined||req.body.academic_years!==undefined?academicYears(req.body.academic_years,req.body.academic_year):yearsOf(r);
     if(req.body.academic_year!==undefined||req.body.academic_years!==undefined){values.academic_year=years[0]||null;values.academic_years=JSON.stringify(years);}
     await transaction(async()=>{
+      await lockContentRemoval(r.faculty_id);
+      if(!await db.prepare('SELECT id FROM resources WHERE id=? AND removed=0 FOR UPDATE').get(r.id))throw problem(404,'Ressource introuvable.');
       const module=values.module??r.module;
       if(r.library_visible!==0&&(values.part_number??r.part_number)) {
         const part=values.part_number??r.part_number;
@@ -1376,6 +1384,7 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
     if(duplicate)return res.status(409).json({error:'Ce fichier existe déjà dans votre faculté.',resource:(await resource(duplicate))});
     let objectKey,uploaded=false;
     try{await transaction(async()=>{
+      await lockContentRemoval(r.faculty_id);
       const current=await db.prepare('SELECT * FROM resources WHERE id=? AND removed=0 FOR UPDATE').get(r.id);
       if(!current)throw problem(404,'Ressource introuvable.');
       if(hash===current.sha256)throw problem(409,'Le fichier est identique à la version actuelle.');

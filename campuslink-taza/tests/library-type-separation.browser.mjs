@@ -74,6 +74,7 @@ async function fixture({ width, language = 'fr', theme = 'light', legacy = true 
     const request = route.request(), path = new URL(request.url()).pathname;
     requests.push(`${request.method()} ${path}`);
     if (path === '/api/session') return route.fulfill({ json: { user } });
+    if (path === '/api/modules' && request.method() === 'GET') return route.fulfill({ json: { modules: [] } });
     if (path === '/api/bootstrap' || path === '/api/live') return route.fulfill({ json: { user,
       faculty: { id: user.faculty_id, code: 'FSA', name: 'Fixture faculty' }, resources,
       messages: [], announcements: [], notifications: [], events: [],
@@ -99,6 +100,9 @@ async function fixture({ width, language = 'fr', theme = 'light', legacy = true 
   await page.goto(origin + '/app/library?semester=5');
   await expect(page.locator('.library-module-folder')).toHaveCount(1);
   await expect(page.locator('html')).toHaveAttribute('dir', language === 'ar' ? 'rtl' : 'ltr');
+  if (!(await page.locator('.library-category-tabs [role="tab"]').first().isVisible())) {
+    await page.locator('.library-toolbar-actions button[aria-controls="library-filters"]').click();
+  }
   return { page, context, errors, requests, uploads, resources };
 }
 

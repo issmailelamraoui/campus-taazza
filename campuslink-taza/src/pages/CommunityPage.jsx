@@ -44,6 +44,7 @@ import {
 } from "lucide-react";
 import { useApp } from "../context";
 import { COMMUNITY_YEAR_CHANNELS, normalizeCommunityChannel, canonicalCommunityMessageId } from "../lib/community";
+import { resolveChatBackground } from "../lib/chat-backgrounds";
 import { SUPPORTED_FILE_ACCEPT, isSupportedFile, fileKey, filesFromDrop, createSessionAttachment, getSessionFile, releaseSessionAttachment } from "../lib/files";
 import { partLabel } from "../lib/resources";
 import { documentFileUrl, isPhoneDocumentViewport } from "../lib/document-open";
@@ -613,6 +614,11 @@ export default function CommunityPage() {
   );
   const requestedMessage = canonicalCommunityMessageId(params.get("message"), allMessages);
   const channel = requestedChannel || "general";
+  const chatBackground = resolveChatBackground({
+    channel,
+    facultyId: selection?.facultyId,
+    filiereId: selection?.filiereId,
+  });
   const [mobileConversation, setMobileConversation] = useState(
     params.has("channel") || params.has("message"),
   );
@@ -1372,7 +1378,12 @@ export default function CommunityPage() {
               </button>
             </div>
           )}
-          <div className="community-history-wrap">
+          <div
+            className="community-history-wrap"
+            data-chat-background={chatBackground.id}
+            data-chat-background-scope={chatBackground.scope}
+            style={{ "--chat-background-image": `url("${chatBackground.image}")` }}
+          >
             <div
               className="community-message-history"
               ref={historyRef}

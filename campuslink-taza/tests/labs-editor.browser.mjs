@@ -7,6 +7,7 @@ import { chooseOption } from './ui.helpers.mjs';
 // the database, or object storage for editor regressions.
 const origin = process.env.CAMPUSLINK_TEST_URL || 'http://127.0.0.1:5180';
 const engine = process.env.CAMPUS_TEST_BROWSER || 'chromium';
+const redoKey = process.platform === 'win32' ? 'Control+y' : 'Control+Shift+Z';
 assert.ok(['chromium', 'firefox'].includes(engine));
 const browser = await ({ chromium, firefox })[engine].launch({ headless: true,
   ...(engine === 'chromium' ? { args: ['--no-sandbox', '--disable-dev-shm-usage'] } : {}) });
@@ -53,7 +54,7 @@ async function fixture(settings) {
   await context.route('**/api/**', async route => {
     const request = route.request(), path = new URL(request.url()).pathname;
     if (path === '/api/session') return route.fulfill({ json: { user } });
-    if (path === '/api/bootstrap') return route.fulfill({ json: { user, faculty: { id: 'flaa', code: 'FLAA', name: 'Fixture faculty' }, resources: [], notifications: [], announcements: [], messages: [], saved: [], history: [], channels: [] } });
+    if ((path === '/api/bootstrap' || path === '/api/live') && request.method() === 'GET') return route.fulfill({ json: { user, faculty: { id: 'flaa', code: 'FLAA', name: 'Fixture faculty' }, resources: [], notifications: [], announcements: [], messages: [], saved: [], history: [], channels: [] } });
     if (path === '/api/labs' && request.method() === 'GET') return route.fulfill({ json: { sessions, languages: ['javascript', 'json', 'python', 'c', 'cpp'] } });
     if (path === '/api/labs' && request.method() === 'POST') {
       const session = { id: `fixture-${sessions.length}`, ...request.postDataJSON(), source: '', result: {}, updatedAt: new Date().toISOString(), completedAt: null };
@@ -100,7 +101,7 @@ async function pasteDocument(page, editor, source) {
 async function fits(page) {
   const geometry = await page.evaluate(() => {
     const root = document.documentElement;
-    const elements = ['.labs-editor-frame', '.labs-editor-status', '.labs-editor-legend', '.cm-content'];
+    const elements = ['.labs-editor-frame', '.labs-editor-status', '.cm-content'];
     return { width: root.clientWidth, scroll: root.scrollWidth, boxes: elements.map(selector => {
       const r = document.querySelector(selector).getBoundingClientRect();
       return { selector, left: r.left, right: r.right };
@@ -127,9 +128,9 @@ try {
         function rgb(color) { painter.clearRect(0, 0, 1, 1); painter.fillStyle = color; painter.fillRect(0, 0, 1, 1); return [...painter.getImageData(0, 0, 1, 1).data].slice(0, 3); }
         function luminance(color) { return rgb(color).map(value => { const c = value / 255; return c <= .04045 ? c / 12.92 : ((c + .055) / 1.055) ** 2.4; }).reduce((sum, value, index) => sum + value * [.2126, .7152, .0722][index], 0); }
         const background = getComputedStyle(document.querySelector('.cm-editor')).backgroundColor, bg = luminance(background);
+        const palette = getComputedStyle(document.querySelector('.labs-page'));
         const entries = ['keyword', 'function', 'variable', 'property', 'class', 'string', 'number', 'comment'].map(type => {
-          const element = document.querySelector(`.labs-editor-legend .labs-token-${type}`);
-          const color = getComputedStyle(element).color, l = luminance(color);
+          const color = `rgb(${rgb(palette.getPropertyValue(`--labs-${type}`)).join(', ')})`, l = luminance(color);
           return { type, color, contrast: (Math.max(bg, l) + .05) / (Math.min(bg, l) + .05) };
         });
         function leafColor(selector) { let leaf = document.querySelector(selector); while (leaf.firstElementChild) leaf = leaf.firstElementChild; return getComputedStyle(leaf).color; }
@@ -166,7 +167,7 @@ try {
         await expect.poll(() => text(page)).toBe('console.log("hello");');
         await editor.press('Control+z');
         assert.equal(await text(page), 'console.log(¨hello¨);', 'Explicit quote correction should be independently undoable');
-        await editor.press('Control+Shift+Z');
+        await editor.press(redoKey);
         await expect.poll(() => text(page)).toBe('console.log("hello");');
         await editor.press('Control+End'); await page.keyboard.type(' // next draft');
         const beforeGraphsPosition = await page.locator('.labs-editor-position').textContent();
@@ -176,9 +177,10 @@ try {
         assert.equal(await page.locator('.labs-editor-position').textContent(), beforeGraphsPosition, 'Graphs must preserve the code cursor position');
         await editor.press('Control+z');
         assert.equal(await text(page), 'console.log("hello");', 'Switching to Graphs must preserve the code undo history');
-        await editor.press('Control+Shift+Z');
+        await editor.press(redoKey);
         assert.equal(await text(page), 'console.log("hello"); // next draft');
         await editor.fill('const privateDraft = 123;');
+        await page.locator('details').filter({ has: page.locator('.labs-session-list') }).locator('summary').click();
         await page.locator('.labs-session-list button').first().click();
         await expect.poll(() => text(page)).toBe('console.log("saved session");');
         await editor.press('Control+z');

@@ -46,12 +46,15 @@ test('Python grammar checks incomplete suites and top-level indentation without 
 test('parsing never imports Python source, opens C includes, or executes any program', async () => {
   const directory = mkdtempSync(join(tmpdir(), 'campuslink-labs-noexec-'));
   const marker = join(directory, 'executed');
+  // Use a portable header-name token, rather than Windows-native backslashes
+  // that the C/C++ grammar interprets as part of malformed include syntax.
+  const missingHeader = join(directory, 'nonexistent-secret.h').replaceAll('\\', '/');
   try {
     const python = await validateLabSource('python', `from pathlib import Path\nPath(${JSON.stringify(marker)}).write_text("executed")\nwhile True:\n    pass\n`);
     assert.equal(python.status, 'valid_syntax');
     assert.equal(existsSync(marker), false);
     for (const language of ['c', 'cpp']) {
-      const result = await validateLabSource(language, `#include "${join(directory, 'nonexistent-secret.h')}"\nint main() { while (1) {} return 0; }\n`);
+      const result = await validateLabSource(language, `#include "${missingHeader}"\nint main() { while (1) {} return 0; }\n`);
       // Includes are syntax tokens. These are not successful compilation claims.
       assert.equal(result.status, 'valid_syntax');
       assert.equal(existsSync(marker), false);

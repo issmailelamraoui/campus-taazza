@@ -93,7 +93,10 @@ async function clang(language, source, input) {
     }));
     const compileMs = Math.round(performance.now() - started);
     if (compiled.error) { output('stderr', compilerDiagnostics(compiled.raw).join('\n') || compiled.error.message); return { status: 'error', exitCode: null, compileMs }; }
-    const artifact = { ...compiled.result, bytes: boundWasmMemory(compiled.result.bytes, 128) };
+    // compileArtifact also returns a Module compiled from the original bytes.
+    // The executor prefers that Module, so discard it after bounding memory or
+    // it would instantiate the unbounded program instead of these patched bytes.
+    const artifact = { ...compiled.result, bytes: boundWasmMemory(compiled.result.bytes, 128), wasm: undefined };
     let consumed = false;
     phase('running');
     const result = await toolchain.execute(artifact, { stdin: () => { if (consumed) return null; consumed = true; return input; }, stdout: text => output('stdout', text), stderr: text => output('stderr', text) });

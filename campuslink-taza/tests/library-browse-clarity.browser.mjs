@@ -73,6 +73,7 @@ async function fixture(settings) {
     const request = route.request(), path = new URL(request.url()).pathname;
     requests.push(`${request.method()} ${path}`);
     if (path === '/api/session') return route.fulfill({ json: { user } });
+    if (path === '/api/modules' && request.method() === 'GET') return route.fulfill({ json: { modules: [] } });
     if (path === '/api/bootstrap' || path === '/api/live') return route.fulfill({ json: { user, faculty: { id: 'fsa', code: 'FSA', name: 'Fixture faculty' }, resources: items,
       messages: [], announcements: [], notifications: [], saved: [], history: [], events: [], members: [], channels: [{ id: 'general', read_only: false }] } });
     if (path === '/api/history') { writes.push({ path, body: request.postDataJSON() }); return route.fulfill({ json: { ok: true } }); }
@@ -248,13 +249,13 @@ try {
       await expect(page.locator('.document-card')).toHaveCount(2);
       await categories.nth(1).click();
       await expect(page.locator('.document-card')).toHaveCount(1);
-      const year = page.locator('.library-academic-year-control').getByRole('combobox');
-      await usable(year, `${label}: academic year`);
-      await choose(page, year, '2026/2027');
       const filters = page.locator('.library-toolbar-actions button[aria-controls="library-filters"]');
       await usable(filters, `${label}: advanced filters`);
       await filters.click();
       await expect(filters).toHaveAttribute('aria-expanded', 'true');
+      const year = page.locator('.library-academic-year-control').getByRole('combobox');
+      await usable(year, `${label}: academic year`);
+      await choose(page, year, '2026/2027');
       const author = page.locator('#library-filters').getByRole('combobox').nth(0);
       await usable(author, `${label}: author filter`);
       await choose(page, author, firstAuthor);

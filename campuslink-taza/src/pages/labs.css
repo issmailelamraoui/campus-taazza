@@ -132,3 +132,55 @@
 @media(pointer:coarse){.labs-code-editor .cm-content,.labs-code-editor .cm-search .cm-textfield{font-size:16px}.labs-editor-tools button{min-height:40px}}
 
 @media(max-width:900px){.labs-toolbar>.btn,.labs-actions .btn,.labs-source-hint .btn{min-height:44px}.labs-console-toolbar>div{flex-wrap:wrap;justify-content:flex-end;gap:6px}}
+
+/* Keep the code, its Run action, and real output together. Supporting material
+   is available on demand instead of taking space from the workbench. */
+.labs-page > .page-heading { margin-bottom: 12px; }
+.labs-page > .tabs { margin-bottom: 12px; }
+.labs-layout { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+.labs-workspace { padding: 16px; }
+.labs-toolbar { margin-bottom: 12px; }
+.labs-toolbar .field { flex: 0 1 220px; min-width: 125px; }
+.labs-code-panels { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; align-items: stretch; }
+.labs-source-pane { min-width: 0; }
+.labs-editor-title { min-height: 50px; padding: 7px 10px; flex-wrap: wrap; }
+.labs-editor-title > span:first-child { min-width: 0; overflow-wrap: anywhere; }
+.labs-run-controls { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 7px; max-width: 100%; margin-inline-start: auto; }
+.labs-run-controls .btn { min-height: 36px; padding: 7px 11px; font: 12px var(--font); }
+.labs-run-controls .labs-shortcut { margin: 0 3px; }
+.labs-source-pane .labs-code-editor,
+.labs-source-pane .labs-code-editor :is(.cm-editor, .cm-content, .cm-scroller) { min-height: 300px; }
+.labs-source-pane .labs-code-editor .cm-scroller { max-height: 420px; }
+.labs-input-panel { margin-top: 6px; }
+.labs-input-panel summary { font-size: 11px; padding-block: 5px; }
+.labs-code-panels > .labs-console { display: flex; flex-direction: column; min-width: 0; max-height: 540px; }
+.labs-console-output { flex: 1; min-height: 150px; max-height: 440px; }
+.labs-console-placeholder { font-size: 12px; line-height: 1.7; }
+.labs-output-example { display: block; margin-top: 8px; color: var(--ink); font: 12px/1.7 ui-monospace, SFMono-Regular, Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+.labs-actions { margin: 12px 0 0; gap: 10px; }
+.labs-actions .labs-xp-choice { margin: 0; padding: 7px 9px; align-items: center; font-size: 11px; }
+.labs-xp-choice input { margin-top: 0; }
+.labs-actions .labs-xp-status { margin: 0; font-size: 11px; }
+.labs-practice-details { margin-top: 12px; font-size: 11px; line-height: 1.7; color: var(--muted); }
+.labs-practice-details summary { cursor: pointer; width: fit-content; }
+.labs-practice-details p { max-width: 800px; margin: 8px 0 0; }
+.labs-sessions-panel { min-width: 0; padding: 12px 16px; }
+.labs-sessions-panel > summary { cursor: pointer; font-size: 12px; font-weight: 600; }
+.labs-sessions-panel > summary > span { margin-inline-start: 7px; color: var(--muted); font-weight: 400; }
+.labs-sessions-panel .labs-session-list { margin-top: 12px; grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr)); }
+.labs-sessions-panel > p { margin: 10px 0 0; font-size: 12px; }
+.labs-sessions-loading { margin-bottom: 10px; }
+@media (min-width: 1000px) {
+  .labs-code-panels { grid-template-columns: minmax(0, 3fr) minmax(260px, 2fr); }
+}
+@media (max-width: 650px) {
+  .labs-workspace { padding: 10px; }
+  .labs-editor-title { gap: 6px; padding-inline: 8px; }
+  .labs-run-controls { gap: 6px; }
+  .labs-run-controls .btn { min-height: 44px; padding-inline: 9px; font-size: 11px; }
+  .labs-source-pane .labs-code-editor,
+  .labs-source-pane .labs-code-editor :is(.cm-editor, .cm-content, .cm-scroller) { min-height: 230px; }
+  .labs-source-pane .labs-code-editor .cm-scroller { max-height: 330px; }
+  .labs-console-output { min-height: 130px; }
+  .labs-sessions-panel { padding: 12px; }
+}

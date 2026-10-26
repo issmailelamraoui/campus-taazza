@@ -1,12 +1,15 @@
 import LibraryReport from '../components/LibraryReport';
 import { Select } from "../components/Select";
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { useLocation, useSearchParams } from "react-router-dom";
+import { createPortal } from "react-dom";
+import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import {
   ArrowDownUp,
   ArrowLeft,
   ArrowRight,
   BookOpen,
+  LoaderCircle,
+  RotateCw,
   Check,
   ChevronDown,
   Filter,
@@ -49,6 +52,8 @@ import {
 import UploadModal from "../components/UploadModal";
 import DocumentTextSearch from "../components/DocumentTextSearch";
 import { ModuleShareDialog, useModuleLongPress } from "../components/ModuleShare";
+import { normalizeLibrarySearch, matchesLibrarySearch, parseLibraryDocumentPage, normalizeLibraryDate } from "../lib/library-browse";
+import { useLibraryModules } from "../lib/use-library-modules";
 import "./library.css";
 const semesterNumber = (value) =>
   Number(String(value ?? "").replace(/^s/i, ""));
@@ -78,29 +83,36 @@ const groupByCategory = (items) => {
 function ModuleActions({ children, resource, label, onShare, choice = false }) {
   const { tr } = useApp();
   const share = () => onShare(resource);
-  const longPress = useModuleLongPress(share);
-  return <div className={`library-module-tile${choice ? ' is-choice' : ' card'}`} {...longPress}>
+  const longPress = useModuleLongPress(() => { if (resource) share(); });
+  return <div className={`library-module-tile${choice ? ' is-choice' : ' card'}${!resource ? ' is-empty' : ''}`} {...(resource ? longPress : {})}>
     {children}
-    <button className="library-module-share" type="button" onClick={share}
-      aria-label={tr(`Partager le module ${label}`, `Share module ${label}`, `مشاركة وحدة ${label}`)} title={tr('Partager dans un chat', 'Share to chat', 'مشاركة في دردشة')}><Share2 size={17} aria-hidden="true" /></button>
+    {resource && <button className="library-module-share" type="button" onClick={share}
+      aria-label={tr(`Partager le module ${label}`, `Share module ${label}`, `مشاركة وحدة ${label}`)} title={tr('Partager dans un chat', 'Share to chat', 'مشاركة في دردشة')}><Share2 size={17} aria-hidden="true" /></button>}
   </div>;
 }
 export function orderLibraryResources(items, sort = "recent", currentYear = "", filterYear = "") {
   return orderResourcesByAcademicYear(items, sort, currentYear, filterYear);
 }
 export default function LibraryPage() {
-  const { t, tr, language, user, selection, faculty, filiere, resources, updateResourceAcademicYears } = useApp();
+  const { t, tr, language, user, selection, loading, resources, updateResourceAcademicYears } = useApp();
   const currentAcademicYear = normalizeAcademicYear(user?.currentAcademicYear ?? user?.current_academic_year);
   const [searchParams, setSearchParams] = useSearchParams();
   const location = useLocation();
+  const navigate = useNavigate();
   const handledResourceLink = useRef(null);
   const resultsHeading = useRef(null);
   const directoryHeading = useRef(null);
   const pendingFolderScroll = useRef(false);
   const modulePicker = useRef(null);
+  const moduleOverlay = useRef(null);
   const filterChips = useRef(null);
   const searchInput = useRef(null);
   const pendingModuleScroll = useRef(false);
+  const moduleTrigger = useRef(null);
+  const moduleSearchInput = useRef(null);
+  const pendingPickerFocus = useRef(false);
+  const pendingModuleFocus = useRef(false);
+  const pendingFolderFocus = useRef(false);
   // The URL is the single source of filter state, including native Back/Forward.
   const requestedSemester = semesterNumber(
     searchParams.get("semester") || selection?.semester || 1,
@@ -116,18 +128,21 @@ export default function LibraryPage() {
     ? requestedCategory
     : "all";
   const query = searchParams.get("q") || "";
+  const requestedView = searchParams.get("view") === "documents" ? "documents" : "modules";
+  const overviewView = query.trim() ? "documents" : requestedView;
+  const showDocumentResults = module !== null || overviewView === "documents";
   const requestedSort = searchParams.get("sort");
   const sort = ["recent", "oldest", "title", "part"].includes(requestedSort) ? requestedSort : "recent";
   const author = searchParams.get("author") || "all";
   const part = searchParams.get("part") || "all";
-  const date = searchParams.get("date") || "all";
+  const date = normalizeLibraryDate(searchParams.get("date"));
   const requestedYear = searchParams.get("year");
   const year = requestedYear === "unknown" ? "unknown" : normalizeAcademicYear(requestedYear) || "all";
   const [showFilters, setShowFilters] = useState(false);
   const [showUpload, setShowUpload] = useState(false);
   const [showModulePicker, setShowModulePicker] = useState(false);
   const [moduleQuery, setModuleQuery] = useState("");
-  const [documentPage, setDocumentPage] = useState(0);
+  const documentPage = parseLibraryDocumentPage(searchParams.get("documentsPage"));
   const [yearEditor, setYearEditor] = useState(null);
   const [editedYears, setEditedYears] = useState([]);
   const [savingYears, setSavingYears] = useState(false);
@@ -145,16 +160,15 @@ export default function LibraryPage() {
       ),
     [resources, semester, selection?.facultyId, selection?.filiereId],
   );
-  const semesterFolders = useMemo(
-    () => groupResourcesByModule(semesterResources),
-    [semesterResources],
+  const { folders: semesterFolders, status: moduleStatus, retry: retryModules } = useLibraryModules(
+    semesterResources, user?.id, selection?.facultyId, selection?.filiereId, semester,
   );
   const matchingModuleFolders = useMemo(() => {
-    const search = normalizeModule(moduleQuery);
+    const search = normalizeLibrarySearch(moduleQuery);
     return semesterFolders.filter(
       (folder) =>
-        folder.key.includes(search) ||
-        normalizeModule(
+        normalizeLibrarySearch(folder.key).includes(search) ||
+        normalizeLibrarySearch(
           folder.name || tr("Sans module", "Unclassified", "بدون وحدة"),
         ).includes(search),
     );
@@ -165,18 +179,65 @@ export default function LibraryPage() {
   }, [semester, module]);
   useEffect(() => {
     if (!showModulePicker) return;
-    const frame = requestAnimationFrame(() =>
-      modulePicker.current?.scrollIntoView({
-        block: "nearest",
-        behavior: "auto",
-      }),
-    );
-    return () => cancelAnimationFrame(frame);
+    const previousOverflow = document.body.style.overflow;
+    const background = [...document.body.children].filter(node => node !== moduleOverlay.current && node instanceof HTMLElement && !['SCRIPT', 'STYLE', 'LINK'].includes(node.tagName)).map(node => [node, node.inert]);
+    document.body.style.overflow = 'hidden';
+    background.forEach(([node]) => { node.inert = true; });
+    const fitViewport = () => {
+      const viewport = window.visualViewport;
+      const height = viewport?.height || window.innerHeight;
+      const inset = Math.max(0, window.innerHeight - height - (viewport?.offsetTop || 0));
+      modulePicker.current?.style.setProperty('--library-picker-keyboard', `${inset}px`);
+      modulePicker.current?.style.setProperty('--library-picker-room', `${Math.max(100, height - (inset > 0 ? 32 : 100))}px`);
+      moduleOverlay.current?.style.setProperty('--library-picker-height', `${height}px`);
+      moduleOverlay.current?.style.setProperty('--library-picker-top', `${viewport?.offsetTop || 0}px`);
+      moduleOverlay.current?.style.setProperty('--library-picker-bottom-space', inset > 0 ? '12px' : 'calc(68px + env(safe-area-inset-bottom, 0px))');
+    };
+    const frame = requestAnimationFrame(() => {
+      fitViewport();
+      if (pendingPickerFocus.current) moduleSearchInput.current?.focus({ preventScroll: true });
+      else modulePicker.current?.focus({ preventScroll: true });
+      pendingPickerFocus.current = false;
+    });
+    const outside = event => {
+      if (!modulePicker.current?.contains(event.target) && !moduleTrigger.current?.contains(event.target)) setShowModulePicker(false);
+    };
+    const escape = event => {
+      if (event.key === 'Tab') {
+        const choices = [...modulePicker.current?.querySelectorAll('button:not(:disabled),input:not(:disabled),[tabindex="0"]') || []].filter(node => node.getClientRects().length);
+        const first = choices[0], last = choices.at(-1);
+        if (event.shiftKey && (document.activeElement === first || document.activeElement === modulePicker.current)) { event.preventDefault(); last?.focus(); }
+        else if (!event.shiftKey && (document.activeElement === last || !modulePicker.current?.contains(document.activeElement))) { event.preventDefault(); first?.focus(); }
+        return;
+      }
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      setShowModulePicker(false);
+      moduleTrigger.current?.focus({ preventScroll: true });
+    };
+    document.addEventListener("pointerdown", outside);
+    document.addEventListener("keydown", escape);
+    window.addEventListener("resize", fitViewport);
+    window.visualViewport?.addEventListener("resize", fitViewport);
+    window.visualViewport?.addEventListener("scroll", fitViewport);
+    return () => {
+      cancelAnimationFrame(frame);
+      document.removeEventListener("pointerdown", outside);
+      document.removeEventListener("keydown", escape);
+      window.removeEventListener("resize", fitViewport);
+      window.visualViewport?.removeEventListener("resize", fitViewport);
+      window.visualViewport?.removeEventListener("scroll", fitViewport);
+      background.forEach(([node, inert]) => { node.inert = inert; });
+      document.body.style.overflow = previousOverflow;
+      moduleTrigger.current?.focus({ preventScroll: true });
+    };
   }, [showModulePicker]);
   useEffect(() => {
     if (!pendingModuleScroll.current) return;
     const frame = requestAnimationFrame(() => {
       pendingModuleScroll.current = false;
+      if (pendingModuleFocus.current) resultsHeading.current?.focus({ preventScroll: true });
+      pendingModuleFocus.current = false;
       resultsHeading.current?.scrollIntoView({
         block: "start",
         behavior: "auto",
@@ -188,7 +249,10 @@ export default function LibraryPage() {
     if (!pendingFolderScroll.current) return;
     const frame = requestAnimationFrame(() => {
       pendingFolderScroll.current = false;
-      directoryHeading.current?.scrollIntoView({ block: "start", behavior: "auto" });
+      const heading = directoryHeading.current || resultsHeading.current;
+      if (pendingFolderFocus.current) heading?.focus({ preventScroll: true });
+      pendingFolderFocus.current = false;
+      heading?.scrollIntoView({ block: "start", behavior: "auto" });
     });
     return () => cancelAnimationFrame(frame);
   }, [folder, folderOwner]);
@@ -214,20 +278,17 @@ export default function LibraryPage() {
   );
   const availableYears = useMemo(() => [...new Set(semesterResources.flatMap(resourceAcademicYears))]
     .sort((a, b) => compareAcademicYears(a, b, currentAcademicYear)), [semesterResources, currentAcademicYear]);
-  const filterCount = [author, part, date].filter(
+  const filterCount = [author, part, date, year].filter(
     (value) => value !== "all",
   ).length;
   const filteredBase = useMemo(
     () =>
       semesterResources.filter((item) => {
-        const haystack =
-          `${item.title} ${item.originalName || ""} ${item.module} ${item.author || ""} ${item.uploader || ""} ${item.fileType || ""}`.toLocaleLowerCase();
         const age = Date.now() - new Date(item.date).getTime();
         return (
           (module === null ||
             normalizeModule(item.module) === normalizeModule(module)) &&
-          (!query.trim() ||
-            haystack.includes(query.trim().toLocaleLowerCase())) &&
+          matchesLibrarySearch(item, query) &&
           (author === "all" || item.author === author) &&
           (part === "all" || normalizePart(item.part) === part) &&
           (year === "all" || (year === "unknown" ? !resourceAcademicYears(item).length : resourceAcademicYears(item).includes(year))) &&
@@ -246,9 +307,10 @@ export default function LibraryPage() {
       ),
     [filteredBase, category, sort, currentAcademicYear, year],
   );
-  const folders = useMemo(() => groupResourcesByModule(visible), [visible]);
+  const hasModuleRefinements = Boolean(query.trim() || category !== "all" || author !== "all" || part !== "all" || date !== "all" || year !== "all");
+  const folders = useMemo(() => hasModuleRefinements ? groupResourcesByModule(visible) : semesterFolders, [visible, semesterFolders, hasModuleRefinements]);
   const directory = useMemo(() => browseResourceDirectory(visible, folder, folderOwner), [visible, folder, folderOwner]);
-  const directoryDocuments = module === null ? visible : directory.documents;
+  const directoryDocuments = module === null || (query.trim() && !folder) ? visible : directory.documents;
   const lastDocumentPage = Math.max(
     0,
     Math.ceil(directoryDocuments.length / DOCUMENTS_PER_PAGE) - 1,
@@ -260,14 +322,18 @@ export default function LibraryPage() {
     pageStart + DOCUMENTS_PER_PAGE,
   );
   const pageYearGroups = groupResourcesByAcademicYear(pageDocuments, currentAcademicYear, year);
-  useEffect(
-    () => setDocumentPage(0),
-    [semester, module, folder, folderOwner, category, query, sort, author, part, date, year],
-  );
-  useEffect(
-    () => setDocumentPage((page) => Math.min(page, lastDocumentPage)),
-    [lastDocumentPage],
-  );
+  useEffect(() => {
+    if (loading) return;
+    const canonicalPage = pageNumber ? String(pageNumber + 1) : null;
+    const canonicalDate = date === "all" ? null : date;
+    if (searchParams.get("documentsPage") === canonicalPage && searchParams.get("date") === canonicalDate) return;
+    const params = new URLSearchParams(searchParams);
+    if (canonicalPage) params.set("documentsPage", canonicalPage);
+    else params.delete("documentsPage");
+    if (canonicalDate) params.set("date", canonicalDate);
+    else params.delete("date");
+    navigate({ pathname: location.pathname, search: `?${params}`, hash: location.hash }, { replace: true });
+  }, [loading, pageNumber, date, searchParams, navigate, location.pathname, location.hash]);
   useEffect(() => {
     const target = /^#resource-(.+)$/.exec(location.hash);
     const link = location.search + location.hash;
@@ -275,23 +341,26 @@ export default function LibraryPage() {
       handledResourceLink.current = null;
       return;
     }
-    if (module === null || handledResourceLink.current === link) return;
+    if ((module === null && !showDocumentResults) || handledResourceLink.current === link) return;
     const linkedDocument = visible.find(document => String(document.id) === target[1]);
     if (!linkedDocument) return;
     const targetFolder = resourceDirectory(linkedDocument);
     const targetOwner = targetFolder ? resourceFolderOwner(linkedDocument) : "";
-    if (folder !== targetFolder || folderOwner !== targetOwner) {
+    if (module !== null && (folder !== targetFolder || folderOwner !== targetOwner)) {
       const params = new URLSearchParams(searchParams);
       if (targetFolder) { params.set("folder", targetFolder); params.set("folderOwner", targetOwner); }
       else { params.delete("folder"); params.delete("folderOwner"); }
-      setSearchParams(params, { replace: true });
+      navigate({ pathname: location.pathname, search: `?${params}`, hash: location.hash }, { replace: true });
       return;
     }
     const index = directoryDocuments.findIndex(document => String(document.id) === target[1]);
     if (index < 0) return;
     const targetPage = Math.floor(index / DOCUMENTS_PER_PAGE);
     if (pageNumber !== targetPage) {
-      setDocumentPage(targetPage);
+      const params = new URLSearchParams(searchParams);
+      if (targetPage) params.set("documentsPage", String(targetPage + 1));
+      else params.delete("documentsPage");
+      navigate({ pathname: location.pathname, search: `?${params}`, hash: location.hash }, { replace: true });
       return;
     }
     const frame = requestAnimationFrame(() => {
@@ -302,7 +371,7 @@ export default function LibraryPage() {
       }
     });
     return () => cancelAnimationFrame(frame);
-  }, [location.search, location.hash, module, folder, folderOwner, visible, directoryDocuments, pageNumber]);
+  }, [location.search, location.hash, location.pathname, module, folder, folderOwner, visible, directoryDocuments, pageNumber, showDocumentResults, navigate]);
   const navigateLibrary = (patch, options = {}) => {
     const state = {
       semester,
@@ -316,10 +385,16 @@ export default function LibraryPage() {
       part,
       date,
       year,
+      view: requestedView,
+      documentPage,
       ...patch,
     };
     const params = new URLSearchParams(searchParams);
     params.set("semester", String(state.semester));
+    if (state.view === "documents") params.set("view", "documents");
+    else params.delete("view");
+    if (Object.hasOwn(patch, "documentPage") && state.documentPage > 0) params.set("documentsPage", String(state.documentPage + 1));
+    else params.delete("documentsPage");
     if (state.module === null) params.delete("module");
     else params.set("module", state.module);
     if (state.module === null || !state.folder) { params.delete("folder"); params.delete("folderOwner"); }
@@ -334,18 +409,20 @@ export default function LibraryPage() {
     else params.delete("q");
     setSearchParams(params, options);
   };
-  const openModule = (name) => {
+  const openModule = (name, event) => {
     pendingModuleScroll.current = true;
+    pendingModuleFocus.current = event?.detail === 0;
     setShowModulePicker(false);
     setModuleQuery("");
-    navigateLibrary({ module: name, folder: "", folderOwner: "" });
+    navigateLibrary({ module: name, folder: "", folderOwner: "", view: "modules", ...(name === null ? { query: "" } : {}) });
   };
-  const openFolder = (path, owner = folderOwner, folderCategory = category) => {
+  const openFolder = (path, owner = folderOwner, folderCategory = category, event) => {
     pendingFolderScroll.current = true;
+    pendingFolderFocus.current = event?.detail === 0;
     navigateLibrary({ folder: path, folderOwner: path ? owner : "", category: folderCategory });
   };
   const changeDocumentPage = (page) => {
-    setDocumentPage(Math.max(0, Math.min(page, lastDocumentPage)));
+    navigateLibrary({ documentPage: Math.max(0, Math.min(page, lastDocumentPage)) });
     requestAnimationFrame(() =>
       resultsHeading.current?.scrollIntoView({
         block: "start",
@@ -417,114 +494,54 @@ export default function LibraryPage() {
     date !== "all" && { key: "date", label: dateLabels[date] || date, patch: { date: "all" } },
   ].filter(Boolean);
   const hasActiveFilters = activeFilters.length > 0;
+  const isBrowsingModules = module === null && overviewView === "modules" && !hasActiveFilters && !showFilters;
+  const resultsCount = module !== null && folder ? directoryDocuments.length : visible.length;
+  const moduleCatalogueState = (moduleStatus === "loading" || moduleStatus === "error") && (
+    <div className="library-module-picker-state" data-state={moduleStatus} role="status">
+      {moduleStatus === "loading" ? <><LoaderCircle size={18} className="library-module-loading" aria-hidden="true" /><span>{tr("Chargement des modules…", "Loading modules…", "جارٍ تحميل الوحدات…")}</span></>
+        : <><span>{tr("Impossible de charger les modules.", "Could not load modules.", "تعذر تحميل الوحدات.")}</span><button type="button" className="library-module-retry" onClick={retryModules}><RotateCw size={14} aria-hidden="true" />{tr("Réessayer", "Retry", "إعادة المحاولة")}</button></>}
+    </div>
+  );
+  const handleModuleKeys = event => {
+    const choices = [...modulePicker.current?.querySelectorAll('.module-choice') || []];
+    const index = choices.indexOf(document.activeElement);
+    let target;
+    if (event.key === "ArrowDown") target = choices[Math.min(index + 1, choices.length - 1)];
+    else if (event.key === "ArrowUp" && index >= 0) target = index === 0 ? moduleSearchInput.current : choices[index - 1];
+    else if (index >= 0 && event.key === "Home") target = choices[0];
+    else if (index >= 0 && event.key === "End") target = choices.at(-1);
+    if (target) { event.preventDefault(); target.focus(); }
+  };
   const resultsContext = (
-    <div
-      ref={resultsHeading}
-      className={`library-results-heading ${module === null ? "is-overview" : "is-module"}`}
-    >
-      {module !== null && (
-        <Button
-          variant="ghost"
-          icon={ArrowLeft}
-          className="library-back-to-modules"
-          onClick={() => openModule(null)}
-        >
-          {tr("Tous les modules", "All modules", "كل الوحدات")}
-        </Button>
-      )}
+    <div ref={resultsHeading} tabIndex={-1} className={`library-results-heading ${module === null ? "is-overview" : "is-module"}`}>
+      {module !== null && <Button variant="ghost" icon={ArrowLeft} className="library-back-to-modules" onClick={event => openModule(null, event)}>{tr("Tous les modules", "All modules", "كل الوحدات")}</Button>}
       <div className="library-results-context">
-        <div
-          className="library-results-body"
-          style={{ width: "100%", minWidth: 0 }}
-        >
+        <div className="library-results-body">
           <div className="library-results-header">
-            {module === null && (
-              <span className="library-folder-symbol">
-                <FolderOpen size={25} strokeWidth={1.6} />
-              </span>
-            )}
             <div className="library-results-title">
-              <span className="library-section-label library-results-eyebrow">
-                {module !== null && (
-                  <FolderOpen size={17} strokeWidth={1.6} aria-hidden="true" />
-                )}
-                {module === null
-                  ? tr(
-                      "Dossiers du semestre",
-                      "Semester folders",
-                      "مجلدات الفصل الدراسي",
-                    )
-                  : tr(
-                      "Vous êtes dans le module",
-                      "You are in this module",
-                      "أنت في هذه الوحدة",
-                    )}
-              </span>
-              <h2 dir="auto">
-                {module === null
-                  ? tr("Modules", "Modules", "الوحدات")
-                  : folderLabel(moduleDisplayName(module))}
-              </h2>
+              <h2 dir="auto">{module === null ? overviewView === "documents" ? tr("Documents", "Documents", "الوثائق") : tr("Modules", "Modules", "الوحدات") : folderLabel(moduleDisplayName(module))}</h2>
               <span className="library-results-count muted" role="status" aria-live="polite" aria-atomic="true">
-                {module === null && <>{folders.length} {tr("modules", "modules", "وحدات")} · </>}
-                {visible.length}{" "}
-                {tr(
-                  visible.length === 1 ? "document" : "documents",
-                  visible.length === 1 ? "document" : "documents",
-                  "وثيقة",
-                )}{" "}
-                · S{semester}
+                {module === null && overviewView === "modules" && <>{folders.length} {tr(folders.length === 1 ? "module" : "modules", folders.length === 1 ? "module" : "modules", folders.length === 1 ? "وحدة" : "وحدات")} · </>}
+                {resultsCount} {tr(resultsCount === 1 ? "document" : "documents", resultsCount === 1 ? "document" : "documents", "وثيقة")} · S{semester}
+                {folder && directory.folders.length > 0 && <> · {directory.folders.length} {tr("dossiers", "folders", "مجلدات")}</>}
               </span>
             </div>
-            {module !== null && semesterResources.some(item => normalizeModule(item.module) === normalizeModule(module)) && <Button
-              className="library-share-current-module" variant="ghost" icon={Share2}
-              onClick={() => setSharedResource(semesterResources.find(item => normalizeModule(item.module) === normalizeModule(module)))}>
-              {tr('Partager le module', 'Share module', 'مشاركة الوحدة')}
-            </Button>}
+            {module === null && <div className="library-view-switch" role="group" aria-label={tr("Affichage de la bibliothèque", "Library view", "عرض المكتبة")}>
+              <button type="button" data-view="modules" aria-pressed={overviewView === "modules"} onClick={() => navigateLibrary({ view: "modules", query: "" })}><Folder size={15}/>{tr("Modules", "Modules", "الوحدات")}</button>
+              <button type="button" data-view="documents" aria-pressed={overviewView === "documents"} onClick={() => navigateLibrary({ view: "documents" })}><BookOpen size={15}/>{tr("Documents", "Documents", "الوثائق")}</button>
+            </div>}
+            {module !== null && semesterResources.some(item => normalizeModule(item.module) === normalizeModule(module)) && <Button className="library-share-current-module" variant="ghost" icon={Share2} onClick={() => setSharedResource(semesterResources.find(item => normalizeModule(item.module) === normalizeModule(module)))}>{tr('Partager le module', 'Share module', 'مشاركة الوحدة')}</Button>}
           </div>
-          {module === null && visible.length > 0 && (
-            <div className="library-results-cards">
-              <div className="library-document-grid library-module-grid">
-                {folders.map((folder) => (
-                  <ModuleActions key={folder.key} resource={folder.documents[0]} label={folderLabel(folder.name)} onShare={setSharedResource}>
-                  <button
-                    type="button"
-                    className="library-module-folder"
-                    aria-label={
-                      tr("Ouvrir le module", "Open module", "فتح الوحدة") +
-                      " " +
-                      folderLabel(folder.name)
-                    }
-                    onClick={() => openModule(folder.key)}
-                  >
-                    <span className="library-folder-symbol">
-                      <Folder size={23} strokeWidth={1.5} />
-                    </span>
-                    <span className="library-folder-copy">
-                      <strong className="library-module-name" dir="auto">
-                        {folderLabel(folder.name)}
-                      </strong>
-                      <span className="library-module-count muted">
-                        {folder.documents.length}{" "}
-                        {tr(
-                          folder.documents.length === 1
-                            ? "document"
-                            : "documents",
-                          folder.documents.length === 1
-                            ? "document"
-                            : "documents",
-                          "وثيقة",
-                        )}{" "}
-                        · S{semester}
-                      </span>
-                    </span>
-                    <ArrowRight size={16} className="library-folder-arrow" />
-                  </button>
-                  </ModuleActions>
-                ))}
-              </div>
-            </div>
-          )}
+          {module === null && overviewView === "modules" && folders.length > 0 && <div className="library-results-cards"><div className="library-document-grid library-module-grid">
+            {folders.map(folder => <ModuleActions key={folder.key} resource={folder.documents[0]} label={folderLabel(folder.name)} onShare={setSharedResource}>
+              <button type="button" className="library-module-folder" aria-label={tr("Ouvrir le module", "Open module", "فتح الوحدة") + " " + folderLabel(folder.name)} onClick={event => openModule(folder.key, event)}>
+                <span className="library-folder-symbol"><Folder size={23} strokeWidth={1.5}/></span>
+                <span className="library-folder-copy"><strong className="library-module-name" dir="auto">{folderLabel(folder.name)}</strong><span className="library-module-count muted">{folder.documents.length} {tr(folder.documents.length === 1 ? "document" : "documents", folder.documents.length === 1 ? "document" : "documents", "وثيقة")} · S{semester}</span></span>
+                <ArrowRight size={16} className="library-folder-arrow"/>
+              </button>
+            </ModuleActions>)}
+          </div></div>}
+          {module === null && overviewView === "modules" && !folders.length && moduleCatalogueState}
         </div>
       </div>
     </div>
@@ -532,20 +549,16 @@ export default function LibraryPage() {
   return (
     <div className="library-page page-enter">
       <PageHeader
-        eyebrow={`${faculty?.code || faculty?.name || ""} · ${filiere?.name || ""}`}
         title={t("library")}
-        description={tr(
-          "Vos cours et documents, au bon endroit.",
-          "Your courses and documents, all in one place.",
-          "دروسك ووثائقك، في مكان واحد.",
-        )}
         actions={
           <Button
             variant="primary"
             icon={Upload}
             onClick={() => setShowUpload(true)}
+            aria-label={tr("Partager un document", "Share a document", "مشاركة وثيقة")}
           >
-            {tr("Partager un document", "Share a document", "مشاركة وثيقة")}
+            <span className="library-upload-full">{tr("Partager un document", "Share a document", "مشاركة وثيقة")}</span>
+            <span className="library-upload-short" aria-hidden="true">{tr("Ajouter", "Add", "إضافة")}</span>
           </Button>
         }
       />
@@ -558,25 +571,7 @@ export default function LibraryPage() {
         )}
       >
         <div className="library-semester-selector">
-        <div className="library-navigation-heading">
-          <div>
-            <span className="library-step">01</span>
-            <span>
-              {tr(
-                "Choisissez un semestre",
-                "Choose a semester",
-                "اختر الفصل الدراسي",
-              )}
-            </span>
-          </div>
-          <span className="muted library-context">
-            {tr(
-              "Licence · 3 années",
-              "Bachelor · 3 years",
-              "الإجازة · 3 سنوات",
-            )}
-          </span>
-        </div>
+        <div className="library-navigation-heading"><span>{t("semester")}</span></div>
         <div className="semester-navigation" aria-label={t("semester")}>
           {[
             [1, 2],
@@ -610,22 +605,10 @@ export default function LibraryPage() {
         </div>
         </div>
         <div className="library-module-selector">
-        <div className="library-module-heading">
-          <span className="library-step">02</span>
-          <span>
-            {tr("Choisissez un module", "Choose a module", "اختر الوحدة")}
-          </span>
-          <span className="muted">
-            {semesterFolders.length}{" "}
-            {tr(
-              semesterFolders.length === 1 ? "module" : "modules",
-              semesterFolders.length === 1 ? "module" : "modules",
-              "وحدات",
-            )}
-          </span>
-        </div>
+        <div className="library-navigation-heading"><span>{t("module")}</span><span className="library-module-available">{semesterFolders.length > 0 ? `${semesterFolders.length} ${tr(semesterFolders.length === 1 ? "disponible" : "disponibles", "available", "متاحة")}` : `S${semester}`}</span></div>
         <button
           type="button"
+          ref={moduleTrigger}
           className={`library-module-trigger${module !== null ? " has-selection" : ""}${showModulePicker ? " is-open" : ""}`}
           aria-label={
             module === null
@@ -634,7 +617,9 @@ export default function LibraryPage() {
           }
           aria-expanded={showModulePicker}
           aria-controls="library-module-picker"
-          onClick={() => setShowModulePicker((value) => !value)}
+          aria-haspopup="dialog"
+          onClick={event => { pendingPickerFocus.current = event.detail === 0; setModuleQuery(""); setShowModulePicker(value => !value); }}
+          onKeyDown={event => { if (event.key === "ArrowDown") { event.preventDefault(); if (showModulePicker) moduleSearchInput.current?.focus(); else { pendingPickerFocus.current = true; setShowModulePicker(true); } } }}
         >
           <span className="library-folder-symbol" aria-hidden="true">
             <FolderOpen size={22} strokeWidth={1.6} />
@@ -647,7 +632,7 @@ export default function LibraryPage() {
             </span>
             <strong dir="auto">
               {module === null
-                ? tr("Tous les modules", "All modules", "كل الوحدات")
+                ? tr("Choisir un module", "Choose a module", "اختر الوحدة")
                 : folderLabel(moduleDisplayName(module))}
             </strong>
 
@@ -656,15 +641,24 @@ export default function LibraryPage() {
             <ChevronDown size={18} className="library-module-trigger-chevron" />
           </span>
         </button>
-        {showModulePicker && (
+        {showModulePicker && createPortal(<div className="library-module-overlay" ref={moduleOverlay}>
+          <div className="library-module-scrim" aria-hidden="true" />
           <div
             ref={modulePicker}
             className="library-module-picker"
             id="library-module-picker"
+            role="dialog"
+            tabIndex={-1}
+            aria-modal="true"
+            aria-busy={moduleStatus === "loading"}
+            aria-label={tr(`Modules du semestre S${semester}`, `Modules for semester S${semester}`, `وحدات الفصل S${semester}`)}
+            onKeyDown={handleModuleKeys}
           >
+            <div className="library-module-picker-heading"><strong>{tr("Modules", "Modules", "الوحدات")}</strong><span dir="ltr">S{semester}</span><button type="button" onClick={() => { setShowModulePicker(false); moduleTrigger.current?.focus({ preventScroll: true }); }} aria-label={tr("Fermer", "Close", "إغلاق")}><X size={16} aria-hidden="true" /></button></div>
             <label className="library-search library-module-search">
               <Search size={17} aria-hidden="true" />
               <input
+                ref={moduleSearchInput}
                 value={moduleQuery}
                 onChange={(event) => setModuleQuery(event.target.value)}
                 placeholder={tr(
@@ -688,12 +682,13 @@ export default function LibraryPage() {
                 </button>
               )}
             </label>
+            {moduleCatalogueState}
             <div className="library-modules" aria-label={t("module")}>
-              <button
+              {!moduleQuery && (semesterFolders.length > 0 || semesterResources.length > 0) && <button
                 type="button"
                 className={`module-choice ${module === null ? "selected" : ""}`}
                 aria-pressed={module === null}
-                onClick={() => openModule(null)}
+                onClick={event => openModule(null, event)}
               >
                 <Folder size={17} aria-hidden="true" />
                 <span>
@@ -706,25 +701,20 @@ export default function LibraryPage() {
                   {semesterResources.length}
                 </span>
                 {module === null && <Check size={16} aria-hidden="true" />}
-              </button>
+              </button>}
               {matchingModuleFolders.map((folder) => (
-                <ModuleActions key={folder.key} resource={folder.documents[0]} label={folderLabel(folder.name)} onShare={setSharedResource} choice>
+                <ModuleActions key={folder.key} resource={folder.documents[0]} label={folderLabel(folder.name)} onShare={resource => { setShowModulePicker(false); setSharedResource(resource); }} choice>
                 <button
                   type="button"
                   className={`module-choice ${module !== null && normalizeModule(module) === folder.key ? "selected" : ""}`}
                   aria-pressed={
                     module !== null && normalizeModule(module) === folder.key
                   }
-                  onClick={() => openModule(folder.key)}
+                  onClick={event => openModule(folder.key, event)}
                 >
                   <Folder size={17} aria-hidden="true" />
-                  <span dir="auto">{folderLabel(folder.name)}</span>
-                  <span
-                    className="library-module-choice-count"
-                    aria-hidden="true"
-                  >
-                    {folder.documents.length}
-                  </span>
+                  <span className="library-module-option-copy"><span dir="auto">{folderLabel(folder.name)}</span><small>{folder.documents.length ? `${folder.documents.length} ${tr(folder.documents.length === 1 ? "document" : "documents", folder.documents.length === 1 ? "document" : "documents", "وثيقة")}` : tr("Aucun document partagé", "No shared documents", "لا توجد وثائق بعد")}</small></span>
+                  <span className="library-module-option-mark" aria-hidden="true" />
                   {module !== null &&
                     normalizeModule(module) === folder.key && (
                       <Check size={16} aria-hidden="true" />
@@ -732,7 +722,7 @@ export default function LibraryPage() {
                 </button>
                 </ModuleActions>
               ))}
-              {moduleQuery && !matchingModuleFolders.length && (
+              {moduleStatus !== "loading" && moduleQuery && !matchingModuleFolders.length && (
                 <p className="library-module-empty muted">
                   {tr(
                     "Aucun module trouvé.",
@@ -742,21 +732,12 @@ export default function LibraryPage() {
                 </p>
               )}
             </div>
+            {moduleStatus === "ready" && !semesterFolders.length && !moduleQuery && <p className="library-module-picker-state" data-state="empty">{tr(`Aucun module enregistré pour S${semester}.`, `No modules registered for S${semester}.`, `لا توجد وحدات مسجلة للفصل S${semester}.`)}</p>}
           </div>
-        )}
-        {!semesterFolders.length && (
-          <p className="library-no-modules muted">
-            {tr(
-              "Les modules apparaissent quand un document est ajouté à ce semestre.",
-              "Modules appear when a document is added to this semester.",
-              "تظهر الوحدات عند إضافة وثيقة إلى هذا الفصل.",
-            )}
-          </p>
-        )}
+        </div>, document.body)}
         </div>
       </section>
-      {module !== null && resultsContext}
-      <section className="library-browse-controls card" aria-label={tr("Recherche et filtres", "Search and filters", "البحث والفلاتر")}>
+      <section className={`library-browse-controls card${isBrowsingModules ? " is-browsing-modules" : ""}`} aria-label={tr("Recherche et filtres", "Search and filters", "البحث والفلاتر")}>
       <div className="library-toolbar">
         <label className="library-search">
           <Search size={18} aria-hidden="true" />
@@ -766,6 +747,7 @@ export default function LibraryPage() {
             onChange={(event) =>
               navigateLibrary({ query: event.target.value }, { replace: true })
             }
+            onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); resultsHeading.current?.focus({ preventScroll: true }); resultsHeading.current?.scrollIntoView({ block: "start", behavior: "auto" }); } }}
             placeholder={tr(
               "Titre, module, auteur…",
               "Title, module, author…",
@@ -794,13 +776,14 @@ export default function LibraryPage() {
             onClick={() => setShowFilters((value) => !value)}
             aria-expanded={showFilters}
             aria-controls="library-filters"
+            aria-label={t("filters")}
           >
             {t("filters")}
             {filterCount > 0 && (
               <span className="filter-counter">{filterCount}</span>
             )}
           </Button>
-          <label className="library-sort">
+          <label className="library-sort" hidden={isBrowsingModules}>
             <ArrowDownUp size={16} />
             <span className="sr-only">{t("sort")}</span>
             <Select
@@ -828,7 +811,11 @@ export default function LibraryPage() {
           </label>
         </div>
       </div>
-        <div className="library-controls-options">
+        <div className="library-search-scope">
+          <span>S{semester} · {module === null ? tr("Tous les modules", "All modules", "كل الوحدات") : folder ? <bdi>{folder.split("/").at(-1)}</bdi> : tr("Dans ce module", "In this module", "داخل هذه الوحدة")}</span>
+          {module !== null && folder && query.trim() && <Button className="library-search-whole-module" variant="ghost" onClick={event => openFolder("", "", category, event)}>{tr("Rechercher dans tout le module", "Search the whole module", "البحث في الوحدة كاملة")}</Button>}
+        </div>
+        <div className="library-controls-options" hidden={isBrowsingModules}>
       <div className="library-category-tabs">
         <span className="library-section-label">
           {tr("Type de document", "Document type", "نوع الوثيقة")}
@@ -839,16 +826,7 @@ export default function LibraryPage() {
           onChange={(value) => navigateLibrary({ category: value, folder: "", folderOwner: "" })}
         />
       </div>
-      <div className="library-academic-year-control">
-        <Field label={tr("Année universitaire d’utilisation", "Academic year of use", "السنة الجامعية للاستخدام")}>
-          <Select className="input" value={year} aria-describedby="library-year-hint" onChange={(event) => navigateLibrary({ year: event.target.value })}>
-            <option value="all">{tr("Toutes les années", "All academic years", "كل السنوات الجامعية")}</option>
-            {availableYears.map(value => <option key={value} value={value}>{value}{value === currentAcademicYear ? ` · ${tr("année actuelle", "current year", "السنة الحالية")}` : ""}</option>)}
-            <option value="unknown">{tr("Année inconnue", "Unknown year", "سنة غير معروفة")}</option>
-          </Select>
-        </Field>
-        <p className="muted" id="library-year-hint">{tr("L’année actuelle apparaît d’abord.", "Current-year material appears first.", "تظهر وثائق السنة الحالية أولاً.")}</p>
-      </div>
+
         </div>
       {showFilters && (
         <div className="library-filter-panel" id="library-filters">
@@ -914,6 +892,16 @@ export default function LibraryPage() {
                 </option>
               </Select>
             </Field>
+      <div className="library-academic-year-control">
+        <Field label={tr("Année universitaire d’utilisation", "Academic year of use", "السنة الجامعية للاستخدام")}>
+          <Select className="input" value={year} aria-describedby="library-year-hint" onChange={(event) => navigateLibrary({ year: event.target.value })}>
+            <option value="all">{tr("Toutes les années", "All academic years", "كل السنوات الجامعية")}</option>
+            {availableYears.map(value => <option key={value} value={value}>{value}{value === currentAcademicYear ? ` · ${tr("année actuelle", "current year", "السنة الحالية")}` : ""}</option>)}
+            <option value="unknown">{tr("Année inconnue", "Unknown year", "سنة غير معروفة")}</option>
+          </Select>
+        </Field>
+        <p className="muted" id="library-year-hint">{tr("L’année actuelle apparaît d’abord.", "Current-year material appears first.", "تظهر وثائق السنة الحالية أولاً.")}</p>
+      </div>
           </div>
 
         </div>
@@ -923,23 +911,23 @@ export default function LibraryPage() {
           <div className="library-filter-chips" ref={filterChips}>{activeFilters.map((filter, index) => <button type="button" key={filter.key} data-filter={filter.key} className="library-filter-chip" onClick={event => removeFilter(filter, index, event)} aria-label={tr(`Retirer le filtre : ${filter.label}`, `Remove filter: ${filter.label}`, `إزالة الفلتر: ${filter.label}`)}><bdi>{filter.label}</bdi><X size={13} aria-hidden="true" /></button>)}</div>
           <Button className="library-clear-filters" variant="ghost" onClick={clearFilters}>{tr("Tout effacer", "Clear all", "مسح الكل")}</Button>
         </div>}
-        <details className="library-pdf-search"><summary>{tr('Rechercher dans le texte des PDF','Search inside PDF text','البحث في نص ملفات PDF')}</summary><p className="library-pdf-scope muted">{tr('Cette recherche couvre tous les PDF accessibles, indépendamment du semestre, du module et des filtres ci-dessus.','This search covers all accessible PDFs, independently of the semester, module and filters above.','يشمل هذا البحث جميع ملفات PDF المتاحة، بشكل مستقل عن الفصل والوحدة والفلاتر أعلاه.')}</p><DocumentTextSearch/></details>
+        <details className="library-pdf-search" hidden={isBrowsingModules}><summary>{tr('Rechercher dans le texte des PDF','Search inside PDF text','البحث في نص ملفات PDF')}</summary><p className="library-pdf-scope muted">{tr('Cette recherche couvre tous les PDF accessibles, indépendamment du semestre, du module et des filtres ci-dessus.','This search covers all accessible PDFs, independently of the semester, module and filters above.','يشمل هذا البحث جميع ملفات PDF المتاحة، بشكل مستقل عن الفصل والوحدة والفلاتر أعلاه.')}</p><DocumentTextSearch/></details>
       </section>
-      {module === null && resultsContext}
+      {resultsContext}
       <LibraryReport resource={directoryDocuments[0]||visible.find(item=>!folder||(String(item.author_id||item.uploaderUsername)===folderOwner&&String(item.path||'').startsWith(folder+'/')))} folder={folder} module={module} category={category}/>
-      {module !== null && <nav ref={directoryHeading} className="library-folder-breadcrumbs" aria-label={tr("Chemin du dossier", "Folder path", "مسار المجلد")}>
-        <button type="button" aria-current={!folder ? "page" : undefined} onClick={() => openFolder("")}>{folderLabel(moduleDisplayName(module))}</button>
-        {folder.split("/").filter(Boolean).map((name, index, segments) => <React.Fragment key={index}><span aria-hidden="true">/</span><button type="button" dir="auto" aria-current={index === segments.length - 1 ? "page" : undefined} onClick={() => openFolder(segments.slice(0, index + 1).join("/"))}>{name}</button></React.Fragment>)}
-        {folder && <Button variant="ghost" icon={ArrowLeft} className="library-parent-folder" onClick={() => openFolder(folder.split("/").slice(0, -1).join("/"))}>{tr("Dossier parent", "Parent folder", "المجلد الأب")}</Button>}
+      {module !== null && (folder || (!query.trim() && directory.folders.length > 0)) && <nav ref={directoryHeading} tabIndex={-1} className="library-folder-breadcrumbs" aria-label={tr("Chemin du dossier", "Folder path", "مسار المجلد")}>
+        <button type="button" aria-current={!folder ? "page" : undefined} onClick={event => openFolder("", "", category, event)}>{folderLabel(moduleDisplayName(module))}</button>
+        {folder.split("/").filter(Boolean).map((name, index, segments) => <React.Fragment key={index}><span aria-hidden="true">/</span><button type="button" dir="auto" aria-current={index === segments.length - 1 ? "page" : undefined} onClick={event => openFolder(segments.slice(0, index + 1).join("/"), folderOwner, category, event)}>{name}</button></React.Fragment>)}
+        {folder && <Button variant="ghost" icon={ArrowLeft} className="library-parent-folder" onClick={event => openFolder(folder.split("/").slice(0, -1).join("/"), folderOwner, category, event)}>{tr("Dossier parent", "Parent folder", "المجلد الأب")}</Button>}
       </nav>}
-      {visible.length > 0 && (module === null || directory.folders.length > 0 || directoryDocuments.length > 0) ? (
-        module === null ? null : (
+      {!showDocumentResults && (folders.length > 0 || moduleStatus === "loading" || moduleStatus === "error") ? null : visible.length > 0 && (module === null || directory.folders.length > 0 || directoryDocuments.length > 0) ? (
+        !showDocumentResults ? null : (
           <>
-            {directory.folders.length > 0 && <section className="library-uploaded-folders" aria-label={tr("Dossiers partagés", "Shared folders", "المجلدات المشتركة")}>
+            {module !== null && (!query.trim() || folder) && directory.folders.length > 0 && <section className="library-uploaded-folders" aria-label={tr("Dossiers partagés", "Shared folders", "المجلدات المشتركة")}>
               <h3>{tr("Dossiers", "Folders", "المجلدات")}</h3>
               {groupByCategory(directory.folders).map(group => <section className="library-type-section" data-category={group.category} key={group.category} aria-label={categoryLabel(group.category)}>
                 <h4 className="library-type-heading">{categoryLabel(group.category)}</h4>
-                <div className="library-document-grid">{group.items.map(entry => <button type="button" key={entry.key} className="library-uploaded-folder card" onClick={() => openFolder(entry.path, entry.owner, entry.category||category)}>
+                <div className="library-document-grid">{group.items.map(entry => <button type="button" key={entry.key} className="library-uploaded-folder card" onClick={event => openFolder(entry.path, entry.owner, entry.category||category, event)}>
                   <span className="library-folder-symbol" aria-hidden="true"><Folder size={23} strokeWidth={1.5}/></span>
                   <span className="library-uploaded-folder-copy"><strong dir="auto">{entry.name}</strong><span>{entry.count} {tr(entry.count === 1 ? "document" : "documents", entry.count === 1 ? "document" : "documents", "وثيقة")}</span>{entry.uploader && <bdi>{entry.uploader}</bdi>}</span>
                   <ArrowRight className="library-folder-arrow" size={17} aria-hidden="true"/>
@@ -1019,18 +1007,13 @@ export default function LibraryPage() {
       ) : (
         <EmptyState
           icon={BookOpen}
-          title={tr(
-            "Aucun document ici pour le moment",
-            "No documents here yet",
-            "لا توجد وثائق هنا بعد",
-          )}
+          title={hasActiveFilters ? tr("Aucun résultat pour ces filtres", "No results for these filters", "لا توجد نتائج لهذه الفلاتر") : folder ? tr("Ce dossier est vide", "This folder is empty", "هذا المجلد فارغ") : module !== null ? tr("Aucun document dans ce module", "No documents in this module", "لا توجد وثائق في هذه الوحدة") : tr(`Aucun document pour S${semester}`, `No documents for S${semester}`, `لا توجد وثائق للفصل S${semester}`)}
           description={
-            hasActiveFilters || module !== null
-              ? tr(
-                  "Essayez un autre module ou ajustez vos filtres.",
-                  "Try another module or adjust your filters.",
-                  "جرّب وحدة أخرى أو عدّل المرشحات.",
-                )
+            folder && query.trim() && visible.length > 0
+              ? tr("Des documents correspondent ailleurs dans ce module.", "Matching documents exist elsewhere in this module.", "توجد وثائق مطابقة في مجلدات أخرى من هذه الوحدة.")
+              : hasActiveFilters ? tr("Modifiez votre recherche ou retirez un filtre.", "Change your search or remove a filter.", "غيّر البحث أو أزل أحد الفلاتر.")
+              : folder ? tr("Revenez au dossier parent pour retrouver les documents.", "Return to the parent folder to find documents.", "ارجع إلى المجلد الأب للعثور على الوثائق.")
+              : module !== null ? tr("Les documents partagés dans ce module apparaîtront ici.", "Documents shared in this module will appear here.", "ستظهر هنا الوثائق المشتركة في هذه الوحدة.")
               : tr(
                   "Les documents de ce semestre apparaîtront ici. Vous pouvez en partager un.",
                   "Documents for this semester will appear here. You can share one.",
@@ -1041,13 +1024,17 @@ export default function LibraryPage() {
             <Button
               variant="secondary"
               onClick={
-                hasActiveFilters
-                  ? clearFilters
-                  : module !== null ? () => openModule(null) : () => setShowUpload(true)
+                folder && query.trim() && visible.length > 0
+                  ? event => openFolder("", "", category, event)
+                  : hasActiveFilters ? clearFilters
+                  : folder ? event => openFolder(folder.split("/").slice(0, -1).join("/"), folderOwner, category, event)
+                  : module !== null ? event => openModule(null, event) : () => setShowUpload(true)
               }
             >
-              {hasActiveFilters
-                ? tr("Effacer les filtres", "Clear filters", "مسح المرشحات")
+              {folder && query.trim() && visible.length > 0
+                ? tr("Rechercher dans tout le module", "Search the whole module", "البحث في الوحدة كاملة")
+                : hasActiveFilters ? tr("Effacer les filtres", "Clear filters", "مسح المرشحات")
+                : folder ? tr("Dossier parent", "Parent folder", "المجلد الأب")
                 : module !== null ? tr("Tous les modules", "All modules", "كل الوحدات") : tr(
                     "Partager un document",
                     "Share a document",
@@ -1057,13 +1044,7 @@ export default function LibraryPage() {
           }
         />
       )}
-      <p className="library-demo-note muted">
-        {tr(
-          "Les documents partagés sont conservés dans votre bibliothèque de campus.",
-          "Shared documents are saved in your campus library.",
-          "تُحفظ الوثائق المشتركة في مكتبة فضائك الجامعي.",
-        )}
-      </p>
+
       {showUpload && <UploadModal initialClassification={{ semester, module: module === null ? "" : moduleDisplayName(module), category }} onClose={() => setShowUpload(false)} />}
       {sharedResource && <ModuleShareDialog resource={sharedResource} onClose={() => setSharedResource(null)} />}
       {yearEditor && <Modal title={tr("Années d’utilisation du document", "Years the material was used", "سنوات استخدام الوثيقة")} onClose={() => { if (!savingYears) setYearEditor(null); }} footer={<div className="library-year-editor-footer"><Button variant="ghost" disabled={savingYears} onClick={() => setYearEditor(null)}>{t("cancel")}</Button><Button variant="primary" disabled={savingYears} onClick={saveYears}>{savingYears ? tr("Enregistrement…", "Saving…", "جارٍ الحفظ…") : tr("Enregistrer", "Save", "حفظ")}</Button></div>}>

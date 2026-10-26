@@ -8,7 +8,7 @@ The Run action executes JavaScript, Python, C and C++ in a disposable browser Wo
 
 - JavaScript uses QuickJS, with a 32 MB heap, a 512 KB stack and an interrupt deadline. Its only host functions are console output and `prompt()` backed by the student's input text. Browser globals, network requests and external module imports are unavailable.
 - Python uses Pyodide/CPython and its packaged standard library. An `allow-scripts` sandboxed `srcdoc` iframe owns its disposable classic blob Worker, which dynamically imports the packaged ESM runtime. Both have an opaque origin, so Python's ffi cannot reach CampusLink's cookies, IndexedDB or other private origin data even if it constructs JavaScript objects. Using `srcdoc` also retains the local development server's network address space. The ordinary JavaScript-global bridge is empty as well. The Python WASM heap is capped at 256 MB by modifying the memory declaration before packaging; this is not a cap on the browser's total memory. Additional pip packages are not bundled.
-- C17 and C++20 use Clang 22 to compile to WebAssembly/WASI, including libc and libc++. The compiler and linker have 512 MB WASM memory ceilings each; student program memory is capped at 128 MB before instantiation. The program sees an in-memory filesystem and provided stdin, without host files or sockets. WASI browser limitations apply: native OS integrations, threads, and C++ exception unwinding are unavailable.
+- C17 and C++20 use Clang 22 to compile to WebAssembly/WASI, including libc and libc++. The compiler and linker have 512 MB WASM memory ceilings each; student program memory is capped at 128 MB before instantiation. Execution recompiles the bounded program bytes rather than retaining the toolchain's original compiled module, so the cap applies to the program that actually runs. The program sees an in-memory filesystem and provided stdin, without host files or sockets. WASI browser limitations apply: native OS integrations, threads, and C++ exception unwinding are unavailable.
 - Runtime assets are lazy: merely opening Labs does not load Python or Clang. Python is approximately 13 MB and the compressed Clang toolchain approximately 29 MB. Later runs reuse the browser's HTTP cache; each completed or stopped run releases its Worker and its runtime memory.
 
 Program execution has a five-second deadline, separate from a 120-second runtime startup and a 30-second compile deadline. Stop immediately terminates the Worker and removes Python's owning frame. Worker control messages use a private per-run token, and phase transitions cannot restart or extend an execution deadline. Source and stdin are limited to 16 KB each, and output to 64 KB/1,500 writes. Infinite loops cannot block the main page. Large C++ compiles remain heavier than ordinary frontend actions, especially on low-memory phones; the loading and compilation phases are visible and cancellable.
@@ -16,6 +16,16 @@ Program execution has a five-second deadline, separate from a 120-second runtime
 The Worker response and Python frame have their own Content Security Policies. Connections are restricted to public runtime assets; authenticated API requests and third-party network access are excluded. The public runtime folder permits anonymous CORS reads so the opaque Python Worker can load its engines. API routes do not receive that CORS permission. These headers must be retained on the static deployment, including Vercel, and in development. The main application's policy does not need `unsafe-eval`; runtime bootstrap permits it only inside the isolated execution documents.
 
 ## Editor and output
+
+Run and Stop are in the editor's top bar beside the source filename. The console
+sits beside the editor on desktop and below it on smaller screens. Repeated
+introductions, the color legend, and explanatory sidebar cards are removed;
+private sessions and XP rules remain available in collapsed details.
+
+The console displays loading, compilation, and execution phases where the result
+will appear. A successful program without printed output says so explicitly and
+shows the language's print statement, instead of inviting the student to run a
+program that has already completed.
 
 The CodeMirror 6 editor uses separate purple keywords, gold functions, cyan properties, blue classes, green strings and orange numbers, with neutral variables and comments. Both palettes keep text contrast above 4.5:1. Line numbers, indentation, bracket matching, block folding, selection matches, search/replace, line wrapping, cursor position and Ctrl/Command+Enter are available. Completions use the installed language sources for JavaScript/Python and local keyword sources for C/C++/JSON. Suggestions start without a selected item, so ordinary Enter still inserts a newline; an explicit selection accepts a suggestion. Escape followed by Tab leaves the editor. Quotes remain single delimiters, without automatic quote pairing.
 
