@@ -89,7 +89,11 @@
     "test:responsive-native-pdf": "node tests/responsive-native-pdf.browser.mjs",
     "test:password-recovery-unit": "node --test tests/password-recovery-transport.test.mjs",
     "test:password-recovery-ui": "node tests/password-recovery.browser.mjs",
-    "test:password-recovery-e2e": "node tests/password-recovery.integration.browser.mjs"
+    "test:password-recovery-e2e": "node tests/password-recovery.integration.browser.mjs",
+    "test:web-push-unit": "node --test tests/web-push-server.test.mjs tests/web-push.test.mjs tests/web-push-worker.test.mjs tests/install-worker.test.mjs tests/push-targets.test.mjs tests/push-navigation.test.mjs tests/push-dispatch.test.mjs",
+    "test:web-push-backend": "node --test tests/backend-web-push.test.mjs",
+    "test:web-push-ui": "node tests/web-push.browser.mjs",
+    "test:web-push-navigation": "node tests/web-push-navigation.browser.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1146.0",
@@ -108,6 +112,7 @@
     "@neon/config": "^1.8.3",
     "@neon/env": "^1.5.0",
     "@vercel/analytics": "^2.0.1",
+    "@vercel/functions": "3.10.4",
     "acorn": "^8.19.0",
     "express": "^5.1.0",
     "fflate": "^0.8.3",
@@ -124,6 +129,7 @@
     "tree-sitter-c": "0.24.1",
     "tree-sitter-cpp": "0.23.4",
     "tree-sitter-python": "0.25.0",
+    "web-push": "3.6.7",
     "web-tree-sitter": "0.27.1"
   },
   "devDependencies": {

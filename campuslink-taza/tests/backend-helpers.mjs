@@ -128,7 +128,7 @@ export async function createTestEnvironment({demo=true,storage=memoryStorage(),l
 export async function createTestApp(options={}){
   const env=await createTestEnvironment(options);
   try{
-    const app=await createApp({db:env.db,auth:env.auth,storage:env.storage,appOrigin:options.appOrigin});
+    const app=await createApp({db:env.db,auth:env.auth,storage:env.storage,appOrigin:options.appOrigin,webPush:options.webPush||{configuration:{enabled:false}}});
     return {...env,app,close:async()=>{await app.locals.close();await env.close();}};
   }catch(error){await env.close();throw error;}
 }

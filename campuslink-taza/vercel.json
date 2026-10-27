@@ -20,6 +20,7 @@
       "destination": "/index.html"
     }
   ],
+  "crons": [{"path":"/api/push/dispatch","schedule":"0 7 * * *"}],
   "headers": [
     {
       "source": "/labs-runtime/runner.js",

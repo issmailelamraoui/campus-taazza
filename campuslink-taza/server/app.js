@@ -19,6 +19,9 @@ import { moduleShareResourceId, attachModuleShare, assertSameModuleShare, module
 import { createPermissions } from './permissions.js';
 import { createRateLimiter } from './rate-limit.js';
 import { createNotificationStore } from './notifications.js';
+import { installWebPush } from './push.js';
+import { createPushTargetAuthorizer } from './push-targets.js';
+import { installPushDispatch } from './push-dispatch.js';
 import { installUploadSessions, afterUploadCommit } from './upload-sessions.js';
 import { labsWorkerPolicy, pythonFramePolicy } from '../shared/labs-security.js';
 import { detectFile, mayInlineFile } from './files.js';
@@ -44,7 +47,7 @@ import { getFilieres, filiereBelongsToFaculty, getChatSemester, getChatSemesterL
 const CATEGORIES = ['courses', 'exercises', 'td', 'tp', 'corrections', 'exams', 'rattrapage', 'general'];
 const CHANNELS = ['general', 'filiere', 'important'];
 const ROLES = ['student', 'moderator', 'faculty_admin', 'global_admin', 'faculty_leader'];
-const PREF_KEYS = ['resources', 'announcements', 'important', 'admin', 'mentions', 'ranking'];
+const PREF_KEYS = ['resources', 'announcements', 'important', 'admin', 'mentions', 'questions', 'ranking'];
 const RESOURCE_TYPES = ['courses','cours','exercises','exercise','exams','exam','td','tp','correction','corrections','image','pdf','document','other','rattrapage'];
 const RESOURCE_CATEGORY_SQL = "(CASE WHEN resource_type IN ('td','tp','corrections') THEN resource_type WHEN resource_type='correction' THEN 'corrections' ELSE category END)";
 const classificationCategory = (category, type) => ['td','tp','corrections'].includes(type) ? type : type==='correction' ? 'corrections' : category;
@@ -78,7 +81,7 @@ function uploadBoolean(value, fallback) {
 }
 
 
-export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: suppliedStorage, connectionString = process.env.DATABASE_URL, schema, migrate = false, seed = false, appOrigin = process.env.APP_ORIGIN, googleOAuth } = {}) {
+export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: suppliedStorage, connectionString = process.env.DATABASE_URL, schema, migrate = false, seed = false, appOrigin = process.env.APP_ORIGIN, googleOAuth, webPush } = {}) {
   const db = suppliedDb || await openDatabase({connectionString,schema,migrate});
   let app,storage=suppliedStorage,auth=suppliedAuth;
   try {
@@ -98,7 +101,7 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
   const permissions=await createPermissions(db);
   const {isOwner}=permissions;
   const notificationStore=createNotificationStore({db,decorate:decorateNotifications,discussionUnread});
-  let campusRoutes=null,coreRoutes=null;
+  let campusRoutes=null,coreRoutes=null,pushDispatch=null;
   const channelDefaults={general:['Chat général','Échanges autour des cours et de la vie universitaire.'],filiere:['Chats de filière','Échanges de votre filière par semestre.'],important:['Discussions importantes','Informations prioritaires et échéances à retenir.']};
   const addChannel=db.prepare('INSERT INTO channels (id,faculty_id,name,description) VALUES (?,?,?,?) ON CONFLICT (id,faculty_id) DO NOTHING');
   for(const faculty of (await db.prepare('SELECT id FROM faculties').all()))for(const [id,[name,description]]of Object.entries(channelDefaults))(await addChannel.run(id,faculty.id,name,description));
@@ -120,7 +123,7 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
   const realtime=await createRealtimeBus({db,active:()=>clients.size>0||supportStreams.size>0,deliver:event=>event.ids?broadcastUserUpdateNow(event.ids,event.change):broadcastNow(event.faculty,event.filiereId,event.change)});
   let closed=false;
   app.locals.endStreams = () => { for(const set of supportStreams.values())for(const res of set)res.end();supportStreams.clear(); for(const heartbeat of heartbeats)clearInterval(heartbeat);heartbeats.clear();for(const stream of clients.values())for(const res of stream)res.end();clients.clear(); };
-  app.locals.close = async () => {if(closed)return;closed=true;realtime.close();app.locals.endStreams();await Promise.all([db.close(),storage.close?.(),auth.close?.()]);};
+  app.locals.close = async () => {if(closed)return;closed=true;realtime.close();app.locals.endStreams();pushDispatch?.stop();await pushDispatch?.settle();await Promise.all([db.close(),storage.close?.(),auth.close?.()]);};
 
   app.use('/api', async (req, res, next) => {
     req.body??={};
@@ -150,6 +153,7 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
         await db.prepare('UPDATE users SET last_seen=? WHERE id=? AND (last_seen IS NULL OR last_seen<?)').run(now(),req.user.id,new Date(Date.now()-60000).toISOString());
       }
     }
+    if(req.method==='GET'&&req.user?.account_status==='approved'&&!req.path.startsWith('/push/'))pushDispatch?.wake();
     next();
   });
 
@@ -328,7 +332,7 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
       saved:item=>{const table={resource:'resources',message:'messages',announcement:'announcements'}[item.type];return !!table&&readable(table,rows[table].get(item.id));},
     };
   }
-  function broadcast(faculty,filiereId=null,change={}){return afterUploadCommit(async()=>{await Promise.all([realtime.publish({faculty,filiereId,change}),broadcastNow(faculty,filiereId,change)]);});}
+  function broadcast(faculty,filiereId=null,change={}){return afterUploadCommit(async()=>{await Promise.all([realtime.publish({faculty,filiereId,change}),broadcastNow(faculty,filiereId,change)]);pushDispatch?.wake({force:true});});}
   async function broadcastNow(faculty,filiereId=null,change={}) {
     for(const res of supportStreams.get(faculty)||[])if(!res.writableEnded)res.write('event: update\ndata: '+JSON.stringify(change)+'\n\n');
     if(!clients.size)return;
@@ -346,15 +350,15 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
       }
     }
   }
-  async function notify(faculty, type, title, body, path, exclude = null,filiereId=null) {
+  async function notify(faculty, type, title, body, path, exclude = null,filiereId=null,pushContext=null) {
     const users=await db.prepare("SELECT id,filiere_id,preferences FROM users WHERE faculty_id=? AND disabled=0 AND account_status='approved'").all(faculty);
     const recipients=users.filter(u=>u.id!==exclude&&JSON.parse(u.preferences)[type]!==false&&(!filiereId||u.filiere_id===filiereId));
     // Bound batches avoid a cloud round trip per student while remaining below
     // PostgreSQL's parameter limit. Existing transactions keep publication atomic.
     for(let start=0;start<recipients.length;start+=500){
       const batch=recipients.slice(start,start+500);
-      const values=batch.flatMap(u=>[u.id,faculty,type,title,body.slice(0,240),path,now()]);
-      await db.prepare(`INSERT INTO notifications (user_id,faculty_id,type,title,body,path,created_at) VALUES ${batch.map(()=>'(?,?,?,?,?,?,?)').join(',')}`).run(...values);
+      const values=batch.flatMap(u=>[u.id,faculty,type,title,body.slice(0,240),path,now(),JSON.stringify(pushContext)]);
+      await db.prepare(`INSERT INTO notifications (user_id,faculty_id,type,title,body,path,created_at,push_context) VALUES ${batch.map(()=>'(?,?,?,?,?,?,?,?::jsonb)').join(',')}`).run(...values);
     }
   }
   async function notifyRegistration(id,name) {
@@ -371,7 +375,7 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
     for(const recipient of recipients)if(recipient.faculty_id&&JSON.parse(recipient.preferences).admin!==false){await insert.run(recipient.id,recipient.faculty_id,'admin',title,body.slice(0,240),path,now());notified.push(recipient.id);}
     return notified;
   }
-  function broadcastUserUpdate(ids,change={}){return afterUploadCommit(async()=>{await Promise.all([realtime.publish({ids,change}),broadcastUserUpdateNow(ids,change)]);});}
+  function broadcastUserUpdate(ids,change={}){return afterUploadCommit(async()=>{await Promise.all([realtime.publish({ids,change}),broadcastUserUpdateNow(ids,change)]);pushDispatch?.wake({force:true});});}
   function broadcastAdminInbox(ids){return broadcastUserUpdate(ids,{adminInbox:true});}
   async function broadcastUserUpdateNow(ids,change) {
     const connected=ids.filter(id=>clients.has(id));
@@ -542,7 +546,7 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
       const current=await db.prepare('SELECT faculty_id FROM users WHERE id=? FOR UPDATE').get(req.user.id);
       if(current?.faculty_id)throw problem(403,'Ce choix est définitif. Seul l’administrateur pourra modifier votre faculté.');
       (await db.prepare('UPDATE users SET faculty_id=? WHERE id=? AND faculty_id IS NULL').run(faculty.id,req.user.id));
-      const insert = db.prepare('INSERT INTO notifications (user_id,faculty_id,type,title,body,path,created_at) VALUES (?,?,?,?,?,?,?)');
+      const insert = db.prepare('INSERT INTO notifications (user_id,faculty_id,type,title,body,path,created_at,push_eligible) VALUES (?,?,?,?,?,?,?,FALSE)');
       const announcements=await filterReadable(await db.prepare('SELECT * FROM announcements WHERE faculty_id=? ORDER BY created_at DESC').all(faculty.id),a=>canReadAnnouncement(a,{...req.user,faculty_id:faculty.id}));
       for (const a of announcements.slice(0,2)) await insert.run(req.user.id,faculty.id,'announcements','Annonce de votre faculté',a.content.slice(0,200),`/app/announcements#announcement-${a.id}`,a.created_at);
       for (const r of (await db.prepare("SELECT * FROM resources WHERE faculty_id=? AND category<>'general' ORDER BY created_at DESC LIMIT 2").all(faculty.id))) (await insert.run(req.user.id,faculty.id,'resources','Ressource à découvrir',r.title,resourcePath(r),r.created_at));
@@ -1429,10 +1433,10 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
     await removeChatMessage(m);res.json({ok:true});
   });
 
-  async function notifyDirect(userId,type,title,body,path) {
+  async function notifyDirect(userId,type,title,body,path,pushContext=null) {
     const target=await db.prepare('SELECT id,faculty_id,disabled,account_status,preferences FROM users WHERE id=?').get(userId);
     if(!target||target.disabled||target.account_status!=='approved'||!target.faculty_id||JSON.parse(target.preferences)[type]===false)return;
-    await db.prepare('INSERT INTO notifications(user_id,faculty_id,type,title,body,path,created_at) VALUES(?,?,?,?,?,?,?)').run(target.id,target.faculty_id,type,title,String(body).slice(0,240),path,now());
+    await db.prepare('INSERT INTO notifications(user_id,faculty_id,type,title,body,path,created_at,push_context) VALUES(?,?,?,?,?,?,?,?::jsonb)').run(target.id,target.faculty_id,type,title,String(body).slice(0,240),path,now(),JSON.stringify(pushContext));
   }
   async function decorateNotifications(user,rows) {
     const ids={contacts:new Set(),registrations:new Set(),reports:new Set()};
@@ -1515,12 +1519,16 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
   installResourceSupplementRoutes(app,{db,requireFaculty,assertResource:freshResource,permissions,upload,storage,resourceDTO:resource,broadcast});
   installForumAttachmentRoutes(app,{db,requireFaculty,permissions,upload,storage,broadcast});
   installLabsRoutes(app,{db,requireFaculty,broadcast});
-  campusRoutes=installCampusRoutes(app,{db,requireFaculty,requireUser,problem,assertResource:freshResource,author,notifyDirect,broadcast,auditAdministrative:(actor,action,type,id,details)=>permissions.audit(actor,action,type,id,details),canAdminFaculty:async(user,faculty,filiere=null)=>{const current=await db.prepare('SELECT * FROM users WHERE id=? FOR SHARE').get(user.id);return !!current&&!current.disabled&&current.account_status==='approved'&&current.faculty_id===user.faculty_id&&permissions.can(await permissions.load(current),'content.moderate',faculty,filiere);}});
+  campusRoutes=installCampusRoutes(app,{db,requireFaculty,requireUser,problem,assertResource:freshResource,author,notifyDirect,notifyProgram:notify,broadcast,auditAdministrative:(actor,action,type,id,details)=>permissions.audit(actor,action,type,id,details),canAdminFaculty:async(user,faculty,filiere=null)=>{const current=await db.prepare('SELECT * FROM users WHERE id=? FOR SHARE').get(user.id);return !!current&&!current.disabled&&current.account_status==='approved'&&current.faculty_id===user.faculty_id&&permissions.can(await permissions.load(current),'content.moderate',faculty,filiere);}});
   coreRoutes=installCoreRoutes(app,{db,requireFaculty,problem,permissions,asId,string,resource,scoped,broadcast,broadcastUserUpdate,author,authorizeNotificationTarget,notificationStore,notifyDirect,upload,storage,notifyAdminInbox,broadcastAdminInbox});
 
   installAccessSupport(app,{db,problem,limiter:contactAttempts,notifyAdminInbox,broadcastAdminInbox,broadcast,ticketDTO:coreRoutes.ticketDTO,supportStreams,notifyDirect,broadcastUserUpdate,heartbeats});
   installSelfServicePassword(app,{db,auth,domains:googleConfig.domains,permissions,endUserStreams:id=>{for(const stream of clients.get(id)||[])stream.end();}});
   installPasswordRecovery(app,{db,auth,permissions,requireUser,selfUser,endUserStreams:id=>{for(const stream of clients.get(id)||[])stream.end();}});
+  const push=installWebPush(app,{db,requireFaculty,permissions,configuration:webPush?.configuration,transport:webPush?.transport,loadUser:async id=>{const row=await db.prepare('SELECT * FROM users WHERE id=?').get(id);if(!row)return null;const user=await permissions.load(row);user.chat_blocked=await isChatBlocked(user);return user;},canDeliver:createPushTargetAuthorizer({db,authorizeNotificationTarget})});
+  pushDispatch=installPushDispatch(app,{service:push});
+  app.locals.push=push;app.locals.pushDispatch=pushDispatch;
+  app.get('/api/notifications/:id',requireFaculty,async(req,res)=>{const row=await notificationStore.find(req.user,asId(req.params.id));if(!row)throw problem(404,'Notification indisponible.');const [notification]=await decorateNotifications(req.user,[row]);res.json({notification});});
   app.use('/api', (_req,_res,next)=>next(problem(404,'Route API introuvable.')));
   const dist=resolve('dist');
   if(existsSync(join(dist,'index.html'))){app.use('/labs-runtime',(req,res,next)=>{const origin=`${req.protocol}://${req.get('host')}`;res.set('Access-Control-Allow-Origin','*');res.set('X-Content-Type-Options','nosniff');if(req.path==='/runner.js')res.set('Content-Security-Policy',labsWorkerPolicy(origin));if(req.path==='/python-frame.html')res.set('Content-Security-Policy',pythonFramePolicy(origin));next();});app.use(express.static(dist));app.get('/{*path}',(_req,res)=>res.sendFile(join(dist,'index.html')));}

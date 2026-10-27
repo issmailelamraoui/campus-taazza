@@ -36,6 +36,9 @@ async function setup({ width = 390, height = 844, theme = 'dark', seen = false, 
     if (request.method() !== 'GET') mutations.push(`${request.method()} ${path}`);
     if (path === '/api/session') return route.fulfill({ json: { user } });
     if (path === '/api/bootstrap') return route.fulfill({ json: bootstrap });
+    if (path === '/api/push/config' && request.method() === 'GET') return route.fulfill({ json: { enabled: false, publicKey: null } });
+    if (path === '/api/members/202/achievements' && request.method() === 'GET') return route.fulfill({ json: { achievements: [] } });
+    if (path === '/api/auth/google/config' && request.method() === 'GET') return route.fulfill({ json: { enabled: false } });
     errors.push(`Unexpected fixture request: ${request.method()} ${path}`);
     return route.fulfill({ status: 500, json: { error: 'Unexpected fixture request' } });
   });

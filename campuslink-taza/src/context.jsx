@@ -12,16 +12,20 @@ import {saveOfflineSession,loadOfflineSession} from './lib/offline-session.js';
 // Session cleanup must be registered even when no reader/study route is loaded.
 import './lib/offline-documents.js';
 import './lib/reading.js';
+import {setPushAccount,disablePushDevice,clearLocalPushDevice} from './lib/web-push.js';
+import {capturePushNavigation,pendingPushNavigation,clearPushNavigation} from './lib/push-navigation.js';
 
 const AppContext=createContext(null);
 const key='campuslink-prototype-v1:';
 export function readLocal(name,fallback){try{const value=localStorage.getItem(key+name);return value?JSON.parse(value):fallback;}catch{return fallback;}}
 function useLocal(name,initial){const [value,setValue]=useState(()=>readLocal(name,initial));useEffect(()=>{try{localStorage.setItem(key+name,JSON.stringify(value));}catch{}},[name,value]);return [value,setValue];}
 const emptyData=()=>({user:null,faculty:null,resources:[],announcements:[],messages:[],notifications:[],unreadCount:0,discussionUnreadCount:0,discussionUnreadCounts:[],adminUnreadCount:0,notificationsHasMore:false,saved:[],history:[],events:[],channels:[],members:[]});
-const preferencesFor=user=>({announcements:true,resources:true,mentions:true,...user?.preferences,calendar:false,discussions:user?.preferences?.important!==false,administration:user?.preferences?.admin!==false});
+const preferencesFor=user=>({announcements:true,resources:true,questions:true,mentions:true,...user?.preferences,calendar:false,discussions:user?.preferences?.important!==false,administration:user?.preferences?.admin!==false});
 
 export function AppProvider({children}){
  const navigate=useNavigate(),location=useLocation();
+ const [pushNavigationRevision,setPushNavigationRevision]=useState(()=>{capturePushNavigation();return 0;});
+ const openingPush=useRef(null);
  const [language,changeLanguage]=useLocal('language','fr');
  const [theme,setTheme]=useLocal('theme','dark');
  const [lowData,setLowData]=useLocal('low-data',false);
@@ -40,6 +44,16 @@ export function AppProvider({children}){
  const notificationVisit=useRef(null),notificationOpenSequence=useRef(0);
  const notificationRetryTimer=useRef(null),retryReadyVisit=useRef(null),discussionReadQueue=useRef(Promise.resolve());
  const user=data.user,isAdmin=isAdministrator(user);
+ const pushOwner=useRef(undefined);
+ useEffect(()=>{
+  if(loading)return;
+  const next=user?.accountStatus==='approved'&&!requiresPasswordChange(user)?user.id:null;
+  const previous=pushOwner.current;pushOwner.current=next;
+  let active=true;
+  if(next===null||previous!==undefined&&previous!==null&&String(previous)!==String(next))void clearLocalPushDevice().catch(()=>{}).finally(()=>{if(active)setPushAccount(next);});
+  else setPushAccount(next);
+  return()=>{active=false;};
+ },[loading,user?.id,user?.accountStatus,user?.mustChangePassword]);
  const selection=user?.facultyId&&(user.filiereId||isAdmin)?{facultyId:user.facultyId,filiereId:user.filiereId||null,semester:user.semester}:null;
  const faculty=data.faculty||FACULTIES.find(item=>item.id===user?.facultyId),filiere=getFiliere(user?.filiereId);
  const t=name=>translations[language]?.[name]||translations.fr[name]||name;
@@ -98,6 +112,28 @@ export function AppProvider({children}){
   },40);
  },[refresh]);
  useEffect(()=>subscribeAPIActivity(setNetworkActivity),[]);
+ useEffect(()=>{
+  const retry=()=>setPushNavigationRevision(value=>value+1);
+  window.addEventListener('online',retry);return()=>window.removeEventListener('online',retry);
+ },[]);
+ useEffect(()=>{
+  if(loading||!/^\/app(?:\/|$)/.test(location.pathname)||!user?.id||user.accountStatus!=='approved'||requiresPasswordChange(user)||!selection||navigator.onLine===false)return;
+  const id=pendingPushNavigation();if(!id||openingPush.current===id)return;
+  const owner=epoch.current;openingPush.current=id;let active=true;
+  // Fetch the recipient's own row after authentication. A push payload never
+  // supplies a destination URL or permission to another account's content.
+  api('/notifications/'+id).then(async result=>{
+   if(!active||owner!==epoch.current)return;
+   const [item]=normalizeBootstrap({user:current.current.user,resources:current.current.resources,notifications:[result.notification]}).notifications;
+   if(!item)throw new Error('Notification indisponible.');
+   clearPushNavigation();await openNotification(item);
+  }).catch(error=>{
+   if(!active||owner!==epoch.current)return;
+   if([403,404,410].includes(error.status)){clearPushNavigation();navigate('/app/notifications',{replace:true});}
+   notify(error.message,'error');
+  }).finally(()=>{if(openingPush.current===id)openingPush.current=null;});
+  return()=>{active=false;};
+ },[loading,user?.id,user?.accountStatus,user?.mustChangePassword,user?.facultyId,user?.filiereId,location.pathname,pushNavigationRevision]);
  useEffect(()=>{
   let live=true;const owner=epoch.current;
   if(readLocal('logout-pending',false)){setLoading(false);if(navigator.onLine!==false)api('/logout',{method:'POST'}).then(()=>localStorage.removeItem(key+'logout-pending')).catch(()=>{});return()=>{live=false;};}
@@ -211,13 +247,13 @@ export function AppProvider({children}){
   // Old programme requests and private previews must not enter the new scope.
   clearSession();commit(epoch.current,()=>({...emptyData(),user:next}));await refresh();return true;
  }
- async function logout(){if(navigator.onLine===false){localStorage.setItem(key+'logout-pending','true');clearSession();return true;}try{await api('/logout',{method:'POST'});clearSession();localStorage.removeItem(key+'logout-pending');return true;}catch(error){notify(error.message,'error');throw error;}}
+ async function logout(){await disablePushDevice().catch(()=>{});setPushAccount(null);if(navigator.onLine===false){localStorage.setItem(key+'logout-pending','true');clearSession();return true;}try{await api('/logout',{method:'POST'});clearSession();localStorage.removeItem(key+'logout-pending');return true;}catch(error){notify(error.message,'error');throw error;}}
  async function updateProfile(patch){const owner=epoch.current,result=await api('/profile',{method:'PATCH',body:patch,timeout:60000});requireCurrent(owner);const next=normalizeUser(result.user);if(patch.avatar&&next.avatar.startsWith('/api/avatars/'))next.avatar+=(next.avatar.includes('?')?'&':'?')+'v='+Date.now().toString(36);commit(owner,previous=>({...previous,user:next}));notify(t('preferencesSaved'));return next;}
  function setLanguage(next){changeLanguage(next);if(user?.accountStatus==='approved'&&!requiresPasswordChange(user)){const owner=epoch.current;api('/profile',{method:'PATCH',body:{language:next}}).then(result=>commit(owner,previous=>({...previous,user:normalizeUser(result.user)}))).catch(error=>{if(owner===epoch.current)notify(error.message,'error');});}}
  function setPreferences(change){return locked('preferences',async owner=>{
   const prefs=preferencesFor(current.current.user),next=typeof change==='function'?change(prefs):{...prefs,...change};
   const original=current.current.user.preferences;
-  const patch={announcements:next.announcements,resources:next.resources,mentions:next.mentions,important:next.discussions,admin:next.administration};
+  const patch={announcements:next.announcements,resources:next.resources,questions:next.questions,mentions:next.mentions,important:next.discussions,admin:next.administration};
   beginOptimistic(owner,'preferences',previous=>({...previous,user:{...previous.user,preferences:{...previous.user.preferences,...patch}}}));
   try{const result=await api('/profile',{method:'PATCH',body:{preferences:patch}});requireCurrent(owner);finishOptimistic(owner,'preferences',previous=>({...previous,user:normalizeUser(result.user)}));return true;}
   catch(error){finishOptimistic(owner,'preferences',previous=>({...previous,user:{...previous.user,preferences:original}}));throw error;}

@@ -24,12 +24,12 @@ export function boardOperation(raw){
  return {type:'stroke',points,color,width:Math.max(1,Math.min(8,Number(raw.width)||2))};
 }
 
-export function installCampusRoutes(app,{db,requireFaculty,problem,assertResource,author,notifyDirect,broadcast,canAdminFaculty,auditAdministrative}){
+export function installCampusRoutes(app,{db,requireFaculty,problem,assertResource,author,notifyDirect,notifyProgram,broadcast,canAdminFaculty,auditAdministrative}){
  const id=v=>{const n=Number(v);if(!Number.isSafeInteger(n)||n<1)throw problem(400,'Identifiant invalide.');return n;};
  const text=(v,label,max=4000)=>{if(typeof v!=='string'||!v.trim()||v.includes('\u0000')||v.trim().length>max)throw problem(400,label+' invalide.');return v.trim();};
  const scope=(row,user)=>sameStudyScope(row,user);
  const manage=(user,faculty,filiere=null)=>canAdminFaculty(user,faculty,filiere);
- const notice=(user,type,title,body,path)=>notifyDirect(user,type,title,body,path);
+ const notice=(user,type,title,body,path,context=null)=>notifyDirect(user,type,title,body,path,context);
  const cooldown=async(table,key,user,seconds)=>{
   await db.prepare('SELECT pg_advisory_xact_lock(hashtext(?))').get('campus:rate:'+table+':'+user.id);
   if(await db.prepare(`SELECT 1 FROM ${table} WHERE ${key}=? AND created_at>? LIMIT 1`).get(user.id,new Date(Date.now()-seconds*1000).toISOString()))throw problem(429,'Veuillez patienter avant de publier à nouveau.');
@@ -90,7 +90,7 @@ export function installCampusRoutes(app,{db,requireFaculty,problem,assertResourc
  app.post('/api/campus/forum',requireFaculty,async(req,res)=>{
   if(!req.user.filiere_id)throw problem(403,'Une filière autorisée est nécessaire.');
   const title=text(req.body.title,'Titre',160),body=text(req.body.body,'Description',10000),module=String(req.body.module||'').trim().slice(0,160),{resourceId,page,version}=await source(req),anchor=sourceAnchor(req.body.source_anchor);if(anchor.length&&(!resourceId||!page))throw problem(400,'Une zone nécessite une page source autorisée.');
-  const excerpt=String(req.body.excerpt||'').trim().slice(0,2000);const q=await db.transaction(async()=>{await cooldown('campus_questions','author_id',req.user,30);return db.prepare('INSERT INTO campus_questions(faculty_id,filiere_id,author_id,title,body,module,resource_id,source_page,source_version,source_anchor,source_excerpt,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?) RETURNING *').get(req.user.faculty_id,req.user.filiere_id,req.user.id,title,body,module,resourceId,page,version,JSON.stringify(anchor),excerpt,date());});
+  const excerpt=String(req.body.excerpt||'').trim().slice(0,2000);const q=await db.transaction(async()=>{await cooldown('campus_questions','author_id',req.user,30);const row=await db.prepare('INSERT INTO campus_questions(faculty_id,filiere_id,author_id,title,body,module,resource_id,source_page,source_version,source_anchor,source_excerpt,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?) RETURNING *').get(req.user.faculty_id,req.user.filiere_id,req.user.id,title,body,module,resourceId,page,version,JSON.stringify(anchor),excerpt,date());if(notifyProgram)await notifyProgram(row.faculty_id,'questions','Nouvelle question dans votre filière',row.title,`/app/campus?tab=forum&question=${row.id}`,req.user.id,row.filiere_id,{kind:'forum-question',questionId:row.id,actorId:req.user.id});return row;});
   await broadcast(req.user.faculty_id,req.user.filiere_id);res.status(201).json({question:await withAuthor(q)});
  });
  app.get('/api/campus/forum/:id',requireFaculty,async(req,res)=>{
@@ -101,7 +101,7 @@ export function installCampusRoutes(app,{db,requireFaculty,problem,assertResourc
  });
  app.post('/api/campus/forum/:id/answers',requireFaculty,async(req,res)=>{
   const q=await question(req.user,req.params.id),body=text(req.body.body,'Réponse',10000);
-  const a=await db.transaction(async()=>{await cooldown('campus_answers','author_id',req.user,15);const row=await db.prepare('INSERT INTO campus_answers(question_id,author_id,body,created_at) VALUES(?,?,?,?) RETURNING *').get(q.id,req.user.id,body,date());if(q.author_id!==req.user.id)await notice(q.author_id,'campus','Nouvelle réponse',q.title,`/app/campus?tab=forum&question=${q.id}&answer=${row.id}#answer-${row.id}`);return row;});
+  const a=await db.transaction(async()=>{await cooldown('campus_answers','author_id',req.user,15);const row=await db.prepare('INSERT INTO campus_answers(question_id,author_id,body,created_at) VALUES(?,?,?,?) RETURNING *').get(q.id,req.user.id,body,date());if(q.author_id!==req.user.id)await notice(q.author_id,'campus','Nouvelle réponse',q.title,`/app/campus?tab=forum&question=${q.id}&answer=${row.id}#answer-${row.id}`,{kind:'forum-answer',questionId:q.id,answerId:row.id,actorId:req.user.id});return row;});
   await broadcast(req.user.faculty_id,req.user.filiere_id);res.status(201).json({answer:await withAuthor(a)});
  });
  app.post('/api/campus/answers/:id/comments',requireFaculty,async(req,res)=>{
@@ -116,7 +116,7 @@ export function installCampusRoutes(app,{db,requireFaculty,problem,assertResourc
  });
  app.post('/api/campus/forum/:id/accept',requireFaculty,async(req,res)=>{
   const q=await question(req.user,req.params.id),a=await answer(req.user,req.body.answer_id);if(q.author_id!==req.user.id||a.question_id!==q.id)throw problem(403,'Seul l’auteur peut choisir une réponse de sa question.');
-  const awarded=await db.transaction(async()=>{await db.prepare('SELECT pg_advisory_xact_lock(hashtext(?))').get(`campuslink:xp-ranking:${q.faculty_id}:${q.filiere_id}`);await db.prepare('SELECT id FROM campus_questions WHERE id=? FOR UPDATE').get(q.id);await db.prepare('UPDATE campus_questions SET accepted_answer_id=? WHERE id=?').run(a.id,q.id);if(a.author_id!==req.user.id)await notice(a.author_id,'campus','Réponse acceptée',q.title,`/app/campus?tab=forum&question=${q.id}&answer=${a.id}#answer-${a.id}`);return awardForumFeedback(q.id);});if(awarded)await broadcast(req.user.faculty_id,req.user.filiere_id);res.json({ok:true,awarded});
+  const awarded=await db.transaction(async()=>{await db.prepare('SELECT pg_advisory_xact_lock(hashtext(?))').get(`campuslink:xp-ranking:${q.faculty_id}:${q.filiere_id}`);const locked=await db.prepare('SELECT id,accepted_answer_id FROM campus_questions WHERE id=? FOR UPDATE').get(q.id);await db.prepare('UPDATE campus_questions SET accepted_answer_id=? WHERE id=?').run(a.id,q.id);if(locked.accepted_answer_id!==a.id&&a.author_id!==req.user.id)await notice(a.author_id,'campus','Réponse acceptée',q.title,`/app/campus?tab=forum&question=${q.id}&answer=${a.id}#answer-${a.id}`,{kind:'forum-accepted',questionId:q.id,answerId:a.id,actorId:req.user.id});return awardForumFeedback(q.id);});await broadcast(req.user.faculty_id,req.user.filiere_id);res.json({ok:true,awarded});
  });
 
  app.get('/api/campus/blocks',requireFaculty,async(req,res)=>{

@@ -125,11 +125,12 @@ test('registration resolution reads every recipient once and remains atomic in t
 
 test('rolling-deployment writers that set only read receive a timestamp which later writes cannot extend', async () => {
   const unread = await notice();
-  const beforeWrite = Date.now();
+  const beforeWrite = (await env.db.prepare('SELECT CURRENT_TIMESTAMP AS time').get()).time;
   await env.db.prepare('UPDATE notifications SET read=1 WHERE id=?').run(unread.id);
   const first = await env.db.prepare('SELECT read,read_at FROM notifications WHERE id=?').get(unread.id);
   assert.equal(first.read, 1);
-  assert.ok(new Date(first.read_at).getTime() >= beforeWrite && new Date(first.read_at).getTime() <= Date.now());
+  const afterWrite = (await env.db.prepare('SELECT CURRENT_TIMESTAMP AS time').get()).time;
+  assert.ok(first.read_at >= beforeWrite && first.read_at <= afterWrite, 'Compare the first-read timestamp with the same database clock.');
   await env.db.prepare('UPDATE notifications SET read=1,read_at=? WHERE id=?').run(at(24 * hour), unread.id);
   assert.equal(iso((await env.db.prepare('SELECT read_at FROM notifications WHERE id=?').get(unread.id)).read_at), iso(first.read_at));
   await env.db.prepare('UPDATE notifications SET read_at=NULL WHERE id=?').run(unread.id);

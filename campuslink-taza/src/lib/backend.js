@@ -91,7 +91,7 @@ export function normalizeBootstrap(raw) {
     announcements: (raw.announcements || []).filter(item => !['help','life'].includes(item.channel) && !hiddenMessages.has(id(item.message_id))).map(normalizeAnnouncement),
     notifications: (raw.notifications || []).filter(item => item.type !== 'calendar' && !String(item.path || '').includes('/calendar')).map(item => {
       const target = /#(?:resource|announcement|message|event)-(\d+)/.exec(item.path || '');
-      const type = { resources: 'document', announcements: 'announcement', important: 'discussion', admin: 'administration', mentions: 'mention', calendar: 'calendar' }[item.type] || item.type;
+      const type = { resources: 'document', announcements: 'announcement', important: 'discussion', questions: 'discussion', admin: 'administration', mentions: 'mention', calendar: 'calendar' }[item.type] || item.type;
       const href = clientPath(item.path, resources);
       return { ...item, id: id(item.id), type, date: item.created_at, readAt: item.read_at ?? null, description: item.body || item.description || '', read: Boolean(item.read), href, path: href, serverPath: item.path,
         popupEligible: item.popup_eligible === true && isAdministrator(user) && type === 'administration' && item.target_available !== false,
