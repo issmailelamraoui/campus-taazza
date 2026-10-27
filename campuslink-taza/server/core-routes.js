@@ -384,14 +384,16 @@ export function installCoreRoutes(app,{db,requireFaculty,problem,permissions,asI
   app.post('/api/notifications/:id/departed',requireFaculty,async(req,res)=>{
     const row=await notification(req);
     const token=string(req.body.visit_token,'Visite',80);
-    await db.transaction(async()=>{
+    const firstRead=await db.transaction(async()=>{
       const visit=await db.prepare('SELECT * FROM notification_visits WHERE token=? AND notification_id=? AND user_id=? FOR UPDATE').get(token,row.id,req.user.id);
       if(!visit||visit.path!==row.path||visit.expires_at<now())throw problem(409,'La destination doit être ouverte avant de terminer la visite.');
       if(!await authorizeNotificationTarget(req.user,row.path))throw problem(403,'La destination n’est plus autorisée.');
       await db.prepare('UPDATE notification_visits SET departed_at=? WHERE token=?').run(now(),token);
-      await db.prepare('UPDATE notifications SET read=1 WHERE id=? AND user_id=?').run(row.id,req.user.id);
+      const marked=await notificationStore.markRead(req.user,row.id);
+      if(!marked.length)throw problem(404,'Notification introuvable.');
+      return marked[0].read_at;
     });
-    await broadcastUserUpdate([req.user.id],{notifications:true});res.json({ok:true});
+    await broadcastUserUpdate([req.user.id],{notifications:true});res.json({ok:true,read_at:firstRead});
   });
   app.post('/api/notifications/read',requireFaculty,async(req,res)=>{
     await notificationStore.markRead(req.user);

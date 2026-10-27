@@ -2,15 +2,11 @@ export const NOTIFICATION_RETENTION_MS = 3 * 24 * 60 * 60 * 1000;
 
 // The same predicate is used by paging, counters and destination visits. An
 // expired row can never reappear while the throttled physical cleanup waits.
-const visible = `n.type<>'calendar' AND n.path NOT LIKE '/app/calendar%' AND (
-  (n.registration_user_id IS NULL AND n.created_at>=?) OR
-  (n.registration_user_id IS NOT NULL AND EXISTS (
-    SELECT 1 FROM users registration WHERE registration.id=n.registration_user_id AND registration.account_status='pending'
-  ))
-)`;
+const visible = `n.type<>'calendar' AND n.path NOT LIKE '/app/calendar%'
+  AND (n.read=0 OR (n.read=1 AND n.read_at>?::timestamptz))`;
 // Legacy deleted targets stay hidden; other unavailable destinations remain readable.
 const listed = `n.target_deleted=0 AND ${visible}`;
-const columns = 'n.id,n.type,n.title,n.body,n.path,n.created_at,n.read,n.target_deleted,n.registration_user_id';
+const columns = 'n.id,n.type,n.title,n.body,n.path,n.created_at,n.read,n.read_at,n.target_deleted,n.registration_user_id';
 
 export function createNotificationStore({db,decorate,discussionUnread,clock=Date.now}) {
   let cleanedAt=-Infinity,cleanup;
@@ -19,11 +15,7 @@ export function createNotificationStore({db,decorate,discussionUnread,clock=Date
     if(cleanup)return cleanup;
     if(clock()-cleanedAt<60000)return;
     cleanup=(async()=>{
-      await db.prepare(`DELETE FROM notifications WHERE
-        (registration_user_id IS NULL AND created_at<?) OR
-        (registration_user_id IS NOT NULL AND NOT EXISTS (
-          SELECT 1 FROM users registration WHERE registration.id=notifications.registration_user_id AND registration.account_status='pending'
-        ))`).run(cutoff());
+      await db.prepare('DELETE FROM notifications WHERE read=1 AND read_at<=?::timestamptz').run(cutoff());
       await db.prepare('DELETE FROM notification_visits WHERE expires_at<?').run(new Date(clock()).toISOString());
       cleanedAt=clock();
     })();
@@ -67,7 +59,14 @@ export function createNotificationStore({db,decorate,discussionUnread,clock=Date
     return {total:Number(row.total),unread_count:Number(row.unread_count),latest_id:Number(row.latest_id)};
   }
   async function markRead(user,id=null) {
-    await db.prepare(`UPDATE notifications n SET read=1 WHERE n.user_id=? AND n.faculty_id=? AND n.read=0 AND ${visible}${id===null?'':' AND n.id=?'}`).run(user.id,user.faculty_id,cutoff(),...(id===null?[]:[id]));
+    const firstRead=new Date(clock()).toISOString();
+    return db.prepare(`UPDATE notifications n SET read=1,read_at=COALESCE(n.read_at,?::timestamptz)
+      WHERE n.user_id=? AND n.faculty_id=? AND ${visible}${id===null?'':' AND n.id=?'} RETURNING n.id,n.read_at`)
+      .all(firstRead,user.id,user.faculty_id,cutoff(),...(id===null?[]:[id]));
   }
-  return {rows,find,payload,prune,markRead,state};
+  async function resolveRegistration(id) {
+    return db.prepare(`UPDATE notifications SET read=1,read_at=COALESCE(read_at,?::timestamptz)
+      WHERE registration_user_id=? RETURNING id,user_id,read_at`).all(new Date(clock()).toISOString(),id);
+  }
+  return {rows,find,payload,prune,markRead,resolveRegistration,state};
 }

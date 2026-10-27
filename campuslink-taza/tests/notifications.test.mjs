@@ -28,6 +28,25 @@ test('discussion counts fall back to accessible unread message notices on an old
   assert.equal(data.discussionUnreadCount, 2);
 });
 
+test('read history preserves its first-read timestamp independently of its creation date and destination availability', () => {
+  const createdAt = '2026-09-01T09:00:00.000Z';
+  const readAt = '2026-10-27T12:34:56.789Z';
+  const data = normalizeBootstrap({ user: { id: 2, role: 'global_admin', faculty_id: 'flaa' }, notifications: [
+    { id: 41, type: 'admin', path: '/app/admin?tab=registrations&registration=57#registration-57', created_at: createdAt, read_at: readAt, read: true, registration_user_id: 57, target_available: false, popup_eligible: false },
+    { id: 42, type: 'admin', path: '/app', created_at: createdAt, read_at: null, read: false },
+  ] });
+  const [history, unread] = data.notifications;
+  assert.equal(history.read, true);
+  assert.equal(history.date, createdAt, 'The displayed creation date is not replaced by the first-read time');
+  assert.equal(history.read_at, readAt);
+  assert.equal(history.readAt, readAt);
+  assert.equal(history.registration_user_id, 57);
+  assert.equal(history.target_available, false);
+  assert.equal(history.popupEligible, false);
+  assert.equal(unread.read, false);
+  assert.equal(unread.readAt, null);
+});
+
 test('legacy document links retain the reader target, source page and version after normalization', () => {
   for (const path of ['/app/resources#resource-42', '/app/resources/courses/s1/algorithms#resource-42']) {
     assert.equal(clientPath(path), '/app/library?document=42#resource-42');

@@ -93,7 +93,7 @@ export function normalizeBootstrap(raw) {
       const target = /#(?:resource|announcement|message|event)-(\d+)/.exec(item.path || '');
       const type = { resources: 'document', announcements: 'announcement', important: 'discussion', admin: 'administration', mentions: 'mention', calendar: 'calendar' }[item.type] || item.type;
       const href = clientPath(item.path, resources);
-      return { ...item, id: id(item.id), type, date: item.created_at, description: item.body || item.description || '', read: Boolean(item.read), href, path: href, serverPath: item.path,
+      return { ...item, id: id(item.id), type, date: item.created_at, readAt: item.read_at ?? null, description: item.body || item.description || '', read: Boolean(item.read), href, path: href, serverPath: item.path,
         popupEligible: item.popup_eligible === true && isAdministrator(user) && type === 'administration' && item.target_available !== false,
         facultyId: user?.facultyId, targetId: target?.[1], channel: new URLSearchParams(href.split('?')[1]).get('channel') };
     }),

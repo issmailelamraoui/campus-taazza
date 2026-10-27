@@ -29,9 +29,10 @@ async function signup() {
   assert.ok(notice, 'A cross-faculty signup reaches the platform owner');
   return { ...result, notice, id: result.data.user.id };
 }
-async function notice({ user = 3, faculty = 'flaa', type = 'admin', path = '/app', days = 0, read = 0, deleted = 0 } = {}) {
-  return env.db.prepare('INSERT INTO notifications(user_id,faculty_id,type,title,body,path,created_at,read,target_deleted) VALUES(?,?,?,?,?,?,?,?,?) RETURNING *').get(user, faculty, type, 'Notification regression', 'Private fixture', path, timestamp(days), read, deleted);
+async function notice({ user = 3, faculty = 'flaa', type = 'admin', path = '/app', days = 0, read = 0, readAt = read ? timestamp(0) : null, deleted = 0 } = {}) {
+  return env.db.prepare('INSERT INTO notifications(user_id,faculty_id,type,title,body,path,created_at,read,read_at,target_deleted) VALUES(?,?,?,?,?,?,?,?,?,?) RETURNING *').get(user, faculty, type, 'Notification regression', 'Private fixture', path, timestamp(days), read, readAt, deleted);
 }
+const iso = value => value === null ? null : new Date(value).toISOString();
 async function message({ faculty = 'flaa', channel = 'general', author = 4, filiere = null, semester = null, days = 0, removed = 0 } = {}) {
   return env.db.prepare('INSERT INTO messages(faculty_id,channel,content,author_id,created_at,filiere_id,semester,removed) VALUES(?,?,?,?,?,?,?,?) RETURNING *').get(faculty, channel, 'Notification regression ' + randomUUID(), author, timestamp(days), filiere, semester, removed);
 }
@@ -77,8 +78,18 @@ test('signup notifications point to the exact pending account and enforce owners
   assert.equal(visit.status, 200);
   assert.equal((await env.db.prepare('SELECT read FROM notifications WHERE id=?').get(item.id)).read, 0);
   assert.equal((await request(`/notifications/${item.id}/departed`, { cookie: cookies.yassine, method: 'POST', body: { visit_token: visit.data.visit_token } })).status, 404);
-  assert.equal((await request(`/notifications/${item.id}/departed`, { cookie: cookies.admin, method: 'POST', body: { visit_token: visit.data.visit_token } })).status, 200);
-  assert.equal((await env.db.prepare('SELECT read FROM notifications WHERE id=?').get(item.id)).read, 1);
+  const departed = await request(`/notifications/${item.id}/departed`, { cookie: cookies.admin, method: 'POST', body: { visit_token: visit.data.visit_token } });
+  assert.equal(departed.status, 200);
+  assert.ok(Number.isFinite(Date.parse(departed.data.read_at)), 'Completing a visit returns its first-read timestamp');
+  const firstRead = await env.db.prepare('SELECT read,read_at FROM notifications WHERE id=?').get(item.id);
+  assert.equal(firstRead.read, 1);
+  assert.equal(iso(firstRead.read_at), departed.data.read_at);
+  const repeated = await request(`/notifications/${item.id}/departed`, { cookie: cookies.admin, method: 'POST', body: { visit_token: visit.data.visit_token } });
+  assert.equal(repeated.status, 200);
+  assert.equal(repeated.data.read_at, departed.data.read_at, 'Repeating a completed visit cannot restart retention');
+  const marked = await request(`/notifications/${item.id}/read`, { cookie: cookies.admin, method: 'POST', body: {} });
+  assert.equal(marked.status, 200);
+  assert.equal(iso(marked.data.notifications.find(row => row.id === item.id).read_at), departed.data.read_at);
 
   const unauthorized = await notice({ user: 7, path });
   const facultyInbox = await request('/notifications', { cookie: cookies.professeure });
@@ -88,40 +99,72 @@ test('signup notifications point to the exact pending account and enforce owners
   assert.equal((await request(`/notifications/${unauthorized.id}/viewed`, { cookie: cookies.professeure, method: 'POST', body: { path } })).status, 403);
 });
 
-test('three-day retention hides old notices while preserving pending admissions even after a visit', async () => {
+test('retention follows the first read rather than creation time and never expires an unread notice', async () => {
   const registered = await signup();
-  await env.db.prepare('UPDATE notifications SET created_at=?,read=1 WHERE id=?').run(timestamp(8), registered.notice.id);
-  const staleUnread = await notice({ user: 2, days: 4 });
-  const staleRead = await notice({ user: 2, days: 4, read: 1 });
+  await env.db.prepare('UPDATE notifications SET created_at=?,read=1,read_at=? WHERE id=?').run(timestamp(8), timestamp(4), registered.notice.id);
+  const staleUnread = await notice({ user: 2, days: 40 });
+  const staleRead = await notice({ user: 2, read: 1, readAt: timestamp(4) });
   const recent = await notice({ user: 2, days: 2 });
+  const recentlyRead = await notice({ user: 2, days: 40, read: 1, readAt: timestamp(1) });
   for (const path of ['/bootstrap', '/notifications?limit=1']) {
     const response = await request(path, { cookie: cookies.admin });
     assert.equal(response.status, 200, JSON.stringify(response.data));
-    assert.ok(response.data.notifications.every(item => ![staleUnread.id, staleRead.id].includes(item.id)), path + ': expired rows never reach the client');
-    assert.equal(response.data.unread_count, 1);
+    assert.ok(response.data.notifications.every(item => ![registered.notice.id, staleRead.id].includes(item.id)), path + ': expired read rows never reach the client');
+    assert.equal(response.data.unread_count, 2);
   }
   const inbox = await request('/notifications?limit=100', { cookie: cookies.admin });
-  assert.ok(inbox.data.notifications.some(item => item.id === registered.notice.id), 'A pending request survives the retention limit even when read');
+  assert.ok(!inbox.data.notifications.some(item => item.id === registered.notice.id), 'Pending admissions receive no exemption after being read');
+  assert.ok(inbox.data.notifications.some(item => item.id === staleUnread.id), 'An old unread notice stays until read or resolved');
   assert.ok(inbox.data.notifications.some(item => item.id === recent.id));
+  assert.ok(inbox.data.notifications.some(item => item.id === recentlyRead.id), 'An old notice gets a full retention period after its first read');
 });
 
-test('approval and rejection remove the matching registration notices immediately and preserve other pending requests', async () => {
+test('approval and rejection retain registration notices as read without extending an existing deadline', async () => {
   const keep = await signup();
   for (const status of ['approved', 'rejected']) {
     const registered = await signup();
+    const alreadyReadAt = status === 'approved' ? timestamp(1) : null;
     await env.db.prepare('UPDATE notifications SET created_at=? WHERE id=?').run(timestamp(7), registered.notice.id);
+    if (alreadyReadAt) await env.db.prepare('UPDATE notifications SET read=1,read_at=? WHERE id=?').run(alreadyReadAt, registered.notice.id);
+    const beforeReview = Date.now();
     const reviewed = await request(`/admin/users/${registered.id}/admission`, { cookie: cookies.admin, method: 'PATCH', body: { status } });
     assert.equal(reviewed.status, 200, JSON.stringify(reviewed.data));
-    assert.equal((await env.db.prepare('SELECT COUNT(*) AS n FROM notifications WHERE registration_user_id=?').get(registered.id)).n, 0);
+    const resolved = await env.db.prepare('SELECT id,read,read_at FROM notifications WHERE registration_user_id=?').all(registered.id);
+    assert.ok(resolved.length > 0, 'Resolving admission preserves the recipients’ history');
+    assert.ok(resolved.every(row => row.read === 1 && row.read_at), 'All recipients move to Read atomically');
+    const ownerNotice = resolved.find(row => row.id === registered.notice.id);
+    if (alreadyReadAt) assert.equal(iso(ownerNotice.read_at), alreadyReadAt);
+    else assert.ok(new Date(ownerNotice.read_at).getTime() >= beforeReview && new Date(ownerNotice.read_at).getTime() <= Date.now());
     const inbox = await request('/notifications', { cookie: cookies.admin });
-    assert.ok(!inbox.data.notifications.some(item => item.id === registered.notice.id));
+    const item = inbox.data.notifications.find(item => item.id === registered.notice.id);
+    assert.ok(item);
+    assert.equal(item.read, true);
+    assert.equal(item.target_available, false, 'Keeping history grants no access to a resolved registration');
+    assert.equal(item.popup_eligible, false);
+    assert.equal(iso(item.read_at), iso(ownerNotice.read_at));
     assert.ok(inbox.data.notifications.some(item => item.id === keep.notice.id));
+    const repeated = await request(`/admin/users/${registered.id}/admission`, { cookie: cookies.admin, method: 'PATCH', body: { status } });
+    assert.equal(repeated.status, 200, JSON.stringify(repeated.data));
+    assert.deepEqual((await env.db.prepare('SELECT id,read,read_at FROM notifications WHERE registration_user_id=? ORDER BY id').all(registered.id)), resolved.toSorted((a,b) => a.id-b.id), 'Duplicate reviews cannot extend retention');
     if (status === 'approved') {
       const studentInbox = await request('/notifications', { cookie: registered.cookie });
       assert.equal(studentInbox.status, 200);
       assert.ok(studentInbox.data.notifications.every(item => item.popup_eligible === false), 'Student administrative replies do not become admin popups');
     }
   }
+});
+
+test('hard account deletion still removes private registration history instead of retaining an orphaned notice', async () => {
+  const keep = await signup();
+  const registered = await signup();
+  assert.equal((await request(`/admin/users/${registered.id}/admission`, { cookie: cookies.admin, method: 'PATCH', body: { status: 'approved' } })).status, 200);
+  assert.equal((await env.db.prepare('SELECT read FROM notifications WHERE id=?').get(registered.notice.id)).read, 1);
+  const deleted = await request(`/admin/users/${registered.id}`, { cookie: cookies.admin, method: 'DELETE' });
+  assert.equal(deleted.status, 200, JSON.stringify(deleted.data));
+  assert.equal((await env.db.prepare('SELECT COUNT(*) AS n FROM notifications WHERE registration_user_id=?').get(registered.id)).n, 0);
+  const inbox = await request('/notifications', { cookie: cookies.admin });
+  assert.ok(!inbox.data.notifications.some(item => item.id === registered.notice.id));
+  assert.ok(inbox.data.notifications.some(item => item.id === keep.notice.id));
 });
 
 test('unread counters include visible unavailable notices but exclude expired and foreign notices', async () => {
@@ -131,7 +174,7 @@ test('unread counters include visible unavailable notices but exclude expired an
   await notice({ type: 'important', path, read: 1 });
   await notice({ path, deleted: 1 });
   await notice({ path:'/app/resources/courses/s3#resource-99999999' });
-  await notice({ type: 'important', path, days: 4 });
+  await notice({ type: 'important', path, read: 1, readAt: timestamp(4) });
   await notice({ user: 2 });
   await notice({ user: 3, faculty: 'feg' });
   const ids = [];

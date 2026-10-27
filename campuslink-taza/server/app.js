@@ -1104,11 +1104,11 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
       const actor=await permissions.load(await db.prepare('SELECT * FROM users WHERE id=? FOR SHARE').get(req.user.id));
       if(!actor||actor.disabled||actor.account_status!=='approved'||!permissions.can(actor,'student.admit',user.faculty_id,user.filiere_id))throw problem(403,'Permission d’admission requise dans ce périmètre.');
       if(user.id===req.user.id||user.role!=='student')throw problem(403,'Ce compte n’est pas une demande d’inscription étudiante.');
-      if(user.account_status===status){await db.prepare('DELETE FROM notifications WHERE registration_user_id=?').run(user.id);return user;}
+      if(user.account_status===status){await notificationStore.resolveRegistration(user.id);return user;}
       if(user.account_status==='approved')throw problem(409,'Cet étudiant est déjà accepté.');
       if(status==='approved'&&(!hasStudies(user)||!user.faculty_id))throw problem(400,'La faculté et la filière de cette demande sont invalides.');
       const updated=await db.prepare('UPDATE users SET account_status=?,reviewed_at=?,reviewed_by=? WHERE id=? RETURNING *').get(status,now(),req.user.id,user.id);
-      await db.prepare('DELETE FROM notifications WHERE registration_user_id=?').run(user.id);
+      await notificationStore.resolveRegistration(user.id);
       if(status==='approved'&&JSON.parse(user.preferences).admin!==false)await db.prepare('INSERT INTO notifications (user_id,faculty_id,type,title,body,path,created_at) VALUES (?,?,?,?,?,?,?)').run(user.id,user.faculty_id,'admin','Inscription acceptée','Votre compte est prêt. Bienvenue dans votre communauté !','/app',now());
       return updated;
     });

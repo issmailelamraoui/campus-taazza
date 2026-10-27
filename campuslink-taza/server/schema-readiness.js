@@ -28,7 +28,7 @@ const requiredSchema = {
   resource_versions: 'id resource_id version object_key sha256',
   reactions: 'message_id user_id reaction',
   announcements: 'id title filiere_id kind public_author_label',
-  notifications: 'id target_deleted registration_user_id', events: 'id', channels: 'id faculty_id',
+  notifications: 'id target_deleted registration_user_id read_at', events: 'id', channels: 'id faculty_id',
   saved: 'user_id type target_id', history: 'user_id resource_id opened_at',
   reports: 'id note target_context', contacts: 'id assigned_to accepted_at closed_at recovery_hash client_id category updated_at filiere_id',
   legacy_imports: 'source_sha256', chat_bans: 'user_id',

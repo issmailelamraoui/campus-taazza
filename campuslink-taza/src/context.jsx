@@ -272,8 +272,8 @@ export function AppProvider({children}){
  async function completeNotificationVisit(visit){
   if(visit.completed||!visit.token||visit.epoch!==epoch.current)return false;
   visit.completed=true;
-  try{await api('/notifications/'+visit.id+'/departed',{method:'POST',body:{visit_token:visit.token}});
-   commit(visit.epoch,previous=>{const notice=previous.notifications.find(item=>item.id===visit.id&&!item.read);return {...previous,unreadCount:Math.max(0,(previous.unreadCount||0)-(notice?1:0)),adminUnreadCount:Math.max(0,(previous.adminUnreadCount||0)-(notice?.popupEligible?1:0)),notifications:previous.notifications.map(item=>item.id===visit.id?{...item,read:true}:item)};});scheduleRefresh();return true;
+  try{const result=await api('/notifications/'+visit.id+'/departed',{method:'POST',body:{visit_token:visit.token}});
+   commit(visit.epoch,previous=>{const notice=previous.notifications.find(item=>item.id===visit.id&&!item.read);return {...previous,unreadCount:Math.max(0,(previous.unreadCount||0)-(notice?1:0)),adminUnreadCount:Math.max(0,(previous.adminUnreadCount||0)-(notice?.popupEligible?1:0)),notifications:previous.notifications.map(item=>item.id===visit.id?{...item,read:true,read_at:item.read_at??result.read_at??null,readAt:item.readAt??result.read_at??null}:item)};});scheduleRefresh();return true;
   }catch(error){visit.completed=false;if(visit.epoch!==epoch.current)return false;if([404,410].includes(error.status)){scheduleRefresh();return false;}visit.retries=(visit.retries||0)+1;if(visit.retries<=2)setTimeout(()=>completeNotificationVisit(visit),visit.retries*2500);else notify(error.message,'error');return false;}
  }
  function beginNotificationVisit(notification){
