@@ -74,7 +74,8 @@ async function fixture({ width = 1440, height = 900, theme = 'dark', notices = [
       errors.push(`Blocked unexpected non-fixture write: ${request.method()} ${request.url()}`);
       return route.abort('blockedbyclient');
     }
-    return route.continue();
+    // Keep an optional outer production safety guard in the route chain.
+    return route.fallback();
   });
   await context.route('**/api/**', async route => {
     const request = route.request(), path = new URL(request.url()).pathname, method = request.method();
