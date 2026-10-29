@@ -31,12 +31,16 @@ export async function assertSameModuleShare(db, messageId, resourceId) {
 
 export async function moduleSharesFor(db, messageIds, viewerId) {
   if (!messageIds.length) return new Map();
-  const rows = await db.prepare(`SELECT s.*,
-      (u.faculty_id=s.faculty_id AND u.filiere_id=s.filiere_id AND EXISTS (
+  const rows = await db.prepare(`SELECT s.*,a.module_id,
+      (a.id IS NOT NULL AND u.faculty_id=s.faculty_id AND u.filiere_id=s.filiere_id AND EXISTS (
         SELECT 1 FROM resources r WHERE r.faculty_id=s.faculty_id AND r.filiere_id=s.filiere_id
           AND r.semester=s.semester AND r.removed=0 AND r.library_visible=1
-          AND lower(regexp_replace(trim(normalize(r.module,NFKC)), '\\s+', ' ', 'g'))=lower(s.module)
+          AND (a.module_id IS NOT NULL AND r.module_id=a.module_id OR a.module_id IS NULL AND r.module_id IS NULL
+            AND lower(regexp_replace(trim(normalize(r.module,NFKC)), '\\s+', ' ', 'g'))=lower(s.module))
       )) AS accessible
-    FROM message_module_shares s JOIN users u ON u.id=? WHERE s.message_id=ANY(?)`).all(viewerId, messageIds);
+    FROM message_module_shares s JOIN users u ON u.id=?
+    LEFT JOIN resources a ON a.id=s.resource_id AND a.faculty_id=s.faculty_id AND a.filiere_id=s.filiere_id AND a.semester=s.semester
+      AND lower(regexp_replace(trim(normalize(a.module,NFKC)), '\\s+', ' ', 'g'))=lower(s.module)
+    WHERE s.message_id=ANY(?)`).all(viewerId, messageIds);
   return new Map(rows.map(({ message_id, ...share }) => [message_id, share]));
 }

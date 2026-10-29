@@ -1,5 +1,6 @@
 import { getFiliere, getChatSemester } from '../data/studies.js';
 import { normalizePart } from './resources.js';
+import { resourceCategory } from '../../shared/resource-categories.js';
 
 const id = value => value === null || value === undefined ? null : String(value);
 export const ADMIN_ROLES = ['global_admin', 'faculty_admin', 'moderator'];
@@ -25,9 +26,9 @@ export function chatRequest(channel) {
 export function normalizeResource(raw) {
   const filename = raw.filename || raw.originalName || raw.title || '';
   const fileType = filename.includes('.') ? filename.split('.').pop().toUpperCase() : String(raw.mime || '').includes('pdf') ? 'PDF' : 'FILE';
-  const category = ['td', 'tp'].includes(raw.resource_type) ? raw.resource_type : ['correction', 'corrections'].includes(raw.resource_type) ? 'corrections' : raw.category;
+  const category = resourceCategory(raw);
   const bytes = Number(raw.size) || 0;
-  return { ...raw, id: id(raw.id), facultyId: raw.faculty_id, filiereId: raw.filiere_id,
+  return { ...raw, id: id(raw.id), moduleId: id(raw.module_id ?? raw.moduleId), uploaderId: id(raw.uploader_id ?? raw.author_id ?? raw.author?.id), facultyId: raw.faculty_id, filiereId: raw.filiere_id,
     filiereName: getFiliere(raw.filiere_id)?.name || raw.filiere_id, semester: Number(raw.semester), category,
     part: raw.part_number == null && raw.part == null ? null : normalizePart(raw.part_number ?? raw.part), author: raw.teacher_name || '',
     uploader: raw.author?.name || raw.uploader || '', uploaderUsername: raw.author?.username || raw.uploaderUsername || raw.uploader_username || '', originalName: filename, name: filename,
@@ -44,7 +45,7 @@ export function normalizeMessage(raw, resources = []) {
   if (!attachments.length && resource) attachments = [resource];
   const semester = getChatSemester(raw.semester);
   return { ...raw, id: id(raw.id), facultyId: raw.faculty_id, filiereId: raw.filiere_id,
-    sharedModule: raw.shared_module ? {resourceId:id(raw.shared_module.resource_id),facultyId:raw.shared_module.faculty_id,filiereId:raw.shared_module.filiere_id,semester:Number(raw.shared_module.semester),module:raw.shared_module.module,accessible:raw.shared_module.accessible===true} : null,
+    sharedModule: raw.shared_module ? {resourceId:id(raw.shared_module.resource_id),moduleId:id(raw.shared_module.module_id),facultyId:raw.shared_module.faculty_id,filiereId:raw.shared_module.filiere_id,semester:Number(raw.shared_module.semester),module:raw.shared_module.module,accessible:raw.shared_module.accessible===true} : null,
     channel: raw.channel === 'filiere' ? `year-${semester || 1}` : raw.channel,
     date: raw.created_at || raw.date || '', author: author?.name || 'Utilisateur', authorId: id(author?.id),
     username: author?.username || '', avatar: author?.avatar || '', replyTo: id(raw.reply_to),

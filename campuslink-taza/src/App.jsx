@@ -30,7 +30,7 @@ const SavedPage=studentPage('SavedPage');
 const ProfilePage=studentPage('ProfilePage');
 import './styles/interaction-overrides.css';
 
-function SessionStatus(){return <main className="public-page" style={{minHeight:'100dvh',display:'grid',placeItems:'center',padding:24}}><ConnectionStatus initial/></main>;}
+function SessionStatus(){return <main className="public-page session-status-screen"><ConnectionStatus initial/></main>;}
 function Protected(){
  const {user,selection,loading,connectionError}=useApp();
  if(loading||(!user&&connectionError))return <SessionStatus/>;

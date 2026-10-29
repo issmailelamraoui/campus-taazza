@@ -4,22 +4,22 @@ import { browseResourceDirectory, resourceDirectory } from '../src/lib/resources
 
 test('folder navigation retains nested paths and separates equal names from different uploaders', () => {
   const files = [
-    { id: 1, path: 'direct.pdf', uploaderUsername: 'alice' },
-    { id: 2, path: 'Cours/chapitre.pdf', uploaderUsername: 'alice' },
-    { id: 3, path: 'Cours/TD/exercice.pdf', uploaderUsername: 'alice' },
-    { id: 4, path: 'Cours/autre.pdf', uploaderUsername: 'bob' },
-    { id: 5, path: 'Cours/TD/retire.pdf', uploaderUsername: 'alice', status: 'removed' },
+    { id: 1, path: 'direct.pdf', uploaderUsername: 'alice',author_id:10 },
+    { id: 2, path: 'Cours/chapitre.pdf', uploaderUsername: 'alice',author_id:10 },
+    { id: 3, path: 'Cours/TD/exercice.pdf', uploaderUsername: 'alice',author_id:10 },
+    { id: 4, path: 'Cours/autre.pdf', uploaderUsername: 'bob',author_id:20 },
+    { id: 5, path: 'Cours/TD/retire.pdf', uploaderUsername: 'alice',author_id:10, status: 'removed' },
   ];
   const before = structuredClone(files);
   const root = browseResourceDirectory(files);
   assert.deepEqual(root.documents.map(item => item.id), [1]);
-  assert.deepEqual(root.folders.map(folder => [folder.path, folder.owner, folder.count]), [['Cours', 'alice', 2], ['Cours', 'bob', 1]]);
-  const alice = browseResourceDirectory(files, 'Cours', 'alice');
+  assert.deepEqual(root.folders.map(folder => [folder.path, folder.owner, folder.count]), [['Cours', '10', 2], ['Cours', '20', 1]]);
+  const alice = browseResourceDirectory(files, 'Cours', '10');
   assert.deepEqual(alice.documents.map(item => item.id), [2]);
-  assert.deepEqual(alice.folders.map(folder => [folder.path, folder.owner, folder.count]), [['Cours/TD', 'alice', 1]]);
-  assert.deepEqual(browseResourceDirectory(files, 'Cours/TD', 'alice').documents.map(item => item.id), [3]);
-  assert.deepEqual(browseResourceDirectory(files, 'Cours', 'bob').documents.map(item => item.id), [4]);
-  assert.deepEqual(browseResourceDirectory(files, 'Inexistant', 'alice'), { documents: [], folders: [] });
+  assert.deepEqual(alice.folders.map(folder => [folder.path, folder.owner, folder.count]), [['Cours/TD', '10', 1]]);
+  assert.deepEqual(browseResourceDirectory(files, 'Cours/TD', '10').documents.map(item => item.id), [3]);
+  assert.deepEqual(browseResourceDirectory(files, 'Cours', '20').documents.map(item => item.id), [4]);
+  assert.deepEqual(browseResourceDirectory(files, 'Inexistant', '10'), { documents: [], folders: [] });
   assert.deepEqual(files, before);
 });
 

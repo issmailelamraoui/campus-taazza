@@ -18,13 +18,17 @@ import {
   Search,
   Upload,
   X,
-  Pencil,
   Plus,
   Share2,
+  FileText,
+  ListChecks,
+  FlaskConical,
+  GraduationCap,
+  Users,
+  Layers,
 } from "lucide-react";
 import { useApp } from "../context";
 import {
-  groupResourcesByModule,
   moduleDisplayName,
   normalizeModule,
   normalizePart,
@@ -39,6 +43,7 @@ import {
   browseResourceDirectory,
   resourceDirectory,
   resourceFolderOwner,
+  UNKNOWN_CONTRIBUTOR,
 } from "../lib/resources";
 import {
   Button,
@@ -52,23 +57,17 @@ import {
 import UploadModal from "../components/UploadModal";
 import DocumentTextSearch from "../components/DocumentTextSearch";
 import { ModuleShareDialog, useModuleLongPress } from "../components/ModuleShare";
-import { normalizeLibrarySearch, matchesLibrarySearch, parseLibraryDocumentPage, normalizeLibraryDate } from "../lib/library-browse";
+import { normalizeLibrarySearch, matchesLibrarySearch, parseLibraryDocumentPage, normalizeLibraryDate, libraryModuleMatches, libraryContributors } from "../lib/library-browse";
 import { useLibraryModules } from "../lib/use-library-modules";
+import { RESOURCE_CATEGORIES, resourceCategory, normalizeResourceCategory } from '../../shared/resource-categories.js';
 import "./library.css";
 const semesterNumber = (value) =>
   Number(String(value ?? "").replace(/^s/i, ""));
-const categories = [
-  "courses",
-  "exercises",
-  "td",
-  "tp",
-  "corrections",
-  "exams",
-  "rattrapage",
-];
+const categories = RESOURCE_CATEGORIES;
+const categoryIcons = { courses: BookOpen, exercises: ListChecks, td: FileText, tp: FlaskConical, corrections: Check, exams: GraduationCap, rattrapage: RotateCw };
 const DOCUMENTS_PER_PAGE = 24;
 const categoryMatches = (resource, category) =>
-  category === "all" || resource.category === category;
+  category === "all" || resourceCategory(resource) === category;
 const groupByCategory = (items) => {
   const groups = new Map();
   for (const item of items) {
@@ -121,16 +120,15 @@ export default function LibraryPage() {
     ? requestedSemester
     : 1;
   const module = searchParams.has("module") ? searchParams.get("module") : null;
-  const folder = module !== null ? searchParams.get("folder") || "" : "";
-  const folderOwner = folder ? searchParams.get("folderOwner") || "" : "";
   const requestedCategory = searchParams.get("category");
-  const category = [...categories, "tdtp"].includes(requestedCategory)
-    ? requestedCategory
-    : "all";
+  const category = module !== null && requestedCategory && requestedCategory !== 'all' ? normalizeResourceCategory(requestedCategory) : 'all';
+  const contributor = module !== null && category !== 'all' ? searchParams.get('contributor') || searchParams.get('folderOwner') || '' : '';
+  const folderOwner = contributor;
+  const folder = contributor ? searchParams.get('folder') || '' : '';
   const query = searchParams.get("q") || "";
   const requestedView = searchParams.get("view") === "documents" ? "documents" : "modules";
-  const overviewView = query.trim() ? "documents" : requestedView;
-  const showDocumentResults = module !== null || overviewView === "documents";
+  const overviewView = 'modules';
+  const showDocumentResults = module !== null && category !== 'all' && Boolean(contributor);
   const requestedSort = searchParams.get("sort");
   const sort = ["recent", "oldest", "title", "part"].includes(requestedSort) ? requestedSort : "recent";
   const author = searchParams.get("author") || "all";
@@ -163,6 +161,17 @@ export default function LibraryPage() {
   const { folders: semesterFolders, status: moduleStatus, retry: retryModules } = useLibraryModules(
     semesterResources, user?.id, selection?.facultyId, selection?.filiereId, semester,
   );
+  const selectedModuleFolder = semesterFolders.find(entry => entry.key === module)
+    || (semesterFolders.filter(entry => normalizeModule(entry.rawName) === normalizeModule(module)).length === 1
+      ? semesterFolders.find(entry => normalizeModule(entry.rawName) === normalizeModule(module)) : null);
+  const selectedModuleKey = selectedModuleFolder?.key || module;
+  const selectedModuleName = selectedModuleFolder?.name || moduleDisplayName(String(module || '').replace(/^legacy:/, ''));
+  // Bootstrap contains the complete authorized library collection. Existing
+  // folders must not depend on a separately deployed module endpoint.
+  const moduleResources = useMemo(() => semesterResources.filter(item => libraryModuleMatches(item, selectedModuleKey, semesterFolders)),
+    [selectedModuleKey, semesterResources, semesterFolders]);
+  const browsingResources = module === null ? semesterResources : moduleResources;
+  const scopedFilterResources = useMemo(() => browsingResources.filter(item => categoryMatches(item, category) && (!contributor || resourceFolderOwner(item) === contributor)), [browsingResources, category, contributor]);
   const matchingModuleFolders = useMemo(() => {
     const search = normalizeLibrarySearch(moduleQuery);
     return semesterFolders.filter(
@@ -255,39 +264,37 @@ export default function LibraryPage() {
       heading?.scrollIntoView({ block: "start", behavior: "auto" });
     });
     return () => cancelAnimationFrame(frame);
-  }, [folder, folderOwner]);
+  }, [folder, folderOwner, category, contributor]);
   const authors = useMemo(
     () =>
       [
         ...new Set(
-          semesterResources.map((item) => item.author).filter(Boolean),
+          scopedFilterResources.map((item) => item.author).filter(Boolean),
         ),
       ].sort(),
-    [semesterResources],
+    [scopedFilterResources],
   );
   const parts = useMemo(
     () =>
       [
         ...new Set(
-          semesterResources
+          scopedFilterResources
             .map((item) => normalizePart(item.part))
             .filter(Boolean),
         ),
       ].sort(compareParts),
-    [semesterResources],
+    [scopedFilterResources],
   );
-  const availableYears = useMemo(() => [...new Set(semesterResources.flatMap(resourceAcademicYears))]
-    .sort((a, b) => compareAcademicYears(a, b, currentAcademicYear)), [semesterResources, currentAcademicYear]);
+  const availableYears = useMemo(() => [...new Set(scopedFilterResources.flatMap(resourceAcademicYears))]
+    .sort((a, b) => compareAcademicYears(a, b, currentAcademicYear)), [scopedFilterResources, currentAcademicYear]);
   const filterCount = [author, part, date, year].filter(
     (value) => value !== "all",
   ).length;
   const filteredBase = useMemo(
     () =>
-      semesterResources.filter((item) => {
+      browsingResources.filter((item) => {
         const age = Date.now() - new Date(item.date).getTime();
         return (
-          (module === null ||
-            normalizeModule(item.module) === normalizeModule(module)) &&
           matchesLibrarySearch(item, query) &&
           (author === "all" || item.author === author) &&
           (part === "all" || normalizePart(item.part) === part) &&
@@ -295,7 +302,7 @@ export default function LibraryPage() {
           (date === "all" || age <= Number(date) * 86400000)
         );
       }),
-    [semesterResources, module, query, author, part, date, year],
+    [browsingResources, query, author, part, date, year],
   );
   const visible = useMemo(
     () =>
@@ -308,9 +315,13 @@ export default function LibraryPage() {
     [filteredBase, category, sort, currentAcademicYear, year],
   );
   const hasModuleRefinements = Boolean(query.trim() || category !== "all" || author !== "all" || part !== "all" || date !== "all" || year !== "all");
-  const folders = useMemo(() => hasModuleRefinements ? groupResourcesByModule(visible) : semesterFolders, [visible, semesterFolders, hasModuleRefinements]);
-  const directory = useMemo(() => browseResourceDirectory(visible, folder, folderOwner), [visible, folder, folderOwner]);
-  const directoryDocuments = module === null || (query.trim() && !folder) ? visible : directory.documents;
+  const folders = useMemo(() => hasModuleRefinements ? semesterFolders.map(entry => ({ ...entry, documents: visible.filter(item => libraryModuleMatches(item, entry.key, semesterFolders)) })).filter(entry => entry.documents.length) : semesterFolders, [visible, semesterFolders, hasModuleRefinements]);
+  const contributors = useMemo(() => category === 'all' ? [] : libraryContributors(visible, category), [visible, category]);
+  const unknownContributorLabel = tr('Contributeur inconnu', 'Unknown contributor', 'مساهم غير معروف');
+  const contributorName = contributor === UNKNOWN_CONTRIBUTOR ? unknownContributorLabel : libraryContributors(moduleResources, category).find(entry => entry.id === contributor)?.name || tr('Contributeur', 'Contributor', 'مساهم');
+  const contributorResources = visible.filter(item => contributor && resourceFolderOwner(item) === contributor);
+  const directory = useMemo(() => browseResourceDirectory(contributorResources, folder, contributor, category), [visible, folder, contributor, category]);
+  const directoryDocuments = showDocumentResults ? query.trim() && !folder ? contributorResources : directory.documents : [];
   const lastDocumentPage = Math.max(
     0,
     Math.ceil(directoryDocuments.length / DOCUMENTS_PER_PAGE) - 1,
@@ -342,14 +353,17 @@ export default function LibraryPage() {
       return;
     }
     if ((module === null && !showDocumentResults) || handledResourceLink.current === link) return;
-    const linkedDocument = visible.find(document => String(document.id) === target[1]);
+    const linkedDocument = moduleResources.find(document => String(document.id) === target[1]);
     if (!linkedDocument) return;
     const targetFolder = resourceDirectory(linkedDocument);
-    const targetOwner = targetFolder ? resourceFolderOwner(linkedDocument) : "";
-    if (module !== null && (folder !== targetFolder || folderOwner !== targetOwner)) {
+    const targetOwner = resourceFolderOwner(linkedDocument);
+    const targetCategory = resourceCategory(linkedDocument);
+    if (module !== null && (folder !== targetFolder || contributor !== targetOwner || category !== targetCategory)) {
       const params = new URLSearchParams(searchParams);
-      if (targetFolder) { params.set("folder", targetFolder); params.set("folderOwner", targetOwner); }
-      else { params.delete("folder"); params.delete("folderOwner"); }
+      params.set('category', targetCategory); params.set('contributor', targetOwner);
+      if (targetFolder) params.set("folder", targetFolder);
+      else params.delete("folder");
+      params.delete('folderOwner');
       navigate({ pathname: location.pathname, search: `?${params}`, hash: location.hash }, { replace: true });
       return;
     }
@@ -378,6 +392,7 @@ export default function LibraryPage() {
       module,
       folder,
       folderOwner,
+      contributor,
       category,
       query,
       sort,
@@ -397,8 +412,9 @@ export default function LibraryPage() {
     else params.delete("documentsPage");
     if (state.module === null) params.delete("module");
     else params.set("module", state.module);
-    if (state.module === null || !state.folder) { params.delete("folder"); params.delete("folderOwner"); }
-    else { params.set("folder", state.folder); if (state.folderOwner) params.set("folderOwner", state.folderOwner); else params.delete("folderOwner"); }
+    params.delete('folderOwner');
+    if (state.module === null || state.category === 'all' || !state.contributor) { params.delete('contributor'); params.delete('folder'); }
+    else { params.set('contributor', state.contributor); if (state.folder) params.set('folder', state.folder); else params.delete('folder'); }
     for (const key of ["category", "author", "part", "date", "year"]) {
       if (state[key] === "all") params.delete(key);
       else params.set(key, state[key]);
@@ -414,12 +430,20 @@ export default function LibraryPage() {
     pendingModuleFocus.current = event?.detail === 0;
     setShowModulePicker(false);
     setModuleQuery("");
-    navigateLibrary({ module: name, folder: "", folderOwner: "", view: "modules", ...(name === null ? { query: "" } : {}) });
+    navigateLibrary({ module: name, category: 'all', contributor: '', folder: "", folderOwner: "", query: '', author: 'all', part: 'all', date: 'all', year: 'all', view: "modules" });
+  };
+  const openCategory = (value, event) => {
+    pendingFolderScroll.current = true; pendingFolderFocus.current = event?.detail === 0;
+    navigateLibrary({ category: value, contributor: '', folder: '', author: 'all', part: 'all', date: 'all', year: 'all' });
+  };
+  const openContributor = (owner, event) => {
+    pendingFolderScroll.current = true; pendingFolderFocus.current = event?.detail === 0;
+    navigateLibrary({ contributor: owner, folder: '' });
   };
   const openFolder = (path, owner = folderOwner, folderCategory = category, event) => {
     pendingFolderScroll.current = true;
     pendingFolderFocus.current = event?.detail === 0;
-    navigateLibrary({ folder: path, folderOwner: path ? owner : "", category: folderCategory });
+    navigateLibrary({ folder: path, contributor: owner || contributor, category: folderCategory });
   };
   const changeDocumentPage = (page) => {
     navigateLibrary({ documentPage: Math.max(0, Math.min(page, lastDocumentPage)) });
@@ -431,7 +455,7 @@ export default function LibraryPage() {
     );
   };
   const clearFilters = (event) => {
-    navigateLibrary({ query: "", category: "all", author: "all", part: "all", date: "all", year: "all" });
+    navigateLibrary({ query: "", author: "all", part: "all", date: "all", year: "all" });
     if (event?.detail === 0) requestAnimationFrame(() => searchInput.current?.focus({ preventScroll: true }));
   };
   const removeFilter = (filter, index, event) => {
@@ -446,6 +470,9 @@ export default function LibraryPage() {
     navigateLibrary({
       semester: value,
       module: null,
+      category: 'all',
+      contributor: '',
+      folder: '',
       author: "all",
       part: "all",
       date: "all",
@@ -455,7 +482,7 @@ export default function LibraryPage() {
     name || tr("Sans module", "Unclassified", "بدون وحدة");
   const categoryLabel = (key) => key === "tdtp"
     ? tr("TD / TP (anciens)", "TD / TP (legacy)", "TD / TP (قديمة)")
-    : key ? t(key) : tr("Sans catégorie", "Unclassified", "بدون فئة");
+    : key && key !== 'unclassified' ? t(key) : tr("Sans catégorie", "Unclassified", "بدون فئة");
   const openYearEditor = (document) => {
     setYearEditor(document);
     setEditedYears(resourceAcademicYears(document));
@@ -487,7 +514,6 @@ export default function LibraryPage() {
   };
   const activeFilters = [
     query.trim() && { key: "query", label: `${t("search")} : ${query.trim()}`, patch: { query: "" } },
-    category !== "all" && { key: "category", label: categoryLabel(category), patch: { category: "all" } },
     year !== "all" && { key: "year", label: year === "unknown" ? tr("Année inconnue", "Unknown year", "سنة غير معروفة") : year, patch: { year: "all" } },
     author !== "all" && { key: "author", label: `${t("author")} : ${author}`, patch: { author: "all" } },
     part !== "all" && { key: "part", label: partLabel(part, language), patch: { part: "all" } },
@@ -495,7 +521,7 @@ export default function LibraryPage() {
   ].filter(Boolean);
   const hasActiveFilters = activeFilters.length > 0;
   const isBrowsingModules = module === null && overviewView === "modules" && !hasActiveFilters && !showFilters;
-  const resultsCount = module !== null && folder ? directoryDocuments.length : visible.length;
+  const resultsCount = contributor ? contributorResources.length : visible.length;
   const moduleCatalogueState = (moduleStatus === "loading" || moduleStatus === "error") && (
     <div className="library-module-picker-state" data-state={moduleStatus} role="status">
       {moduleStatus === "loading" ? <><LoaderCircle size={18} className="library-module-loading" aria-hidden="true" /><span>{tr("Chargement des modules…", "Loading modules…", "جارٍ تحميل الوحدات…")}</span></>
@@ -519,18 +545,14 @@ export default function LibraryPage() {
         <div className="library-results-body">
           <div className="library-results-header">
             <div className="library-results-title">
-              <h2 dir="auto">{module === null ? overviewView === "documents" ? tr("Documents", "Documents", "الوثائق") : tr("Modules", "Modules", "الوحدات") : folderLabel(moduleDisplayName(module))}</h2>
+              <h2 dir="auto">{module === null ? tr('Modules', 'Modules', 'الوحدات') : contributor ? contributorName : category !== 'all' ? categoryLabel(category) : folderLabel(selectedModuleName)}</h2>
               <span className="library-results-count muted" role="status" aria-live="polite" aria-atomic="true">
                 {module === null && overviewView === "modules" && <>{folders.length} {tr(folders.length === 1 ? "module" : "modules", folders.length === 1 ? "module" : "modules", folders.length === 1 ? "وحدة" : "وحدات")} · </>}
                 {resultsCount} {tr(resultsCount === 1 ? "document" : "documents", resultsCount === 1 ? "document" : "documents", "وثيقة")} · S{semester}
                 {folder && directory.folders.length > 0 && <> · {directory.folders.length} {tr("dossiers", "folders", "مجلدات")}</>}
               </span>
             </div>
-            {module === null && <div className="library-view-switch" role="group" aria-label={tr("Affichage de la bibliothèque", "Library view", "عرض المكتبة")}>
-              <button type="button" data-view="modules" aria-pressed={overviewView === "modules"} onClick={() => navigateLibrary({ view: "modules", query: "" })}><Folder size={15}/>{tr("Modules", "Modules", "الوحدات")}</button>
-              <button type="button" data-view="documents" aria-pressed={overviewView === "documents"} onClick={() => navigateLibrary({ view: "documents" })}><BookOpen size={15}/>{tr("Documents", "Documents", "الوثائق")}</button>
-            </div>}
-            {module !== null && semesterResources.some(item => normalizeModule(item.module) === normalizeModule(module)) && <Button className="library-share-current-module" variant="ghost" icon={Share2} onClick={() => setSharedResource(semesterResources.find(item => normalizeModule(item.module) === normalizeModule(module)))}>{tr('Partager le module', 'Share module', 'مشاركة الوحدة')}</Button>}
+            {module !== null && moduleResources.length > 0 && <Button className="library-share-current-module" variant="ghost" icon={Share2} onClick={() => setSharedResource(moduleResources[0])}>{tr('Partager le module', 'Share module', 'مشاركة الوحدة')}</Button>}
           </div>
           {module === null && overviewView === "modules" && folders.length > 0 && <div className="library-results-cards"><div className="library-document-grid library-module-grid">
             {folders.map(folder => <ModuleActions key={folder.key} resource={folder.documents[0]} label={folderLabel(folder.name)} onShare={setSharedResource}>
@@ -633,7 +655,7 @@ export default function LibraryPage() {
             <strong dir="auto">
               {module === null
                 ? tr("Choisir un module", "Choose a module", "اختر الوحدة")
-                : folderLabel(moduleDisplayName(module))}
+                : folderLabel(selectedModuleName)}
             </strong>
 
           </span>
@@ -706,9 +728,9 @@ export default function LibraryPage() {
                 <ModuleActions key={folder.key} resource={folder.documents[0]} label={folderLabel(folder.name)} onShare={resource => { setShowModulePicker(false); setSharedResource(resource); }} choice>
                 <button
                   type="button"
-                  className={`module-choice ${module !== null && normalizeModule(module) === folder.key ? "selected" : ""}`}
+                  className={`module-choice ${module !== null && selectedModuleKey === folder.key ? "selected" : ""}`}
                   aria-pressed={
-                    module !== null && normalizeModule(module) === folder.key
+                    module !== null && selectedModuleKey === folder.key
                   }
                   onClick={event => openModule(folder.key, event)}
                 >
@@ -716,7 +738,7 @@ export default function LibraryPage() {
                   <span className="library-module-option-copy"><span dir="auto">{folderLabel(folder.name)}</span><small>{folder.documents.length ? `${folder.documents.length} ${tr(folder.documents.length === 1 ? "document" : "documents", folder.documents.length === 1 ? "document" : "documents", "وثيقة")}` : tr("Aucun document partagé", "No shared documents", "لا توجد وثائق بعد")}</small></span>
                   <span className="library-module-option-mark" aria-hidden="true" />
                   {module !== null &&
-                    normalizeModule(module) === folder.key && (
+                    selectedModuleKey === folder.key && (
                       <Check size={16} aria-hidden="true" />
                     )}
                 </button>
@@ -812,10 +834,10 @@ export default function LibraryPage() {
         </div>
       </div>
         <div className="library-search-scope">
-          <span>S{semester} · {module === null ? tr("Tous les modules", "All modules", "كل الوحدات") : folder ? <bdi>{folder.split("/").at(-1)}</bdi> : tr("Dans ce module", "In this module", "داخل هذه الوحدة")}</span>
-          {module !== null && folder && query.trim() && <Button className="library-search-whole-module" variant="ghost" onClick={event => openFolder("", "", category, event)}>{tr("Rechercher dans tout le module", "Search the whole module", "البحث في الوحدة كاملة")}</Button>}
+      <span>S{semester} · {module === null ? tr("Tous les modules", "All modules", "كل الوحدات") : <><bdi>{selectedModuleName}</bdi>{category !== 'all' && <> / {categoryLabel(category)}</>}{contributor && <> / <bdi>{contributorName}</bdi></>}</>}</span>
+          {module !== null && folder && query.trim() && <Button className="library-search-whole-module" variant="ghost" onClick={event => openFolder("", contributor, category, event)}>{tr("Rechercher dans ce dossier étudiant", "Search this student folder", "البحث في مجلد هذا الطالب")}</Button>}
         </div>
-        <div className="library-controls-options" hidden={isBrowsingModules}>
+        <div className="library-controls-options" hidden={module === null || category === 'all'}>
       <div className="library-category-tabs">
         <span className="library-section-label">
           {tr("Type de document", "Document type", "نوع الوثيقة")}
@@ -823,7 +845,7 @@ export default function LibraryPage() {
         <Tabs
           items={tabs}
           value={category}
-          onChange={(value) => navigateLibrary({ category: value, folder: "", folderOwner: "" })}
+          onChange={(value) => openCategory(value)}
         />
       </div>
 
@@ -911,16 +933,35 @@ export default function LibraryPage() {
           <div className="library-filter-chips" ref={filterChips}>{activeFilters.map((filter, index) => <button type="button" key={filter.key} data-filter={filter.key} className="library-filter-chip" onClick={event => removeFilter(filter, index, event)} aria-label={tr(`Retirer le filtre : ${filter.label}`, `Remove filter: ${filter.label}`, `إزالة الفلتر: ${filter.label}`)}><bdi>{filter.label}</bdi><X size={13} aria-hidden="true" /></button>)}</div>
           <Button className="library-clear-filters" variant="ghost" onClick={clearFilters}>{tr("Tout effacer", "Clear all", "مسح الكل")}</Button>
         </div>}
-        <details className="library-pdf-search" hidden={isBrowsingModules}><summary>{tr('Rechercher dans le texte des PDF','Search inside PDF text','البحث في نص ملفات PDF')}</summary><p className="library-pdf-scope muted">{tr('Cette recherche couvre tous les PDF accessibles, indépendamment du semestre, du module et des filtres ci-dessus.','This search covers all accessible PDFs, independently of the semester, module and filters above.','يشمل هذا البحث جميع ملفات PDF المتاحة، بشكل مستقل عن الفصل والوحدة والفلاتر أعلاه.')}</p><DocumentTextSearch/></details>
+        <details className="library-pdf-search" hidden={!showDocumentResults}><summary>{tr('Rechercher dans le texte des PDF','Search inside PDF text','البحث في نص ملفات PDF')}</summary><DocumentTextSearch resourceIds={contributorResources.map(item => item.id)}/></details>
       </section>
       {resultsContext}
-      <LibraryReport resource={directoryDocuments[0]||visible.find(item=>!folder||(String(item.author_id||item.uploaderUsername)===folderOwner&&String(item.path||'').startsWith(folder+'/')))} folder={folder} module={module} category={category}/>
-      {module !== null && (folder || (!query.trim() && directory.folders.length > 0)) && <nav ref={directoryHeading} tabIndex={-1} className="library-folder-breadcrumbs" aria-label={tr("Chemin du dossier", "Folder path", "مسار المجلد")}>
-        <button type="button" aria-current={!folder ? "page" : undefined} onClick={event => openFolder("", "", category, event)}>{folderLabel(moduleDisplayName(module))}</button>
-        {folder.split("/").filter(Boolean).map((name, index, segments) => <React.Fragment key={index}><span aria-hidden="true">/</span><button type="button" dir="auto" aria-current={index === segments.length - 1 ? "page" : undefined} onClick={event => openFolder(segments.slice(0, index + 1).join("/"), folderOwner, category, event)}>{name}</button></React.Fragment>)}
-        {folder && <Button variant="ghost" icon={ArrowLeft} className="library-parent-folder" onClick={event => openFolder(folder.split("/").slice(0, -1).join("/"), folderOwner, category, event)}>{tr("Dossier parent", "Parent folder", "المجلد الأب")}</Button>}
+      {showDocumentResults && <LibraryReport resource={directoryDocuments[0] || contributorResources[0]} folder={folder} module={selectedModuleName} category={category}/>}
+      {module !== null && <nav ref={directoryHeading} tabIndex={-1} className="library-folder-breadcrumbs" aria-label={tr("Chemin du dossier", "Folder path", "مسار المجلد")}>
+        <button type="button" onClick={event => openModule(null, event)}>{t('library')}</button><span aria-hidden="true">/</span>
+        <button type="button" onClick={() => changeSemester(semester)}>S{semester}</button><span aria-hidden="true">/</span>
+        <button type="button" dir="auto" aria-current={category === 'all' ? 'page' : undefined} onClick={event => openCategory('all', event)}>{folderLabel(selectedModuleName)}</button>
+        {category !== 'all' && <><span aria-hidden="true">/</span><button type="button" aria-current={!contributor ? 'page' : undefined} onClick={event => openCategory(category, event)}>{categoryLabel(category)}</button></>}
+        {contributor && <><span aria-hidden="true">/</span><button type="button" dir="auto" aria-current={!folder ? 'page' : undefined} onClick={event => openContributor(contributor, event)}>{contributorName}</button></>}
+        {folder.split("/").filter(Boolean).map((name, index, segments) => <React.Fragment key={index}><span aria-hidden="true">/</span><button type="button" dir="auto" aria-current={index === segments.length - 1 ? "page" : undefined} onClick={event => openFolder(segments.slice(0, index + 1).join("/"), contributor, category, event)}>{name}</button></React.Fragment>)}
+        {category !== 'all' && <Button variant="ghost" icon={ArrowLeft} className="library-parent-folder" onClick={event => folder ? openFolder(folder.split('/').slice(0, -1).join('/'), contributor, category, event) : contributor ? openCategory(category, event) : openCategory('all', event)}>{tr("Dossier parent", "Parent folder", "المجلد الأب")}</Button>}
       </nav>}
-      {!showDocumentResults && (folders.length > 0 || moduleStatus === "loading" || moduleStatus === "error") ? null : visible.length > 0 && (module === null || directory.folders.length > 0 || directoryDocuments.length > 0) ? (
+      {module !== null && category === 'all' ? <section className="library-hierarchy-section" aria-label={tr('Catégories du module', 'Module categories', 'فئات الوحدة')}>
+        <p className="library-hierarchy-hint muted">{tr('Choisissez une catégorie pour parcourir les dossiers des étudiants.', 'Choose a category to browse student folders.', 'اختر فئة لتصفح مجلدات الطلبة.')}</p>
+        <div className="library-document-grid library-category-grid">{[...new Set([...categories, ...moduleResources.map(resourceCategory)])].map(key => {
+          const Icon = categoryIcons[key] || Layers, count = filteredBase.filter(item => categoryMatches(item, key)).length;
+          return <button type="button" className="library-category-folder library-uploaded-folder card" key={key || 'unknown'} data-category={key} onClick={event => openCategory(key || 'unclassified', event)}>
+            <span className="library-folder-symbol" aria-hidden="true"><Icon size={23} strokeWidth={1.6}/></span>
+            <span className="library-uploaded-folder-copy"><strong>{categoryLabel(key)}</strong><span>{count} {tr(count === 1 ? 'fichier' : 'fichiers', count === 1 ? 'file' : 'files', 'ملف')}</span></span><ArrowRight className="library-folder-arrow" size={17} aria-hidden="true"/>
+          </button>;
+        })}</div>
+      </section> : module !== null && !contributor ? <section className="library-hierarchy-section" aria-label={tr('Dossiers des étudiants', 'Student folders', 'مجلدات الطلبة')}>
+        <p className="library-hierarchy-hint muted">{tr('Chaque dossier contient uniquement les fichiers de cet étudiant dans cette catégorie.', 'Each folder contains only this student’s files in this category.', 'يحتوي كل مجلد على ملفات هذا الطالب ضمن هذه الفئة فقط.')}</p>
+        {contributors.length ? <div className="library-document-grid library-contributor-grid">{contributors.map(entry => <button type="button" className="library-contributor-folder library-uploaded-folder card" data-contributor={entry.id} key={entry.id} onClick={event => openContributor(entry.id, event)}>
+          <span className="library-folder-symbol" aria-hidden="true"><Folder size={24} strokeWidth={1.5}/></span>
+          <span className="library-uploaded-folder-copy"><strong dir="auto">{entry.id === UNKNOWN_CONTRIBUTOR ? unknownContributorLabel : entry.name || tr('Contributeur', 'Contributor', 'مساهم')}</strong><span>{entry.count} {tr(entry.count === 1 ? 'fichier' : 'fichiers', entry.count === 1 ? 'file' : 'files', 'ملف')} · {categoryLabel(category)}</span></span><ArrowRight className="library-folder-arrow" size={17} aria-hidden="true"/>
+        </button>)}</div> : <EmptyState icon={Users} title={tr('Aucun dossier dans cette catégorie', 'No folders in this category', 'لا توجد مجلدات في هذه الفئة')} description={hasActiveFilters ? tr('Modifiez la recherche ou les filtres.', 'Change the search or filters.', 'غيّر البحث أو المرشحات.') : tr('Les dossiers apparaîtront dès qu’un étudiant partagera un fichier dans cette catégorie.', 'Folders appear when a student shares a file in this category.', 'تظهر المجلدات عندما يشارك طالب ملفاً في هذه الفئة.')} action={hasActiveFilters ? <Button variant="secondary" onClick={clearFilters}>{tr('Effacer les filtres', 'Clear filters', 'مسح المرشحات')}</Button> : undefined}/>}
+      </section> : !showDocumentResults && (folders.length > 0 || moduleStatus === "loading" || moduleStatus === "error") ? null : visible.length > 0 && (module === null || directory.folders.length > 0 || directoryDocuments.length > 0) ? (
         !showDocumentResults ? null : (
           <>
             {module !== null && (!query.trim() || folder) && directory.folders.length > 0 && <section className="library-uploaded-folders" aria-label={tr("Dossiers partagés", "Shared folders", "المجلدات المشتركة")}>
@@ -946,14 +987,9 @@ export default function LibraryPage() {
                     <div className="library-document-grid">
                     {typeGroup.items.map(document => (
                       <div className="library-year-document" key={document.id}>
-                        <DocumentCard document={document} showOpenLabel />
+                        <DocumentCard document={document} showOpenLabel variant="library" onEditAcademicYears={updateResourceAcademicYears && (document.can_manage_academic_years === true || document.canManageAcademicYears === true || String(document.author_id) === String(user?.id)) ? () => openYearEditor(document) : undefined} />
                         <div className="library-document-year-meta">
                           {resourceAcademicYears(document).length > 1 && <span className="muted">{tr("Utilisé en", "Used in", "استُخدم في")} {resourceAcademicYears(document).join(" · ")}</span>}
-                          {updateResourceAcademicYears && (document.can_manage_academic_years === true || document.canManageAcademicYears === true || String(document.author_id) === String(user?.id)) && (
-                            <button className="library-edit-year" type="button" onClick={() => openYearEditor(document)} aria-label={tr(`Corriger l’année de ${document.originalName || document.title}`, `Correct the year for ${document.originalName || document.title}`, `تصحيح سنة ${document.originalName || document.title}`)}>
-                              <Pencil size={12} aria-hidden="true" />{tr("Corriger l’année", "Correct year", "تصحيح السنة")}
-                            </button>
-                          )}
                         </div>
                       </div>
                     ))}
@@ -1045,7 +1081,7 @@ export default function LibraryPage() {
         />
       )}
 
-      {showUpload && <UploadModal initialClassification={{ semester, module: module === null ? "" : moduleDisplayName(module), category }} onClose={() => setShowUpload(false)} />}
+      {showUpload && <UploadModal initialClassification={{ semester, module: module === null ? "" : selectedModuleFolder?.rawName || selectedModuleName, moduleId: selectedModuleFolder?.catalogStatus === 'official' ? selectedModuleFolder.id : '', category }} onClose={() => setShowUpload(false)} />}
       {sharedResource && <ModuleShareDialog resource={sharedResource} onClose={() => setSharedResource(null)} />}
       {yearEditor && <Modal title={tr("Années d’utilisation du document", "Years the material was used", "سنوات استخدام الوثيقة")} onClose={() => { if (!savingYears) setYearEditor(null); }} footer={<div className="library-year-editor-footer"><Button variant="ghost" disabled={savingYears} onClick={() => setYearEditor(null)}>{t("cancel")}</Button><Button variant="primary" disabled={savingYears} onClick={saveYears}>{savingYears ? tr("Enregistrement…", "Saving…", "جارٍ الحفظ…") : tr("Enregistrer", "Save", "حفظ")}</Button></div>}>
         <p className="muted library-year-editor-note">{yearEditor.originalName || yearEditor.title}</p>

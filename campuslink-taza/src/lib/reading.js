@@ -1,4 +1,5 @@
 import {api} from '../api.js';
+import {assessPDFText} from '../../shared/pdf-text.js';
 const PREFIX='campuslink-private-study-v1:';
 let activeUser=null,session=0;
 const uid=()=>globalThis.crypto?.randomUUID?.()||`study-${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -20,7 +21,7 @@ export function studyCache(userId,key,fallback=null){try{return JSON.parse(local
 export function writeStudyCache(userId,key,value){if(String(userId)!==activeUser)return false;try{localStorage.setItem(`${PREFIX}${userId}:${key}`,JSON.stringify(value));return true;}catch{return false;}}
 function changed(){if(typeof window!=='undefined')window.dispatchEvent(new Event('campus-study-updated'));}
 export function sourcePath(resourceId,page=1,version){const query=new URLSearchParams({document:String(resourceId),page:String(page)});if(version)query.set('version',String(version));return`/app/library?${query}#resource-${resourceId}`;}
-export function referenceText(item){const source=item.source||{};return[source.author,source.title,item.page?`p. ${item.page}`:'',source.year,item.selectedText?`« ${item.selectedText} »`:'',item.content,item.resourceId?sourcePath(item.resourceId,item.page,item.version):''].filter(Boolean).join(' — ');}
+export function referenceText(item,translate=fr=>fr){const tr=typeof translate==='function'?translate:fr=>fr,source=item.source||{},safe=assessPDFText(item.selectedText||'').reliable,contentSafe=assessPDFText(item.content||'').reliable;return[source.author,source.title,item.page?`p. ${item.page}`:'',source.year,item.selectedText&&safe?`« ${item.selectedText} »`:'',!safe||!contentSafe?tr('[Texte extrait à vérifier dans le PDF]','[Extracted text: verify in the PDF]','[راجع النص المستخرج في ملف PDF]'):item.imageData?tr('[Extrait visuel original]','[Original visual excerpt]','[المقتطف البصري الأصلي]'):'',contentSafe?item.content:'',item.resourceId?sourcePath(item.resourceId,item.page,item.version):''].filter(Boolean).join(' — ');}
 function retain(userId,key,item){const items=studyCache(userId,key,[]);writeStudyCache(userId,key,[item,...items.filter(value=>value.id!==item.id)]);changed();}
 export function cachedKnowledge(userId,resourceId){const list=studyCache(userId,'knowledge',[]);return resourceId?list.filter(item=>String(item.resourceId)===String(resourceId)):list;}
 export async function loadKnowledge(userId,resourceId){

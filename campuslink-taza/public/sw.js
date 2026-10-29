@@ -1,7 +1,9 @@
-const CACHE = 'campuslink-install-v3';
+const CACHE = 'campuslink-install-v4';
 const OFFLINE = '/offline.html';
-const PUBLIC_FILES = [OFFLINE, '/index.html', '/favicon.svg', '/icons/app-192.png', '/icons/app-512.png', '/icons/app-maskable-512.png', '/icons/apple-touch-icon.png'];
+const PUBLIC_FILES = [OFFLINE, '/index.html', '/favicon.svg', '/icons/campuslink-mark.svg', '/icons/app-192.png', '/icons/app-512.png', '/icons/app-maskable-512.png', '/icons/apple-touch-icon.png'];
 const ASSET_LIMIT = 80;
+const PDF_ASSET_CACHE = 'campuslink-pdf-assets-v1', PDF_ASSET_LIMIT = 224;
+const isPDFAsset = path => path==='/fonts/NotoSansMath-Regular.ttf'||/^\/pdfjs-assets\/\d+\.\d+\.\d+\/(?:cmaps|standard_fonts|wasm|iccs)\/[\w.-]+$/.test(path);
 const shellAssets = html => [...html.matchAll(/(?:src|href)="(\/assets\/[\w.-]+\.(?:js|mjs|css))"/g)].map(match => match[1]);
 async function trimAssets(cache) {
   const shell = await cache.match('/index.html');
@@ -39,6 +41,16 @@ self.addEventListener('fetch', event => {
   if(url.pathname.startsWith('/api/'))return;
   if (request.mode === 'navigate' && !url.pathname.startsWith('/api/')) {
     event.respondWith(fetch(request).catch(async () => await caches.match('/index.html') || await caches.match(OFFLINE)));
+  } else if (isPDFAsset(url.pathname) && !url.search) {
+    event.respondWith(caches.open(PDF_ASSET_CACHE).then(async cache=>{
+      const cached=await cache.match(request,{ignoreVary:true});if(cached)return cached;
+      const response=await fetch(request);
+      if(response.ok&&!String(response.headers.get('content-type')).startsWith('text/html'))try{
+        await cache.put(request,response.clone());
+        const keys=await cache.keys();for(const key of keys.slice(0,Math.max(0,keys.length-PDF_ASSET_LIMIT)))await cache.delete(key);
+      }catch{}
+      return response;
+    }));
   } else if (/^\/assets\/[\w.-]+\.(?:js|mjs|css)$/.test(url.pathname) && !url.search) {
     event.respondWith(caches.open(CACHE).then(async cache=>{
       // Public build assets are identical for every same-origin requester.

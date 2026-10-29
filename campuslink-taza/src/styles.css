@@ -398,19 +398,19 @@ hr {
 .brand {
   display: inline-flex;
   align-items: center;
-  gap: 11px;
+  gap: 0;
 }
 .brand-mark {
-  width: 37px;
-  height: 37px;
+  width: 48px;
+  height: 48px;
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
-  border-radius: 10px;
-  background: var(--accent-soft);
-  color: var(--accent-ink);
+  border: 0;
+  background: transparent;
 }
+.brand-mark > img { display: block; width: 100%; height: 100%; object-fit: contain; }
 .brand-name {
   font-size: 19px;
   font-weight: 600;
@@ -1226,12 +1226,12 @@ hr {
   display: block;
   font-size: 10px;
   font-weight: 500;
-  color: var(--muted);
+  color: #fff;
   margin-top: 0;
   padding: 2px 6px;
   border: 1px solid var(--lineSoft);
   border-radius: 4px;
-  background: var(--surface2);
+  background: #653918;
   overflow-wrap: anywhere;
   max-width: 100%;
 }

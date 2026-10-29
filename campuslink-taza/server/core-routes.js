@@ -1,3 +1,4 @@
+import {resourceCategory} from '../shared/resource-categories.js';
 import {randomUUID} from 'node:crypto';
 import {CAPABILITIES} from './permissions.js';
 import {academicYears,yearsOf,yearsOverlap} from './academic-years.js';
@@ -244,15 +245,15 @@ export function installCoreRoutes(app,{db,requireFaculty,problem,permissions,asI
     const row=await scoped('resources',req.params.id,req),years=academicYears(req.body.academic_years,req.body.academic_year);
     if(row.author_id!==req.user.id&&!permissions.can(req.user,'resource.manage',row.faculty_id,row.filiere_id))throw problem(403,'Vous ne pouvez pas corriger ce fichier.');
     await db.transaction(async()=>{
-      const slotCategory=['td','tp','corrections'].includes(row.resource_type)?row.resource_type:row.resource_type==='correction'?'corrections':row.category;
-      await db.prepare('SELECT pg_advisory_xact_lock(hashtext(?))').get(JSON.stringify([row.faculty_id,row.filiere_id,row.semester,row.module.normalize('NFKC').toLocaleLowerCase(),slotCategory,row.part_number]));
+      const slotCategory=resourceCategory(row);
+      await db.prepare('SELECT pg_advisory_xact_lock(hashtext(?))').get(JSON.stringify([row.faculty_id,row.filiere_id,row.semester,row.module_id,slotCategory,row.author_id,row.relative_path,row.part_number]));
       const fresh=await db.prepare('SELECT * FROM resources WHERE id=? AND removed=0 FOR UPDATE').get(row.id);
       if(!fresh)throw problem(404,'Ressource introuvable.');
       const actor=await activeActor(req);
       await scoped('resources',fresh.id,{...req,user:actor});
       if(fresh.author_id!==actor.id&&!permissions.can(actor,'resource.manage',fresh.faculty_id,fresh.filiere_id))throw problem(403,'Vous ne pouvez pas corriger ce fichier.');
-      const others=await db.prepare('SELECT * FROM resources WHERE faculty_id=? AND filiere_id=? AND semester=? AND module_id=? AND part_number=? AND removed=0 AND library_visible=1 AND id<>?').all(fresh.faculty_id,fresh.filiere_id,fresh.semester,fresh.module_id,fresh.part_number,fresh.id);
-      const category=r=>['td','tp','corrections'].includes(r.resource_type)?r.resource_type:r.resource_type==='correction'?'corrections':r.category;
+      const others=await db.prepare('SELECT * FROM resources WHERE faculty_id=? AND filiere_id=? AND semester=? AND module_id IS NOT DISTINCT FROM ? AND author_id IS NOT DISTINCT FROM ? AND relative_path=? AND part_number=? AND removed=0 AND library_visible=1 AND id<>?').all(fresh.faculty_id,fresh.filiere_id,fresh.semester,fresh.module_id,fresh.author_id,fresh.relative_path,fresh.part_number,fresh.id);
+      const category=resourceCategory;
       if(others.some(r=>category(r)===category(fresh)&&yearsOverlap(yearsOf(r),years)))throw problem(409,'Cette partie existe déjà pour cette année universitaire.');
       await db.prepare('UPDATE resources SET academic_year=?,academic_years=? WHERE id=?').run(years[0]||null,JSON.stringify(years),row.id);
       await permissions.audit(actor,'resource.academic-years','resource',row.id,{academic_years:years});

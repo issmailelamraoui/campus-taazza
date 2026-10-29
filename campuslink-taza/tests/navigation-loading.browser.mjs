@@ -21,6 +21,7 @@ try {
         const path = new URL(route.request().url()).pathname;
         if (path === '/api/session') return route.fulfill({ json: { user } });
         if (path === '/api/bootstrap') return route.fulfill({ json: { user, faculty: { id: 'flaa', name: 'Faculté test' }, resources: [], notifications: [], announcements: [], messages: [], saved: [], history: [], channels: [] } });
+        if (path === '/api/modules') return route.fulfill({ json: { modules: [] } });
         return route.fulfill({ json: {} });
       });
       let importRequested = false;

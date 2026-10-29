@@ -91,8 +91,8 @@
 
 .public-page .public-footer button { min-height:44px; }
 .public-page .public-header-actions select { width:auto; }
-.public-page .public-brand .brand { gap:9px; }
-@media (max-width:600px) { .public-page .public-brand .brand-name { font-size:17px; } .public-page .public-brand .brand-name>span { font-size:8px; letter-spacing:1.6px; } .public-page .public-brand .brand-mark { width:32px; height:32px; } .onboarding-faculty h2 { font-size:13px; min-height:62px; } }
+.public-page .public-brand .brand { gap:0; }
+@media (max-width:600px) { .public-page .public-brand .brand-name { font-size:17px; } .public-page .public-brand .brand-name>span { font-size:8px; letter-spacing:1.6px; } .public-page .public-brand .brand-mark { width:40px; height:40px; } .onboarding-faculty h2 { font-size:13px; min-height:62px; } }
 
 .public-page .login-demo-accounts button,.public-page .login-forgot,.public-page .login-admin-help button { min-height:44px; }
 

@@ -29,7 +29,7 @@ export function validateKnowledge(body){
 export function validateStudyTool(body){
  if(!['flashcard','checklist','collection'].includes(body.kind))throw failure(400,'Outil invalide.');
  const data=body.data||{},title=text(body.title,180);
- if(body.kind==='flashcard'){const source=data.source?.knowledgeId?{knowledgeId:uuid(data.source.knowledgeId)}:null;return{kind:body.kind,title,data:{front:text(data.front,5000),back:text(data.back,10000),module:text(data.module||'',180,true),...(source?{source}:{})}};}
+ if(body.kind==='flashcard'){const source=data.source?.knowledgeId?{knowledgeId:uuid(data.source.knowledgeId)}:null;return{kind:body.kind,title,data:{front:text(data.front,5000),back:text(data.back??'',10000,!!source),module:text(data.module||'',180,true),...(source?{source}:{})}};}
  if(body.kind==='checklist'){
   if(!Array.isArray(data.items)||data.items.length>100)throw failure(400,'Liste invalide.');
   const items=data.items.map(item=>({id:uuid(item.id),text:text(item.text,500),done:item.done===true}));if(new Set(items.map(item=>item.id)).size!==items.length)throw failure(400,'Éléments de liste dupliqués.');
@@ -126,7 +126,8 @@ export function installReadingRoutes(app,{db,requireFaculty,getResource,resource
   if(values.kind==='flashcard'&&values.data.source){
    const note=await db.prepare('SELECT * FROM knowledge_items WHERE id=? AND user_id=?').get(values.data.source.knowledgeId,req.user.id);
    if(!note){if(previous.source?.knowledgeId!==values.data.source.knowledgeId)throw failure(404,'La note source est indisponible.');values.data.source=previous.source;}
-   else{const snapshot=parse(note.source,{});values.data.source={knowledgeId:note.id,resourceId:note.resource_id,version:note.document_version,page:note.page,title:snapshot.title||note.title};}
+   else{const snapshot=parse(note.source,{}),sameSource=previous.source?.knowledgeId===note.id&&Object.hasOwn(previous.source,'imageData');values.data.source=sameSource?previous.source:{knowledgeId:note.id,resourceId:note.resource_id,version:note.document_version,page:note.page,title:snapshot.title||note.title,imageData:note.image_data||'',selectedText:note.selected_text||'',anchor:parse(note.anchor,[])};}
+   if(!values.data.back&&!values.data.source.imageData)throw failure(400,'Rédigez une réponse ou conservez un extrait visuel depuis la note source.');
   }
   const row=update?await db.prepare('UPDATE study_tools SET title=?,data=?,revision=revision+1,updated_at=? WHERE id=? AND user_id=? AND revision=? RETURNING *').get(values.title,JSON.stringify(values.data),now(),itemId,req.user.id,current.revision):await db.prepare('INSERT INTO study_tools (id,user_id,kind,title,data,created_at,updated_at) VALUES (?,?,?,?,?,?,?) RETURNING *').get(itemId,req.user.id,values.kind,values.title,JSON.stringify(values.data),now(),now());if(!row)throw failure(409,'Cet outil a été modifié dans une autre session.');res.status(update?200:201).json({item:toolDTO(row)});
  }

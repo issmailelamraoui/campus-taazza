@@ -2,8 +2,11 @@
 .connection-status strong { font-weight: 500; }
 .connection-status[data-state="connected"] > svg { color: var(--accent-ink); }
 .connection-status[data-state="error"],.connection-status[data-state="offline"] { color: var(--ink); }
-.connection-status-initial { flex-direction: column; padding: 32px; max-width: 420px; text-align: center; font-size: 15px; gap: 18px; }
-.connection-status-initial p { font-size: 13px; margin-top: 10px; line-height: 1.7; color: var(--muted); }
+.connection-status-initial { flex-direction: column; width: min(100%, 420px); padding: 28px 32px 36px; margin: 0; border-radius: 20px; text-align: center; gap: 10px; }
+.connection-status-initial > div { min-width: 0; }
+.connection-status-initial strong { display: block; color: var(--ink); font-size: 18px; font-weight: 600; line-height: 1.45; overflow-wrap: anywhere; }
+.connection-status-initial p { font-size: 14px; font-weight: 400; margin: 10px 0 0; line-height: 1.75; color: var(--muted); overflow-wrap: anywhere; }
+.connection-status-initial > .text-link { justify-content: center; min-height: 44px; margin-top: 8px; font-size: 14px; font-weight: 600; }
 .app-shell--community .connection-status { margin: 0; border-radius: 0; flex-shrink: 0; }
 .app-shell--community .connection-status[data-state="connected"] { padding-block: 3px; }
 .app-shell--community .content { display: flex; flex-direction: column; }
@@ -13,4 +16,9 @@
   .connection-status:not(.connection-status-initial)[data-state="connected"],
   .app-shell--community .connection-status:not(.connection-status-initial)[data-state="connected"] { display: none; }
   .connection-status:not(.connection-status-initial) { padding: 5px 10px; gap: 7px; font-size: 11px; }
+}
+@media (max-width: 480px) {
+  .connection-status-initial { padding: 20px 22px 28px; border-radius: 18px; }
+  .connection-status-initial strong { font-size: 17px; }
+  .connection-status-initial p { font-size: 13px; }
 }

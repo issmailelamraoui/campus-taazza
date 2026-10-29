@@ -1,3 +1,4 @@
+import {resolveModule,moduleCatalogKey} from '../server/modules.js';
 import {test,before,after} from 'node:test';
 import assert from 'node:assert/strict';
 import {once} from 'node:events';
@@ -14,7 +15,9 @@ async function request(path,{cookie,method='GET',body,form}={}){
 }
 async function login(name){const result=await request('/login',{method:'POST',body:{username:name,password:name==='admin'?'Admin2026!':'Campus2026!'}});assert.equal(result.status,200,JSON.stringify(result.data));return result.cookie;}
 async function upload(cookie,{semester=3,filiere='french_studies',year='2026/2027',module=randomUUID(),filename='course.txt',content=randomUUID(),part='complete',faculty}={}){
- const form=new FormData();for(const [key,value]of Object.entries({title:module,category:'courses',channel:'general',filiere_id:filiere,semester:String(semester),module,resource_type:'courses',part_number:part,academic_year:year,library_visible:'true',publish_message:'false',...(faculty?{faculty_id:faculty}:{})}))form.set(key,value);
+ const canonical=await resolveModule(env.db,{facultyId:'flaa',filiereId:filiere,semester,name:module});
+ await env.db.prepare("UPDATE modules SET catalog_status='official',catalog_key=?,curriculum_source='Synthetic local permission fixture',verified_by=2,verified_at='2026-10-28' WHERE id=?").run(moduleCatalogKey(module),canonical.id);
+ const form=new FormData();for(const [key,value]of Object.entries({module_id:String(canonical.id),title:module,category:'courses',channel:'general',filiere_id:filiere,semester:String(semester),module,resource_type:'courses',part_number:part,academic_year:year,library_visible:'true',publish_message:'false',...(faculty?{faculty_id:faculty}:{})}))form.set(key,value);
  form.set('file',new Blob([content]),filename);return request('/uploads',{cookie,method:'POST',form});
 }
 async function xp(user,points,key=randomUUID(),category='contribution'){return env.db.prepare('INSERT INTO xp_events(user_id,category,event_key,points,actor_id,created_at) VALUES(?,?,?,?,2,?) RETURNING *').get(user,category,key,points,new Date().toISOString());}
@@ -187,7 +190,7 @@ test('simultaneous ticket submissions cannot exceed hourly or daily limits',asyn
 test('academic year correction rechecks an appointment revoked while waiting for its material slot',async()=>{
  const uploaded=await upload(cookies.yassine),row=await env.db.prepare('SELECT * FROM resources WHERE id=?').get(uploaded.data.resource.id);
  const active=await env.db.prepare('SELECT id FROM scoped_appointments WHERE user_id=7 AND revoked_at IS NULL').all();assert.ok(active.length);
- const barrier=pauseSlot(JSON.stringify([row.faculty_id,row.filiere_id,row.semester,row.module.normalize('NFKC').toLocaleLowerCase(),'courses',row.part_number]));
+ const barrier=pauseSlot(JSON.stringify([row.faculty_id,row.filiere_id,row.semester,row.module_id,'courses',row.author_id,row.relative_path,row.part_number]));
  try{
   const correction=request('/resources/'+row.id+'/academic-years',{cookie:cookies.professeure,method:'PATCH',body:{academic_year:'2023/2024'}});await reached(barrier.paused);
   await env.db.prepare('UPDATE scoped_appointments SET revoked_at=? WHERE id=ANY(?)').run(new Date().toISOString(),active.map(a=>a.id));barrier.resume();const result=await correction;assert.equal(result.status,403,JSON.stringify(result.data));
@@ -196,7 +199,7 @@ test('academic year correction rechecks an appointment revoked while waiting for
 });
 test('authors disabled while an academic correction waits cannot commit metadata',async()=>{
  const uploaded=await upload(cookies.yassine),row=await env.db.prepare('SELECT * FROM resources WHERE id=?').get(uploaded.data.resource.id);
- const barrier=pauseSlot(JSON.stringify([row.faculty_id,row.filiere_id,row.semester,row.module.normalize('NFKC').toLocaleLowerCase(),'courses',row.part_number]));
+ const barrier=pauseSlot(JSON.stringify([row.faculty_id,row.filiere_id,row.semester,row.module_id,'courses',row.author_id,row.relative_path,row.part_number]));
  try{
   const correction=request('/resources/'+row.id+'/academic-years',{cookie:cookies.yassine,method:'PATCH',body:{academic_year:'2023/2024'}});await reached(barrier.paused);await env.db.prepare('UPDATE users SET disabled=1 WHERE id=3').run();barrier.resume();
   assert.equal((await correction).status,403);assert.equal((await env.db.prepare('SELECT academic_year FROM resources WHERE id=?').get(row.id)).academic_year,'2026/2027');

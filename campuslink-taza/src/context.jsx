@@ -374,7 +374,7 @@ export function AppProvider({children}){
  });}
  async function uploadResource({file,path,meta,libraryVisible=true,channel='general'}){
   const form=new FormData(),scope=chatRequest(channel),owner=epoch.current;
-  const fields={title:meta.title,semester:meta.semester,module:meta.module,category:meta.category,part_number:normalizePart(meta.part),teacher_name:meta.author||'',filiere_id:meta.filiereId||current.current.user?.filiereId,
+  const fields={title:meta.title,semester:meta.semester,module:meta.module,module_id:meta.moduleId??meta.module_id,category:meta.category,part_number:normalizePart(meta.part),teacher_name:meta.author||'',filiere_id:meta.filiereId||current.current.user?.filiereId,
    academic_year:meta.academicYear||'',faculty_id:meta.facultyId||current.current.user?.facultyId,resource_type:meta.category==='corrections'?'correction':['courses','exercises','exams','rattrapage','td','tp'].includes(meta.category)?meta.category:'document',relative_path:path||file.name,channel:scope.channel,
    ...(scope.semester?{chat_semester:scope.semester}:{}),library_visible:String(libraryVisible),publish_message:'false'};
   Object.entries(fields).forEach(([name,value])=>{if(value!==undefined&&value!==null)form.append(name,String(value));});form.append('file',file);

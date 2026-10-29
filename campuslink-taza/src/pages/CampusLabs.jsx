@@ -4,7 +4,7 @@ import { api } from '../api';
 import { useApp } from '../context';
 import { Button, EmptyState, Field, PageHeader, Tabs } from '../components/ui';
 import { Select } from '../components/Select';
-import { sampleGraph, MATH_FUNCTIONS } from '../../shared/math';
+import { sampleGraph, MATH_FUNCTIONS, mathErrorMessage } from '../../shared/math';
 import { LabsEditor } from '../lib/labs-editor';
 import { runLabCode } from '../lib/labs-runner';
 import { quotationHint } from '../lib/labs-source-hints';
@@ -140,15 +140,15 @@ export default function CampusLabs() {
     try {
       if (!Number.isFinite(yMin) || !Number.isFinite(yMax) || yMin >= yMax || Math.max(Math.abs(yMin), Math.abs(yMax)) > 1e12) throw new Error(tr('Choisissez un intervalle vertical valide.', 'Choose a valid vertical range.', 'اختر نطاقاً رأسياً صالحاً.'));
       setGraph({ points: sampleGraph(expression, min, max), expression, min, max, yMin, yMax });
-    } catch (err) { setGraphError(err.message); }
+    } catch (err) { setGraphError(mathErrorMessage(err, locale)); }
   };
   const geometry = useMemo(() => {
     const sx = x => 50 + (x - graph.min) * 700 / (graph.max - graph.min), sy = y => 370 - (y - graph.yMin) * 330 / (graph.yMax - graph.yMin);
-    let path = '', continuous = false, previous;
+    let path = '', continuous = false;
     for (const point of graph.points) {
-      if (point.y === null || point.y < graph.yMin || point.y > graph.yMax) { continuous = false; previous = null; continue; }
-      if (previous && Math.abs(previous.y - point.y) > (graph.yMax - graph.yMin) * .6) continuous = false;
-      path += `${continuous ? 'L' : 'M'}${sx(point.x).toFixed(2)},${sy(point.y).toFixed(2)} `; continuous = true; previous = point;
+      if (point.y === null || point.y < graph.yMin || point.y > graph.yMax) { continuous = false; continue; }
+      if (point.breakBefore) continuous = false;
+      path += `${continuous ? 'L' : 'M'}${sx(point.x).toFixed(2)},${sy(point.y).toFixed(2)} `; continuous = true;
     }
     return { path, xAxis: graph.yMin <= 0 && graph.yMax >= 0 ? sy(0) : null, yAxis: graph.min <= 0 && graph.max >= 0 ? sx(0) : null };
   }, [graph]);
@@ -234,8 +234,8 @@ export default function CampusLabs() {
     </div>
     {tab === 'graphs' && <section className="card labs-workspace labs-graph-workspace">
       <h2><ChartLine size={19} />{tr('Tracer une fonction', 'Plot a function', 'رسم دالة')}</h2>
-      <Field label="f(x)"><input className="input" dir="ltr" value={expression} maxLength={256} onChange={event => setExpression(event.target.value)} placeholder="sin(x) + x^2 / 10" /></Field>
-      <p className="muted labs-notice">x · pi · e · + − * / ^ · {MATH_FUNCTIONS.join(', ')}</p>
+      <Field label="f(x)"><input className="input" dir="ltr" value={expression} maxLength={256} onChange={event => setExpression(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') drawGraph(); }} placeholder="sin(x) + x^2 / 10" /></Field>
+      <p className="muted labs-notice"><bdi dir="ltr">x · pi (π) · e · + − * / ^ · |x| · {MATH_FUNCTIONS.join(', ')}</bdi><br/>{tr('ln : logarithme naturel · log : base 10', 'ln: natural logarithm · log: base 10', 'ln: لوغاريتم طبيعي · log: أساس 10')} · <bdi dir="ltr">e(x) = exp(x)</bdi>.<br/>{tr('Multiplication :', 'Multiplication:', 'الضرب:')} <bdi dir="ltr">2x, 2(x+1), (x+1)(x-1)</bdi>. {tr('Dénominateur groupé :', 'Grouped denominator:', 'مقام مجمّع:')} <bdi dir="ltr">1/(2x)</bdi>.</p>
       <div className="labs-graph-ranges">{[[tr('x minimum', 'Minimum x', 'أدنى x'), min, setMin], [tr('x maximum', 'Maximum x', 'أقصى x'), max, setMax], [tr('y minimum', 'Minimum y', 'أدنى y'), yMin, setYMin], [tr('y maximum', 'Maximum y', 'أقصى y'), yMax, setYMax]].map(([label, value, setValue]) => <Field key={label} label={label}><input className="input" type="number" value={value} onChange={event => setValue(Number(event.target.value))} /></Field>)}</div>
       <Button variant="primary" icon={ChartLine} onClick={drawGraph}>{tr('Tracer', 'Plot', 'رسم')}</Button>
       {graphError && <div className="labs-alert is-error" role="alert">{graphError}</div>}

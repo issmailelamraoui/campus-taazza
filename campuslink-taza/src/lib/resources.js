@@ -1,3 +1,5 @@
+import { resourceCategory } from '../../shared/resource-categories.js';
+
 export const normalizeModule = value => String(value || '').normalize('NFKC').trim().replace(/\s+/g, ' ').toLocaleLowerCase();
 const displayModule = value => String(value || '').trim().replace(/\s+/g, ' ');
 export const moduleDisplayName = value => String(value || '').normalize('NFKC').trim().replace(/\s+/g, ' ').toUpperCase();
@@ -100,15 +102,17 @@ export function resourceDirectory(resource) {
   return String(resource?.path || resource?.relative_path || resource?.originalName || '')
     .split('/').filter(Boolean).slice(0, -1).join('/');
 }
+export const UNKNOWN_CONTRIBUTOR = 'unknown';
 export function resourceFolderOwner(resource) {
-  return String(resource?.author_id || resource?.uploaderUsername || resource?.uploader_username || resource?.uploader || '');
+  const owner = resource?.uploaderId ?? resource?.uploader_id ?? resource?.author_id ?? resource?.author?.id;
+  return owner == null || owner === '' ? UNKNOWN_CONTRIBUTOR : String(owner);
 }
 export function browseResourceDirectory(resources, path = '', owner = '', category = '') {
   const folders = new Map(), documents = [];
   const prefix = path ? `${path}/` : '';
   for (const resource of resources) {
-    if (resource.status === 'removed' || (owner && resourceFolderOwner(resource) !== owner)
-      || (category && resource.category !== category)) continue;
+    if (resource.status === 'removed' || resource.removed || resource.libraryVisible === false || resource.library_visible === false
+      || (owner && resourceFolderOwner(resource) !== owner) || (category && resourceCategory(resource) !== category)) continue;
     const directory = resourceDirectory(resource);
     if (directory === path) { documents.push(resource); continue; }
     if (path && !directory.startsWith(prefix)) continue;
@@ -161,11 +165,12 @@ export function compareParts(left, right) {
 }
 export function resourceSlotKey(item) {
   const part = normalizePart(item.part);
-  const module = normalizeModule(item.module);
+  const module = item.moduleId != null || item.module_id != null ? `id:${item.moduleId ?? item.module_id}` : normalizeModule(item.module);
   const semester = semesterNumber(item.semester);
   if (!item.facultyId || !item.filiereId || !module || !item.category
     || ![1, 2, 3, 4, 5, 6].includes(semester) || !part) return '';
-  return JSON.stringify([item.facultyId, item.filiereId, semester, module, item.category, part, resourceAcademicYears(item)[0] || 'unknown']);
+  return JSON.stringify([item.facultyId, item.filiereId, semester, module, item.category, part,
+    resourceFolderOwner(item), String(item.path || item.relative_path || item.originalName || ''), resourceAcademicYears(item)[0] || 'unknown']);
 }
 function resourceSlotKeys(item) {
   const key = resourceSlotKey(item);

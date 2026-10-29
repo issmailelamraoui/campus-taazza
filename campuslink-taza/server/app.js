@@ -14,7 +14,9 @@ import {createAuthSessionPolicy,googleOAuthConfiguration} from './auth-sessions.
 import {installGoogleOAuthRoutes} from './google-oauth.js';
 import { createStorage, resourceObjectKey, storageObjectKey } from './storage.js';
 import { uploadFilePath } from './upload-path.js';
-import { moduleName, RESOURCE_MODULE_SQL, SCOPED_MODULE_RESOURCE_SQL, resolveModule, lockResourceModule, pruneRemovedResourceModule } from './modules.js';
+import { lockResourceModule, pruneRemovedResourceModule } from './modules.js';
+import {installLibraryCatalog,selectedOfficialModule} from './library-catalog.js';
+import {resourceCategory} from '../shared/resource-categories.js';
 import { moduleShareResourceId, attachModuleShare, assertSameModuleShare, moduleSharesFor } from './module-sharing.js';
 import { createPermissions } from './permissions.js';
 import { createRateLimiter } from './rate-limit.js';
@@ -49,8 +51,8 @@ const CHANNELS = ['general', 'filiere', 'important'];
 const ROLES = ['student', 'moderator', 'faculty_admin', 'global_admin', 'faculty_leader'];
 const PREF_KEYS = ['resources', 'announcements', 'important', 'admin', 'mentions', 'questions', 'ranking'];
 const RESOURCE_TYPES = ['courses','cours','exercises','exercise','exams','exam','td','tp','correction','corrections','image','pdf','document','other','rattrapage'];
-const RESOURCE_CATEGORY_SQL = "(CASE WHEN resource_type IN ('td','tp','corrections') THEN resource_type WHEN resource_type='correction' THEN 'corrections' ELSE category END)";
-const classificationCategory = (category, type) => ['td','tp','corrections'].includes(type) ? type : type==='correction' ? 'corrections' : category;
+
+const classificationCategory = (category, type) => resourceCategory({category,resource_type:type});
 const now = () => new Date().toISOString();
 const resourcePath = r => `/app/resources/${r.category}${r.semester ? `/s${r.semester}` : ''}${r.module ? `/${encodeURIComponent(slug(r.module))}` : ''}#resource-${r.id}`;
 const messagePath = m => `/app/chat/${m.channel}${m.channel==='filiere'?`?semester=${getChatSemester(m.semester)}`:''}#message-${m.id}`;
@@ -282,7 +284,7 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
       const source=sourcesById.get(safe.message_id);
       if(safe.message_id&&(!CHANNELS.includes(source?.channel)||viewer&&!canReadMessage(source,viewer)))safe.message_id=null;
       safe.chat_semester=safe.message_id&&source?.channel==='filiere'?getChatSemester(source.semester):null;
-      return {...safe,academic_years:yearsOf(r),can_manage_academic_years:!!viewer&&(r.author_id===viewer.id||permissions.can(viewer,'resource.manage',r.faculty_id,r.filiere_id)),library_visible:safe.library_visible!==0,author:user(author_id),versions:versionsByResource.get(r.id)||[]};
+      return {...safe,category_key:resourceCategory(r),uploader_id:author_id??null,academic_years:yearsOf(r),can_manage_academic_years:!!viewer&&(r.author_id===viewer.id||permissions.can(viewer,'resource.manage',r.faculty_id,r.filiere_id)),library_visible:safe.library_visible!==0,author:user(author_id),versions:versionsByResource.get(r.id)||[]};
     });
   }
   async function announcement(a) {return (await announcementsFor([a]))[0];}
@@ -389,9 +391,6 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
   }
   const transaction = callback => db.transaction(callback);
   async function filterReadable(items, predicate) {const allowed=await Promise.all(items.map(predicate));return items.filter((_item,index)=>allowed[index]);}
-  async function moduleId(faculty,filiere,semester,name) {
-    return (await resolveModule(db,{facultyId:faculty,filiereId:filiere,semester,name})).id;
-  }
   async function publicationFaculties(req) {
     const target=req.body.faculty_id || req.user.faculty_id;
     if(!isOwner(req.user)&&!req.user.appointments?.some(a=>(target==='all'||a.faculty_id===target)&&a.capabilities.includes('announcement.publish')))throw problem(403,'Cette publication dépasse vos permissions.');
@@ -565,19 +564,7 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
     res.json({user:await selfUser((await db.prepare('SELECT * FROM users WHERE id=?').get(req.user.id)))});
   });
 
-  app.get('/api/modules',requireFaculty,async (req,res)=>{
-    const filiere=String(req.query.filiere_id||req.user.filiere_id||'');
-    if(!filiereBelongsToFaculty(req.user.faculty_id,filiere))throw problem(400,'Choisissez une filière de votre faculté.');
-    if(filiere!==req.user.filiere_id&&!permissions.can(req.user,'resource.manage',req.user.faculty_id,filiere)&&!permissions.uploadCapabilities(req.user).scopes.some(scope=>scope.filiereId===filiere))throw problem(403,'Cette bibliothèque appartient à une autre filière.');
-    const semester=semesterValue(req.query.semester);
-    const rows=await db.prepare(`SELECT m.id,m.name,m.filiere_id,m.semester FROM modules m
-      WHERE m.faculty_id=? AND m.filiere_id=? AND m.semester=? AND (
-        EXISTS(SELECT 1 FROM resources r WHERE ${SCOPED_MODULE_RESOURCE_SQL} AND r.removed=0)
-        OR NOT EXISTS(SELECT 1 FROM resources r WHERE ${SCOPED_MODULE_RESOURCE_SQL})
-      ) ORDER BY m.id`).all(req.user.faculty_id,filiere,semester);
-    const unique=new Map();for(const row of rows){const key=moduleName(row.name).toLocaleLowerCase();if(!unique.has(key))unique.set(key,row);}
-    res.json({modules:[...unique.values()].sort((a,b)=>a.name.localeCompare(b.name))});
-  });
+  installLibraryCatalog(app,{db,permissions,requireUser,resourcesFor});
 
   function accessibleFilieres(user){return getFilieres(user.faculty_id).filter(f=>f.id===user.filiere_id||permissions.can(user,'resource.manage',user.faculty_id,f.id)||permissions.can(user,'resource.upload',user.faculty_id,f.id)).map(f=>f.id);}
   async function discussionUnread(user){
@@ -826,7 +813,8 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
     const teacherName=string(req.body.teacher_name ?? '', 'Professeur / auteur',120,false);
     const {filename,relativePath}=uploadFilePath(req.file.originalname,req.body.relative_path);
     const title = string(req.body.title,'Titre',180);
-    let module = moduleName(string(req.body.module,'Module',120));
+    const selection=await selectedOfficialModule(db,{moduleId:req.body.module_id,facultyId:req.user.faculty_id,filiereId:filiere,semester});
+    let module=selection.name;
     const content = string(req.body.content || `Je partage « ${title} ».`,'Message',8000);
     const mime = detectFile(req.file.buffer,filename);
     const hash = digest(req.file.buffer);
@@ -842,19 +830,19 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
         await db.prepare('SELECT pg_advisory_xact_lock(hashtext(?))').get(`campuslink:upload-quota:${req.user.id}`);
         const quota=await db.prepare('SELECT COALESCE(SUM(size),0) AS bytes,COUNT(*) FILTER(WHERE created_at>?) AS recent FROM resources WHERE author_id=? AND removed=0').get(new Date(Date.now()-86400000).toISOString(),req.user.id);
         if(Number(quota.bytes)+req.file.size>1024*1024*1024||Number(quota.recent)>=50)throw problem(429,'Quota de dépôt atteint. Contactez l’administration.');
+        const selectedModule=(await selectedOfficialModule(db,{moduleId:selection.id,facultyId:req.user.faculty_id,filiereId:filiere,semester,lock:true})).id;
         if(libraryVisible) {
           await db.prepare('SELECT pg_advisory_xact_lock(hashtext(?))').get(`campuslink:resource-bytes:${req.user.faculty_id}:${filiere}:${hash}`);
           const sameBytes=await db.prepare('SELECT * FROM resources WHERE faculty_id=? AND filiere_id=? AND sha256=? AND removed=0 AND library_visible=1').get(req.user.faculty_id,filiere,hash);
           if(sameBytes)throw Object.assign(problem(409,'Un fichier identique existe déjà dans les ressources de votre faculté.'),{resource:await resource(sameBytes,req.user)});
           const effectiveCategory=classificationCategory(category,resourceType);
-          const slot=[req.user.faculty_id,filiere,semester,module.normalize('NFKC').toLocaleLowerCase(),effectiveCategory,partNumber];
+          const slot=[req.user.faculty_id,filiere,semester,selectedModule,effectiveCategory,req.user.id,relativePath,partNumber];
           await db.prepare('SELECT pg_advisory_xact_lock(hashtext(?))').get(JSON.stringify(slot));
-          const conflicts=await db.prepare(`SELECT * FROM resources WHERE faculty_id=? AND filiere_id=? AND semester=? AND ${RESOURCE_MODULE_SQL}=lower(?) AND ${RESOURCE_CATEGORY_SQL}=? AND part_number=? AND removed=0 AND library_visible=1`).all(req.user.faculty_id,filiere,semester,moduleName(module),effectiveCategory,partNumber);
-          const conflict=conflicts.find(row=>yearsOverlap(yearsOf(row),years));
+          const conflicts=await db.prepare(`SELECT * FROM resources WHERE faculty_id=? AND filiere_id=? AND semester=? AND module_id=? AND author_id=? AND relative_path=? AND part_number=? AND removed=0 AND library_visible=1`).all(req.user.faculty_id,filiere,semester,selectedModule,req.user.id,relativePath,partNumber);
+          const conflict=conflicts.find(row=>resourceCategory(row)===effectiveCategory&&yearsOverlap(yearsOf(row),years));
           if(conflict)throw Object.assign(problem(409,'Cette partie existe déjà pour ce module et ce type de ressource.'),{resource:await resource(conflict,req.user),code:'RESOURCE_SLOT_CONFLICT'});
         }
-        const selectedModule=await moduleId(req.user.faculty_id,filiere,semester,module);
-        module=(await db.prepare('SELECT name FROM modules WHERE id=?').get(selectedModule)).name;
+        module=selection.name;
         objectKey=resourceObjectKey({filiereId:filiere,semester,moduleId:selectedModule,filename});
         uploaded=true;
         await storage.put(objectKey,req.file.buffer,mime);
@@ -1351,7 +1339,7 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
     const semester=category==='general'&&r.semester===null&&(rawSemester===null||Number(rawSemester)===0)?null:Number(rawSemester);
     if((semester===null&&category!=='general')||(semester!==null&&(!Number.isInteger(semester)||semester<1||semester>6)))throw problem(400,'Semestre invalide.');
     values.semester=semester;
-    if(req.body.module!==undefined)values.module=moduleName(string(req.body.module,'Module',120,false));
+    if(req.body.module!==undefined&&req.body.module!==r.module&&req.body.module_id===undefined)throw problem(400,'Sélectionnez un module officiel existant.');
     if(req.body.status!==undefined){if(!['new','popular','corrected','updated'].includes(req.body.status))throw problem(400,'Statut invalide.');values.status=req.body.status;}
     if(req.body.part_number!==undefined)values.part_number=resourcePart(req.body.part_number);
     if(req.body.teacher_name!==undefined)values.teacher_name=string(req.body.teacher_name,'Professeur / auteur',120,false);
@@ -1359,20 +1347,25 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
     if(req.body.academic_year!==undefined||req.body.academic_years!==undefined){values.academic_year=years[0]||null;values.academic_years=JSON.stringify(years);}
     await transaction(async()=>{
       await lockContentRemoval(r.faculty_id);
-      if(!await db.prepare('SELECT id FROM resources WHERE id=? AND removed=0 FOR UPDATE').get(r.id))throw problem(404,'Ressource introuvable.');
-      const module=values.module??r.module;
+      const previousResource=await db.prepare('SELECT * FROM resources WHERE id=? AND removed=0 FOR UPDATE').get(r.id);
+      if(!previousResource)throw problem(404,'Ressource introuvable.');
+      const changingModule=req.body.module_id!==undefined||semester!==r.semester;
+      const selection=changingModule?await selectedOfficialModule(db,{moduleId:req.body.module_id,facultyId:r.faculty_id,filiereId:r.filiere_id,semester,lock:true}):null;
+      const module=selection?.name??r.module;
+      const selectedModule=selection?.id??r.module_id;
       if(r.library_visible!==0&&(values.part_number??r.part_number)) {
         const part=values.part_number??r.part_number;
         const effectiveCategory=classificationCategory(category,values.resource_type??r.resource_type);
-        const slot=[r.faculty_id,r.filiere_id,semester,moduleName(module).toLocaleLowerCase(),effectiveCategory,part];
+        const slot=[r.faculty_id,r.filiere_id,semester,selectedModule,effectiveCategory,r.author_id,r.relative_path,part];
         await db.prepare('SELECT pg_advisory_xact_lock(hashtext(?))').get(JSON.stringify(slot));
-        const candidates=await db.prepare(`SELECT * FROM resources WHERE faculty_id=? AND filiere_id=? AND semester=? AND ${RESOURCE_MODULE_SQL}=lower(?) AND ${RESOURCE_CATEGORY_SQL}=? AND part_number=? AND removed=0 AND library_visible=1 AND id<>?`).all(r.faculty_id,r.filiere_id,semester,moduleName(module),effectiveCategory,part,r.id);
-        const conflict=candidates.find(row=>yearsOverlap(yearsOf(row),years));
+        const candidates=await db.prepare(`SELECT * FROM resources WHERE faculty_id=? AND filiere_id=? AND semester=? AND module_id IS NOT DISTINCT FROM ? AND author_id IS NOT DISTINCT FROM ? AND relative_path=? AND part_number=? AND removed=0 AND library_visible=1 AND id<>?`).all(r.faculty_id,r.filiere_id,semester,selectedModule,r.author_id,r.relative_path,part,r.id);
+        const conflict=candidates.find(row=>resourceCategory(row)===effectiveCategory&&yearsOverlap(yearsOf(row),years));
         if(conflict)throw Object.assign(problem(409,'Cette partie existe déjà pour ce module et ce type de ressource.'),{resource:await resource(conflict,req.user),code:'RESOURCE_SLOT_CONFLICT'});
       }
-      values.module_id=module?await moduleId(r.faculty_id,r.filiere_id,semester,module):null;
-      values.module=values.module_id?(await db.prepare('SELECT name FROM modules WHERE id=?').get(values.module_id)).name:'';
+      values.module_id=selectedModule;
+      values.module=module;
       for(const [key,value]of Object.entries(values))await db.prepare(`UPDATE resources SET ${key}=? WHERE id=?`).run(value,r.id);
+      if(previousResource.module_id!==selectedModule||previousResource.semester!==semester)await pruneRemovedResourceModule(db,previousResource);
     });
     (await broadcast(r.faculty_id));res.json({resource:(await resource((await db.prepare('SELECT * FROM resources WHERE id=?').get(r.id)),req.user))});
   });
@@ -1392,8 +1385,8 @@ export async function createApp({ db: suppliedDb, auth: suppliedAuth, storage: s
       const current=await db.prepare('SELECT * FROM resources WHERE id=? AND removed=0 FOR UPDATE').get(r.id);
       if(!current)throw problem(404,'Ressource introuvable.');
       if(hash===current.sha256)throw problem(409,'Le fichier est identique à la version actuelle.');
-      const selectedModule=current.module_id||await moduleId(current.faculty_id,current.filiere_id,current.semester,current.module||'');
-      objectKey=current.filiere_id&&current.semester?resourceObjectKey({filiereId:current.filiere_id,semester:current.semester,moduleId:selectedModule,filename,prefix:'resource-versions'}):storageObjectKey(`resource-versions/${current.id}/${randomUUID()}${extname(filename).toLowerCase()}`);
+      const selectedModule=current.module_id;
+      objectKey=current.filiere_id&&current.semester&&selectedModule?resourceObjectKey({filiereId:current.filiere_id,semester:current.semester,moduleId:selectedModule,filename,prefix:'resource-versions'}):storageObjectKey(`resource-versions/${current.id}/${randomUUID()}${extname(filename).toLowerCase()}`);
       uploaded=true;await storage.put(objectKey,req.file.buffer,mime);
       const account=await db.prepare('SELECT * FROM users WHERE id=? FOR SHARE').get(req.user.id);
       if(!account||account.disabled||account.account_status!=='approved')throw problem(403,'Votre accès au compte a changé.');

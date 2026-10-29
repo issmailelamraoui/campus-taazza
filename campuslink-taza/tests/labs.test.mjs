@@ -49,7 +49,7 @@ test('deterministic graph grammar applies power and unary precedence with real f
   assert.equal(calc('x − 1'), 1);
 });
 test('graph expressions cannot access globals, execute functions or exhaust recursive parsing', () => {
-  for (const text of ['window.alert(1)', 'process.exit()', 'x.constructor', 'sin.constructor(1)', 'eval(x)', 'x;alert(1)', '(()=>1)()', 'x[0]', '__proto__', '2x', 'sin(1,2)', '('.repeat(40) + 'x' + ')'.repeat(40), '-'.repeat(40) + 'x', '1'.repeat(257)]) assert.throws(() => parseMathExpression(text));
+  for (const text of ['window.alert(1)', 'process.exit()', 'x.constructor', 'sin.constructor(1)', 'eval(x)', 'x;alert(1)', '(()=>1)()', 'x[0]', '__proto__', 'sin(1,2)', '('.repeat(40) + 'x' + ')'.repeat(40), '-'.repeat(40) + 'x', '1'.repeat(257)]) assert.throws(() => parseMathExpression(text));
 });
 test('graphs preserve discontinuities and cap sample count and axis ranges', () => {
   const points = sampleGraph('1/x', -1, 1, 21);

@@ -84,22 +84,22 @@ const moduleScope = Object.freeze({ facultyId: 'fsa', filiereId: 'data_science',
 const catalogModule = (name, extra = {}) => ({ id: 1, name, filiere_id: 'data_science', semester: 5, ...extra });
 const libraryDocument = (id, module, extra = {}) => ({ id, module, ...moduleScope, title: `Document ${id}`, ...extra });
 
-test('catalog modules appear before any document exists, without synthetic document records', () => {
-  const catalog = Object.freeze([Object.freeze(catalogModule('Traitement d’image'))]);
-  assert.deepEqual(mergeLibraryModuleFolders([], catalog, moduleScope), [
-    { key: 'traitement d’image', name: 'TRAITEMENT D’IMAGE', documents: [] },
-  ]);
+test('empty catalog modules do not create library folders or mutate the upload catalog', () => {
+  const catalog = Object.freeze([Object.freeze(catalogModule('Traitement d’image', { catalog_status: 'official' }))]);
+  assert.deepEqual(mergeLibraryModuleFolders([], catalog, moduleScope), []);
+  assert.equal(catalog.length, 1);
+  assert.equal(catalog[0].catalog_status, 'official');
 });
 
 test('catalog and uploads merge canonical module variants but keep distinct accented identities', () => {
-  const first = libraryDocument(101, '  xml  '), second = libraryDocument(102, 'ＸＭＬ');
-  const resources = Object.freeze([Object.freeze(first), Object.freeze(second), Object.freeze(libraryDocument(103, 'Économie'))]);
-  const catalog = [catalogModule('XML'), catalogModule('  ＸＭＬ  '), catalogModule('Economie')];
+  const first = libraryDocument(101, '  xml  ',{moduleId:'1'}), second = libraryDocument(102, 'ＸＭＬ',{moduleId:'1'});
+  const resources = Object.freeze([Object.freeze(first), Object.freeze(second), Object.freeze(libraryDocument(103, 'Économie')), Object.freeze(libraryDocument(104, 'Economie', { moduleId: '2' }))]);
+  const catalog = [catalogModule('XML'), catalogModule('  ＸＭＬ  '), catalogModule('Economie',{id:2})];
   const folders = mergeLibraryModuleFolders(resources, catalog, moduleScope);
   assert.equal(folders.length, 3);
-  assert.deepEqual(folders.find(folder => folder.key === 'xml').documents, [first, second]);
-  assert.equal(folders.find(folder => folder.key === 'economie').documents.length, 0);
-  assert.equal(folders.find(folder => folder.key === 'économie').documents.length, 1);
+  assert.deepEqual(folders.find(folder => folder.key === 'id:1').documents, [first, second]);
+  assert.equal(folders.find(folder => folder.key === 'id:2').documents.length, 1);
+  assert.equal(folders.find(folder => folder.key === 'legacy:économie').documents.length, 1);
   assert.equal(first.module, '  xml  ');
   assert.equal(second.module, 'ＸＭＬ');
   assert.deepEqual(catalog.map(item => item.name), ['XML', '  ＸＭＬ  ', 'Economie']);
@@ -114,15 +114,15 @@ test('module catalog entries must belong to the requested program and exact seme
     catalogModule('No semester', { semester: null }),
     catalogModule('Missing program', { filiere_id: undefined }),
   ];
-  assert.deepEqual(mergeLibraryModuleFolders([], catalog, moduleScope).map(folder => folder.name), ['VALID']);
+  assert.deepEqual(mergeLibraryModuleFolders([libraryDocument(1, 'Fallback', { moduleId: '1' })], catalog, moduleScope).map(folder => folder.name), ['VALID']);
 });
 
 test('legacy upload-only and unclassified modules survive an empty or incomplete catalog', () => {
   const legacy = libraryDocument(1, 'Ancien module'), unclassified = libraryDocument(2, '');
   const folders = mergeLibraryModuleFolders([legacy, unclassified], [catalogModule('Nouveau module')], moduleScope);
-  assert.deepEqual(folders.find(folder => folder.key === 'ancien module').documents, [legacy]);
-  assert.deepEqual(folders.find(folder => folder.key === '').documents, [unclassified]);
-  assert.equal(folders.find(folder => folder.key === 'nouveau module').documents.length, 0);
+  assert.deepEqual(folders.find(folder => folder.key === 'legacy:ancien module').documents, [legacy]);
+  assert.deepEqual(folders.find(folder => folder.key === 'legacy:').documents, [unclassified]);
+  assert.equal(folders.find(folder => folder.key === 'id:1'), undefined, 'An empty catalog entry is not a student library folder.');
   assert.equal(mergeLibraryModuleFolders([legacy], null, moduleScope)[0].documents[0], legacy);
 });
 
@@ -135,13 +135,13 @@ test('catalog merging cannot expose another study scope or non-Library documents
     libraryDocument(5, 'Chat attachment', { libraryVisible: false }),
     libraryDocument(6, 'Removed', { status: 'removed' }),
   ];
-  assert.deepEqual(mergeLibraryModuleFolders(resources, [], moduleScope), [{ key: 'visible', name: 'VISIBLE', documents: [visible] }]);
+  assert.deepEqual(mergeLibraryModuleFolders(resources, [], moduleScope), [{ key: 'legacy:visible', id:null, rawName:'Visible', name: 'VISIBLE', catalogStatus:'legacy', documents: [visible] }]);
 });
 
 test('malformed catalog names and missing scope do not create broken module choices', () => {
   const catalog = [null, {}, catalogModule(''), catalogModule(' \t '), catalogModule(null),
     catalogModule({}), catalogModule('Bad\0name'), catalogModule('Good')];
-  assert.deepEqual(mergeLibraryModuleFolders([], catalog, moduleScope).map(folder => folder.name), ['GOOD']);
+  assert.deepEqual(mergeLibraryModuleFolders([libraryDocument(1, 'Good', { moduleId: '1' })], catalog, moduleScope).map(folder => folder.name), ['GOOD']);
   for (const scope of [null, undefined, {}, { ...moduleScope, filiereId: null }, { ...moduleScope, semester: 9 }]) {
     assert.deepEqual(mergeLibraryModuleFolders([libraryDocument(1, 'Secret')], [catalogModule('Secret')], scope), []);
   }

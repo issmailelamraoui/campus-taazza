@@ -13,12 +13,14 @@ import { normalizeCommunityChannel } from '../lib/community';
 import { Avatar, Badge, Button, EmptyState, Field, Modal, PageHeader, Tabs } from '../components/ui';
 import { AdminRegistrations, AdminChannels, AdminChatBlocks } from '../components/AdminManagement';
 import AdminPasswordReset from '../components/AdminPasswordReset';
+import ModuleCatalogAdmin from '../components/ModuleCatalogAdmin';
+import OfficialModuleSelector from '../components/OfficialModuleSelector';
 import PartSelect from '../components/PartSelect';
 import './admin.css';
 
 const emptyAccount = { username: '', name: '', email: '', password: '', role: 'student', facultyId: 'flaa', filiereId: '', status: 'active' };
 const emptyAnnouncement = { title: '', content: '', facultyId: 'flaa', filiereId: '', pinned: false, kind: 'administration', channel: 'important', resourceId: '' };
-const validTabs = ['overview', 'accounts', 'organization', 'resources', 'announcements', 'reports', 'community', 'assistance'];
+const validTabs = ['overview', 'accounts', 'organization', 'modules', 'resources', 'announcements', 'reports', 'community', 'assistance'];
 const resourceStatuses = ['new', 'updated', 'popular', 'corrected'];
 const emptyRecords = { messages: null, users: [], resources: [], reports: [], contacts: [], channels: [], registrations: [], blocks: [] };
 const adminCache = new Map();
@@ -47,7 +49,7 @@ export default function AdminPage() {
   const canAdmit=can('student.admit');
   const managedFaculties=FACULTIES.filter(f=>isGlobal||grants?.some(g=>g.facultyId===f.id));
   const multiFaculty=managedFaculties.length>1;
-  const tabAllowed=id=>id==='overview'||id==='organization'&&isGlobal||id==='accounts'&&(can('student.support')||can('student.admit'))||id==='resources'&&can('resource.manage')||id==='announcements'&&can('announcement.publish')||id==='reports'&&can('content.moderate')||id==='community'&&(can('content.moderate')||can('channel.manage'))||id==='assistance'&&can('feedback.manage');
+  const tabAllowed=id=>id==='overview'||id==='organization'&&isGlobal||id==='accounts'&&(can('student.support')||can('student.admit'))||['modules','resources'].includes(id)&&can('resource.manage')||id==='announcements'&&can('announcement.publish')||id==='reports'&&can('content.moderate')||id==='community'&&(can('content.moderate')||can('channel.manage'))||id==='assistance'&&can('feedback.manage');
   const cacheKey = `${user?.id}:${role}:${user?.facultyId || user?.faculty_id || ''}`;
   const [records, setRecords] = useState(() => adminCache.get(cacheKey)?.records || emptyRecords);
   const [recordsKey, setRecordsKey] = useState(cacheKey);
@@ -189,6 +191,7 @@ export default function AdminPage() {
     { id: 'overview', label: tr('Vue d’ensemble', 'Overview', 'نظرة عامة') },
     { id: 'accounts', label: tr('Comptes', 'Accounts', 'الحسابات'), count: pendingRegistrations.length || undefined },
     { id: 'organization', label: tr('Organisation', 'Organization', 'التنظيم') },
+    { id: 'modules', label: tr('Modules officiels', 'Official modules', 'الوحدات الرسمية') },
     { id: 'resources', label: tr('Ressources', 'Resources', 'الموارد'), count: pendingResources.length || undefined },
     { id: 'announcements', label: tr('Annonces', 'Announcements', 'الإعلانات') },
     { id: 'reports', label: tr('Signalements', 'Reports', 'البلاغات'), count: pendingReports.length || undefined },
@@ -277,10 +280,11 @@ export default function AdminPage() {
     return run(`admission-${item.id}`, () => api(`/admin/users/${item.id}/admission`, { method: 'PATCH', body: { status } }), status === 'approved' ? tr('Inscription acceptée.', 'Registration approved.', 'تم قبول التسجيل.') : tr('Inscription refusée.', 'Registration declined.', 'تم رفض التسجيل.'));
   }
   function editResource(item) { setAdminError(''); setModal({ type: 'resource', item, draft: { ...item } }); }
-  function changeResourceDraft(key, value) { setModal(previous => ({ ...previous, draft: { ...previous.draft, [key]: value } })); }
+  function changeResourceDraft(key, value) { setModal(previous => ({ ...previous, draft: { ...previous.draft, [key]: value, ...(key === 'semester' ? { module: '', moduleId: '' } : {}) } })); }
   async function saveResource(event) {
     event.preventDefault(); const draft = modal.draft;
-    await run('resource', () => api(`/admin/resources/${modal.item.id}`, { method: 'PATCH', body: { title: draft.title.trim(), category: draft.category, semester: draft.semester == null || draft.semester === '' ? null : Number(draft.semester), module: draft.module.trim(), status: draft.status, part_number: draft.part === 'complete' ? 'complete' : String(draft.part), teacher_name: draft.author.trim() } }), tr('Ressource enregistrée.', 'Resource saved.', 'تم حفظ المورد.'), true);
+    if (draft.changeModule && !draft.moduleId) { setAdminError(tr('Sélectionnez un module officiel existant.', 'Select an existing official module.', 'اختر وحدة رسمية موجودة.')); return; }
+    await run('resource', () => api(`/admin/resources/${modal.item.id}`, { method: 'PATCH', body: { title: draft.title.trim(), category: draft.category, ...(draft.changeModule ? { semester: Number(draft.semester), module_id: draft.moduleId } : {}), status: draft.status, part_number: draft.part === 'complete' ? 'complete' : String(draft.part), teacher_name: draft.author.trim() } }), tr('Ressource enregistrée.', 'Resource saved.', 'تم حفظ المورد.'), true);
   }
   async function replaceResource(event) {
     const file = event.target.files?.[0]; if (!file) return;
@@ -343,6 +347,7 @@ export default function AdminPage() {
     {busy && <p className="admin-loading-status" role="status"><LoaderCircle size={14} className="admin-pending-icon" /> {tr('Enregistrement…', 'Saving…', 'جارٍ الحفظ…')}</p>}
     {loading && <p className="admin-loading-status" role="status">{tr('Chargement des données…', 'Loading data…', 'جارٍ تحميل البيانات…')}</p>}
     <Tabs items={tabItems} value={tab} onChange={changeTab} />
+    {tab === 'modules' && <ModuleCatalogAdmin />}
 
     {tab === 'overview' && <div className="admin-overview">
       <div className="admin-overview-heading"><h2>{tr('L’essentiel, en un regard', 'What needs your attention', 'الأهم في لمحة')}</h2><span>{isGlobal || multiFaculty ? tr('Plusieurs facultés', 'Multiple faculties', 'عدة كليات') : facultyName(user.facultyId || user.faculty_id)}</span></div>
@@ -404,9 +409,9 @@ export default function AdminPage() {
         <p className="muted admin-form-note">{facultyName(modal.item.facultyId)} · {filiereName(modal.item.filiereId)} · {tr('Version', 'Version', 'نسخة')} {modal.item.version || 1}</p>
         <fieldset disabled={Boolean(busy)} className="admin-form-fields"><div className="form-grid">
           <Field label={tr('Titre', 'Title', 'العنوان')}><input className="input" required maxLength={180} value={modal.draft.title} onChange={event => changeResourceDraft('title', event.target.value)} /></Field>
-          <Field label={tr('Module', 'Module', 'المادة')}><input className="input" maxLength={120} value={modal.draft.module || ''} onChange={event => changeResourceDraft('module', event.target.value)} /></Field>
+          {modal.draft.changeModule ? <OfficialModuleSelector facultyId={modal.item.facultyId} filiereId={modal.item.filiereId} semester={modal.draft.semester} value={modal.draft.module || ''} moduleId={modal.draft.moduleId} disabled={Boolean(busy)} onQuery={value => setModal(previous => ({ ...previous, draft: { ...previous.draft, module: value, moduleId: '' } }))} onSelect={item => setModal(previous => ({ ...previous, draft: { ...previous.draft, module: item.name, moduleId: String(item.id) } }))} /> : <Field label={tr('Module', 'Module', 'المادة')}><input className="input" readOnly value={modal.draft.module || ''} /><Button onClick={() => setModal(previous => ({ ...previous, draft: { ...previous.draft, changeModule: true, module: '', moduleId: '' } }))}>{tr('Choisir un autre module', 'Choose another module', 'اختيار وحدة أخرى')}</Button></Field>}
           <Field label={tr('Catégorie', 'Category', 'الفئة')}><Select className="input" value={modal.draft.category} onChange={event => changeResourceDraft('category', event.target.value)}>{['courses', 'exercises', 'exams', 'rattrapage', 'td', 'tp', 'corrections', 'general'].map(value => <option key={value} value={value}>{t(value)}</option>)}</Select></Field>
-          <Field label={tr('Semestre', 'Semester', 'الفصل')}><Select className="input" value={modal.draft.semester || ''} onChange={event => changeResourceDraft('semester', event.target.value)}>{modal.draft.category === 'general' && <option value="">{tr('Sans semestre', 'No semester', 'دون فصل')}</option>}{[1, 2, 3, 4, 5, 6].map(value => <option key={value} value={value}>S{value}</option>)}</Select></Field>
+          <Field label={tr('Semestre', 'Semester', 'الفصل')}><Select className="input" disabled={!modal.draft.changeModule} value={modal.draft.semester || ''} onChange={event => changeResourceDraft('semester', event.target.value)}>{modal.draft.category === 'general' && <option value="">{tr('Sans semestre', 'No semester', 'دون فصل')}</option>}{[1, 2, 3, 4, 5, 6].map(value => <option key={value} value={value}>S{value}</option>)}</Select></Field>
           <Field label={tr('Part/Chapitre', 'Part/Chapter', 'جزء/فصل')}><PartSelect className="input" required value={modal.draft.part} onChange={event => changeResourceDraft('part', event.target.value)} /></Field>
           <Field label={tr('Auteur / professeur', 'Author / teacher', 'المؤلف / الأستاذ')}><input className="input" maxLength={120} value={modal.draft.author || ''} onChange={event => changeResourceDraft('author', event.target.value)} /></Field>
           <Field label={tr('Statut', 'Status', 'الحالة')}><Select className="input" value={modal.draft.status} onChange={event => changeResourceDraft('status', event.target.value)}>{resourceStatuses.map(value => <option key={value} value={value}>{statusName(value)}</option>)}</Select></Field>

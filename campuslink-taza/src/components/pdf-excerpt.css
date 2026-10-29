@@ -1,0 +1,10 @@
+@font-face{font-family:'Campus Math';src:url('/fonts/NotoSansMath-Regular.ttf') format('truetype');font-weight:400;font-style:normal;font-display:swap;unicode-range:U+00B1-00B3,U+00B5,U+00B9,U+00BC-00BE,U+0370-03FF,U+1F00-1FFF,U+2000-206F,U+2070-209F,U+2100-214F,U+2190-22FF,U+27C0-27EF,U+2980-29FF,U+2A00-2AFF,U+1D400-1D7FF}
+.pdf-saved-excerpt{min-width:0;max-width:100%;margin:10px 0}
+.pdf-saved-excerpt figure{margin:0;padding:8px;border:1px solid var(--line);border-radius:8px;background:#fff;color:#333;overflow:auto}
+.pdf-saved-excerpt figure img{display:block;max-width:100%;height:auto;max-height:none;object-fit:contain;margin:auto}
+.pdf-saved-excerpt figcaption{font-size:10px;text-align:center;color:#555;margin-top:5px}
+.pdf-saved-excerpt details{font-size:12px;margin-top:7px;overflow-wrap:anywhere}
+.pdf-saved-excerpt summary{cursor:pointer;color:var(--accent);padding:4px 0}
+.pdf-saved-excerpt .pdf-excerpt-warning{font-size:12px;line-height:1.6;max-height:none;color:var(--text);border-inline-start:2px solid var(--accent);padding-inline-start:9px}
+.pdf-math-text{font-family:'Campus Math',var(--font);unicode-bidi:plaintext;white-space:pre-wrap;overflow-wrap:anywhere}
+.reader-text-notice.pdf-unreliable-notice{flex:0 0 auto;padding:8px 10px;margin:0;font-size:12px;line-height:1.6;background:var(--accent-soft);border-block:1px solid var(--line)}

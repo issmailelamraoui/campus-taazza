@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { Worker, isMainThread, parentPort, workerData } from 'node:worker_threads';
 import { academicYear } from './academic-years.js';
+import { assessPDFText, PDF_TEXT_EXTRACTION_OPTIONS } from '../shared/pdf-text.js';
 
 const failure = (status, message, code) => Object.assign(new Error(message), { status, code });
 export const DOCUMENT_INDEX_POLICY = Object.freeze({ maxFileBytes: 20 * 1024 * 1024, maxPages: 500, maxPageCharacters: 50000, maxTextBytes: 5 * 1024 * 1024, timeoutMs: 20000, maxConcurrent: 2, resultLimit: 25, candidateLimit: 500 });
@@ -74,27 +75,36 @@ export async function extractPdfText(data, { timeoutMs = DOCUMENT_INDEX_POLICY.t
 async function extractInsideWorker(data) {
   const { getDocument } = await import('pdfjs-dist/legacy/build/pdf.mjs');
   const packageUrl=import.meta.resolve('pdfjs-dist/package.json');
-  const loading = getDocument({ data, cMapUrl:fileURLToPath(new URL('./cmaps/',packageUrl)), cMapPacked:true, standardFontDataUrl:fileURLToPath(new URL('./standard_fonts/',packageUrl)), isEvalSupported: false, enableXfa: false, useWorkerFetch: false, useWasm: false, disableFontFace: true, useSystemFonts: false, maxImageSize: 0, stopAtErrors: true, verbosity: 0 });
+  // PDF.js requires a '/' suffix even on Windows. Node's fileURLToPath uses
+  // backslashes there; normalize the asset-directory separator, not PDF text.
+  const assetDirectory=name=>fileURLToPath(new URL('./'+name+'/',packageUrl)).replaceAll('\\','/');
+  const loading = getDocument({ data, cMapUrl:assetDirectory('cmaps'), cMapPacked:true, standardFontDataUrl:assetDirectory('standard_fonts'), isEvalSupported: false, enableXfa: false, useWorkerFetch: false, useWasm: false, disableFontFace: true, useSystemFonts: false, maxImageSize: 0, stopAtErrors: true, verbosity: 0 });
   let document;
   try {
     document = await loading.promise;
     if (!Number.isInteger(document.numPages) || document.numPages < 1 || document.numPages > DOCUMENT_INDEX_POLICY.maxPages) throw failure(413, 'L’indexation est limitée à 500 pages.');
-    const pages = []; let textBytes = 0;
+    const pages = [], unreliablePages=[]; let textBytes = 0, scannedBytes=0;
     for (let page = 1; page <= document.numPages; page++) {
-      const pdfPage = await document.getPage(page), content = await pdfPage.getTextContent({ disableNormalization: false });
+      const pdfPage = await document.getPage(page), content = await pdfPage.getTextContent(PDF_TEXT_EXTRACTION_OPTIONS);
       let raw = '';
       for (const item of content.items) {
         if (typeof item.str !== 'string') continue;
         if (raw.length + item.str.length + 1 > DOCUMENT_INDEX_POLICY.maxPageCharacters) throw failure(413, 'Une page dépasse la limite de texte extractible.');
         raw += item.str + (item.hasEOL ? '\n' : ' ');
       }
+      scannedBytes+=Buffer.byteLength(raw);
+      if(scannedBytes>DOCUMENT_INDEX_POLICY.maxTextBytes)throw failure(413,'Ce PDF dépasse la limite de 5 Mo de texte extractible.');
+      // Test the original strings before cleanText could erase glyph codes.
+      // A mathematically unreliable page is never offered as a text snippet.
+      const quality=assessPDFText(content);
+      if(!quality.reliable){unreliablePages.push(page);pdfPage.cleanup();continue;}
       const text = cleanText(raw), normalized = normalizeDocumentText(text);
       textBytes += Buffer.byteLength(text);
       if (textBytes > DOCUMENT_INDEX_POLICY.maxTextBytes) throw failure(413, 'Ce PDF dépasse la limite de 5 Mo de texte extractible.');
       if (text) pages.push({ page, text, normalized });
       pdfPage.cleanup();
     }
-    return { pageCount: document.numPages, pages, textBytes, status: pages.length ? 'ready' : 'no_text' };
+    return { pageCount: document.numPages, pages, textBytes, status: pages.length ? 'ready' : 'no_text',unreliablePages };
   } catch (error) {
     if (error.status) throw error;
     throw failure(422, error.name === 'PasswordException' ? 'Ce PDF est protégé par un mot de passe.' : 'Ce PDF est endommagé ou son texte ne peut pas être extrait.');
@@ -116,6 +126,7 @@ export async function indexDocument(resource, { db, storage, assertCurrent, inde
   inFlight.add(key); activeExtractions++;
   try {
     const result = await extractPdfText(await readPdf(storage, resource));
+    if(result.unreliablePages.length)throw failure(422,'Le texte de ce PDF contient des correspondances de caractères non fiables. Consultez l’original et conservez les formules en image.','PDF_TEXT_UNRELIABLE');
     // Re-check access after the expensive asynchronous work, then serialize with
     // replacement/deletion. No stale text can become a current-version result.
     const authorized = await assertCurrent();
@@ -151,17 +162,23 @@ export function installDocumentSearchRoutes(app, { db, requireFaculty, assertRes
   });
   app.get('/api/document-search', requireFaculty, async (req, res) => {
     const terms = documentSearchTerms(req.query.q), resourceId = req.query.resourceId === undefined ? null : identifier(req.query.resourceId);
+    let resourceIds=null;
+    if(req.query.resource_ids!==undefined){
+      if(typeof req.query.resource_ids!=='string'||req.query.resource_ids.length>20000||!/^\d+(?:,\d+)*$|^$/.test(req.query.resource_ids))throw failure(400,'Périmètre de recherche invalide.');
+      resourceIds=req.query.resource_ids===''?[]:[...new Set(req.query.resource_ids.split(',').map(identifier))];
+      if(resourceIds.length>2000)throw failure(400,'Périmètre de recherche trop large.');
+    }
     const currentYear = req.user.current_academic_year || academicYear(process.env.CAMPUS_ACADEMIC_YEAR);
     if (resourceId) { const resource = await assertResource(resourceId, req); assertPdf(resource); }
     const rows = await db.prepare(`SELECT p.resource_id,p.document_version,p.page,p.text,i.source_sha256
       FROM document_text_pages p JOIN document_text_indexes i ON i.resource_id=p.resource_id AND i.document_version=p.document_version
       JOIN resources r ON r.id=p.resource_id
       WHERE r.removed=0 AND r.faculty_id=? AND r.mime='application/pdf' AND r.version=p.document_version AND r.sha256=i.source_sha256
-        AND ${resourceId ? 'r.id=?' : 'r.library_visible=1'} AND p.search_vector @@ plainto_tsquery('simple',?)
+        AND ${resourceId ? 'r.id=?' : 'r.library_visible=1'} ${resourceIds===null?'':'AND r.id=ANY(?)'} AND p.search_vector @@ plainto_tsquery('simple',?)
       ORDER BY CASE WHEN r.academic_year=? OR r.academic_years @> ?::jsonb THEN 0 WHEN r.academic_year IS NULL THEN 2 ELSE 1 END,
         r.academic_year DESC NULLS LAST,r.id DESC,p.page ASC LIMIT ${DOCUMENT_INDEX_POLICY.candidateLimit}`)
-      .all(req.user.faculty_id, ...(resourceId ? [resourceId] : []), terms.join(' '), currentYear || '', JSON.stringify(currentYear ? [currentYear] : ['__no_configured_year__']));
-    const resources = new Map(), matches = [];
+      .all(req.user.faculty_id, ...(resourceId ? [resourceId] : []), ...(resourceIds===null?[]:[resourceIds]), terms.join(' '), currentYear || '', JSON.stringify(currentYear ? [currentYear] : ['__no_configured_year__']));
+    const resources = new Map(), matches = [];let unreliableTextSkipped=0;
     for (const row of rows) {
       if (!resources.has(row.resource_id)) {
         try { resources.set(row.resource_id, await assertResource(row.resource_id, req)); }
@@ -169,10 +186,13 @@ export function installDocumentSearchRoutes(app, { db, requireFaculty, assertRes
       }
       const resource = resources.get(row.resource_id);
       if (!resource || resource.removed || resource.version !== row.document_version || resource.sha256 !== row.source_sha256) continue;
+      // Existing indexes and student data are preserved. Strong corruption
+      // evidence in a historical snippet is suppressed without rewriting it.
+      if(!assessPDFText(row.text).reliable){unreliableTextSkipped++;continue;}
       const query = new URLSearchParams({ document: String(resource.id), page: String(row.page), version: String(row.document_version) });
       matches.push({ resourceId: resource.id, version: row.document_version, page: row.page, title: resource.title, filename: resource.filename, module: resource.module, semester: resource.semester, academicYear: resource.academic_year || null, excerpt: excerpt(row.text, terms), href: `/app/library?${query}#resource-${resource.id}` });
       if (matches.length >= DOCUMENT_INDEX_POLICY.resultLimit) break;
     }
-    res.set('Cache-Control', 'private, no-store').json({ matches, terms, limit: DOCUMENT_INDEX_POLICY.resultLimit, mode: 'keyword', message: 'Recherche par mots dans les PDF explicitement indexés. Aucun OCR ni rapprochement automatique.' });
+    res.set('Cache-Control', 'private, no-store').json({ matches, terms, limit: DOCUMENT_INDEX_POLICY.resultLimit, mode: 'keyword',unreliableTextSkipped, message: 'Recherche par mots dans les PDF explicitement indexés. Aucun OCR ni rapprochement automatique.' });
   });
 }

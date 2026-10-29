@@ -88,10 +88,12 @@ test('concurrent PDF imports share a module and every chapter remains available 
   const login=await fetch(origin+'/api/login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({username:'folder.student',password:'Campus2026!'})});
   assert.equal(login.status,200);
   const cookie=login.headers.getSetCookie().find(value=>value.startsWith('campus_neon_test_session=')).split(';')[0];
+  const canonical=await resolveModule(env.db,{facultyId:'flaa',filiereId:'french_studies',semester:1,name:'XML'});
+  await env.db.prepare("UPDATE modules SET catalog_status='official',catalog_key='xml',curriculum_source='Synthetic local test curriculum',verified_by=?,verified_at='2026-10-28' WHERE id=?").run(user.id,canonical.id);
   const variants=['XML','xml','Xml','xMl'];
   const uploads=await Promise.all(variants.map(async(module,index)=>{
     const form=new FormData();
-    for(const [key,value]of Object.entries({title:'XML',category:'courses',filiere_id:'french_studies',semester:'1',module,resource_type:'courses',part_number:String(index+1),channel:'general',publish_message:'false'}))form.set(key,value);
+    for(const [key,value]of Object.entries({title:'XML',category:'courses',filiere_id:'french_studies',semester:'1',module,module_id:String(canonical.id),resource_type:'courses',part_number:String(index+1),channel:'general',publish_message:'false'}))form.set(key,value);
     form.set('file',new Blob([makePdf(`XML chapter ${index+1}`,[randomUUID()])],{type:'application/pdf'}),`chapter-${index+1}.pdf`);
     const response=await fetch(origin+'/api/uploads',{method:'POST',headers:{cookie},body:form});
     const data=await response.json();assert.equal(response.status,201,JSON.stringify(data));return data.resource;

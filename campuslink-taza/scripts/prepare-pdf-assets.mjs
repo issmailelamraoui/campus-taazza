@@ -1,0 +1,13 @@
+import {cp,mkdir,readFile,writeFile} from 'node:fs/promises';
+import {createRequire} from 'node:module';
+import {dirname,resolve} from 'node:path';
+import {fileURLToPath} from 'node:url';
+const require=createRequire(import.meta.url),root=resolve(dirname(fileURLToPath(import.meta.url)),'..');
+const source=dirname(require.resolve('pdfjs-dist/package.json'));
+const {version}=JSON.parse(await readFile(resolve(source,'package.json'),'utf8'));
+const target=resolve(root,'public/pdfjs-assets',version);
+await mkdir(target,{recursive:true});
+for(const directory of ['cmaps','standard_fonts','wasm','iccs'])await cp(resolve(source,directory),resolve(target,directory),{recursive:true});
+await cp(resolve(source,'LICENSE'),resolve(target,'LICENSE'));
+await writeFile(resolve(target,'version.json'),JSON.stringify({version})+'\n');
+console.log(`PDF.js ${version}: local font maps, fonts and image decoders prepared.`);

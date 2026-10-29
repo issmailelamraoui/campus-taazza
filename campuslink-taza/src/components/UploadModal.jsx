@@ -28,7 +28,6 @@ import {
   MAX_UPLOAD_BATCH_FILES,
 } from "../lib/files";
 import {
-  moduleSuggestions,
   moduleDisplayName,
   normalizePart,
   partLabel,
@@ -39,8 +38,9 @@ import {
   uploadScopesForUser,
 } from "../lib/resources";
 import { Button, Field, Modal } from "./ui";
-import { Select, Autocomplete } from "./Select";
+import { Select } from "./Select";
 import PartSelect from "./PartSelect";
+import OfficialModuleSelector from './OfficialModuleSelector';
 import "../pages/library.css";
 import "./upload-progress.css";
 
@@ -56,31 +56,6 @@ const categoryKeys = [
 const semesterNumber = (value) =>
   Number(String(value ?? "").replace(/^s/i, ""));
 export { collectDirectoryEntry } from "../lib/files";
-
-function SuggestedField({
-  label,
-  value,
-  onChange,
-  options,
-  required = false,
-  hint,
-  showOnEmpty = false,
-  disabled = false,
-}) {
-  return (
-    <Field label={label} hint={hint}>
-      <Autocomplete
-        className="input"
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        options={options}
-        showOnEmpty={showOnEmpty}
-        required={required}
-        disabled={disabled}
-      />
-    </Field>
-  );
-}
 
 export default function UploadModal({
   onClose,
@@ -100,7 +75,6 @@ export default function UploadModal({
     user,
     selection: accountSelection,
     faculty: accountFaculty,
-    resources,
     allResources,
     uploadResource,
     closeDialog,
@@ -125,8 +99,6 @@ export default function UploadModal({
   const currentAcademicYear = normalizeAcademicYear(user?.currentAcademicYear ?? user?.current_academic_year);
   const initialAcademicYear = isSupplement ? normalizeAcademicYear(supplementFor.academicYear ?? supplementFor.academic_year) : currentAcademicYear;
   const yearOptions = academicYearOptions(currentAcademicYear, (allResources || []).flatMap(resourceAcademicYears));
-  const modulesFor = (semester, query = "") =>
-    moduleSuggestions(resources, { ...selection, semester }, query);
   const initialFiles = () =>
     initialEntries
       .filter((item) => !uploadFileIssue(item.file, item.path))
@@ -138,6 +110,7 @@ export default function UploadModal({
         meta: {
           semester: initialSemester,
           module: initialModule,
+          moduleId: supplementFor?.moduleId || supplementFor?.module_id || initialClassification.moduleId || '',
           category: initialCategory,
           author: "",
           academicYear: initialAcademicYear,
@@ -150,6 +123,7 @@ export default function UploadModal({
   const [batch, setBatch] = useState({
     semester: initialSemester,
     module: initialModule,
+    moduleId: supplementFor?.moduleId || supplementFor?.module_id || initialClassification.moduleId || '',
     category: initialCategory,
     author: "",
     academicYear: initialAcademicYear,
@@ -206,6 +180,7 @@ export default function UploadModal({
             ...item.meta,
             semester: batch.semester,
             module: batch.module,
+            moduleId: batch.moduleId,
             category: batch.category,
             author: batch.author,
             academicYear: batch.academicYear,
@@ -304,7 +279,7 @@ export default function UploadModal({
   };
   const changeBatch = (field, value) => {
     if (isSupplement) return;
-    setBatch((current) => ({ ...current, [field]: value }));
+    setBatch((current) => ({ ...current, [field]: value, ...(field === 'module' ? { moduleId: '' } : field === 'semester' ? { module: '', moduleId: '' } : {}) }));
     setBatchApplied(false);
     setError("");
   };
@@ -316,6 +291,8 @@ export default function UploadModal({
     ...item.meta,
     facultyId: selection?.facultyId,
     filiereId: selection?.filiereId,
+    uploaderId: user?.id,
+    path: item.path,
     originalName: item.file.name,
   }));
   const conflicts = (isSupplement ? [] : findResourceConflicts(
@@ -330,6 +307,10 @@ export default function UploadModal({
         "This classification exceeds your current upload permissions. Choose an authorized program and semester.",
         "هذا التصنيف يتجاوز صلاحيات الرفع الحالية. اختر مسلكاً وفصلاً مسموحاً بهما.",
       ));
+      return false;
+    }
+    if (!isSupplement && !batch.moduleId) {
+      setError(tr('Sélectionnez et confirmez un module du catalogue officiel.', 'Select and confirm a module from the official catalogue.', 'اختر وأكد وحدة من القائمة الرسمية.'));
       return false;
     }
     const invalid = classifiedFiles.find(
@@ -393,6 +374,7 @@ export default function UploadModal({
             title: item.meta.title.trim(),
             semester: Number(item.meta.semester),
             module: item.meta.module.trim().replace(/\s+/g, " "),
+            moduleId: item.meta.moduleId,
             category: item.meta.category,
             part: normalizePart(item.meta.part),
             author: item.meta.author.trim(),
@@ -431,6 +413,7 @@ export default function UploadModal({
             title: item.meta.title.trim(),
             semester: Number(item.meta.semester),
             module: item.meta.module.trim().replace(/\s+/g, " "),
+            moduleId: item.meta.moduleId,
             category: item.meta.category,
             part: normalizePart(item.meta.part),
             author: item.meta.author.trim(),
@@ -492,19 +475,12 @@ export default function UploadModal({
             {yearOptions.map(year => <option key={year} value={year}>{year}{year === currentAcademicYear ? ` · ${tr("année actuelle", "current year", "السنة الحالية")}` : ""}</option>)}
           </Select>
         </Field>
-        <SuggestedField
-          label={`${t("module")} *`}
-          value={meta.module}
-          onChange={(value) => change("module", value)}
-          options={modulesFor(meta.semester, meta.module)}
-          required
-          disabled={disabled || isSupplement}
-          hint={tr(
-            "Tapez un nom librement ou choisissez une suggestion issue des fichiers existants.",
-            "Type any name or choose a suggestion from existing files.",
-            "اكتب أي اسم أو اختر اقتراحاً من الملفات الموجودة.",
-          )}
-        />
+        {isSupplement ? <Field label={`${t('module')} *`}><input className="input" value={meta.module} disabled /></Field> : <OfficialModuleSelector
+          facultyId={selection.facultyId} filiereId={selection.filiereId} semester={meta.semester}
+          value={meta.module} moduleId={meta.moduleId} disabled={disabled}
+          onQuery={value => change('module', value)}
+          onSelect={item => { setBatch(current => ({ ...current, module: item.name, moduleId: String(item.id) })); setBatchApplied(false); setError(''); }}
+        />}
         <Field label={tr("Catégorie *", "Category *", "الفئة *")}>
           <Select
             className="input"
@@ -975,7 +951,7 @@ export default function UploadModal({
                 {canChooseProgram ? <Select className="input" value={program} disabled={uploading || uploaded.current.size > 0} onChange={(event) => {
                   const scope = uploadScopes.find(item => item.filiereId === event.target.value);
                   setProgram(event.target.value);
-                  setBatch(previous => ({ ...previous, semester: scope?.semesters.includes(previous.semester) ? previous.semester : scope?.semesters[0] || 1, module: "" }));
+                  setBatch(previous => ({ ...previous, semester: scope?.semesters.includes(previous.semester) ? previous.semester : scope?.semesters[0] || 1, module: "", moduleId: "" }));
                   setError("");
                 }} aria-label={tr("Filière de destination", "Destination program", "المسلك المستهدف")}>{uploadScopes.map(scope => <option key={scope.filiereId} value={scope.filiereId}>{getFiliere(scope.filiereId)?.name || scope.filiereId}</option>)}</Select> : <input className="input" value={filiere?.name || ""} disabled />}
               </Field>

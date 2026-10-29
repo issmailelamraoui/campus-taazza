@@ -57,7 +57,7 @@ after(async () => {
   await env?.close();
 });
 
-test('last resource removal permanently prunes its module while retaining file and version history', async () => {
+test('last resource removal preserves its academic module and original file/version history', async () => {
   const name = label(), first = await resource(name), last = await resource(name.toUpperCase());
   assert.equal(first.module_id, last.module_id);
   await env.storage.put(first.object_key, Buffer.from('original'), 'text/plain');
@@ -69,22 +69,22 @@ test('last resource removal permanently prunes its module while retaining file a
   await remove(first.id);
   assert.ok(await moduleRow(first.module_id), 'The remaining file keeps its module.');
   await remove(last.id);
-  assert.equal(await moduleRow(first.module_id), undefined);
+  assert.ok(await moduleRow(first.module_id));
   for (const original of [first, last]) {
     const removed = await resourceRow(original.id);
     assert.equal(removed.removed, 1);
-    assert.equal(removed.module_id, null);
+    assert.equal(removed.module_id, original.module_id);
     assert.deepEqual(retainedMetadata(removed), retainedMetadata(original));
   }
   assert.deepEqual(await env.db.prepare('SELECT * FROM resource_versions WHERE resource_id=?').all(last.id), versions);
   assert.deepEqual([...env.storage.objects.keys()], objects, 'Module cleanup does not delete stored bytes.');
   const catalog = await request('/modules?semester=1');
   assert.equal(catalog.status, 200);
-  assert.ok(!catalog.data.modules.some(item => item.id === first.module_id));
+  assert.ok(catalog.data.modules.some(item => item.id === first.module_id));
   const reuploaded = await resource(name);
-  assert.notEqual(reuploaded.module_id, first.module_id, 'A later real upload creates a fresh valid module.');
+  assert.equal(reuploaded.module_id, first.module_id, 'Later fixture resolution retains the existing academic identity.');
   assert.ok(await moduleRow(reuploaded.module_id));
-  assert.equal((await resourceRow(last.id)).module_id, null, 'Historical rows are not rebound to the new module.');
+  assert.equal((await resourceRow(last.id)).module_id, first.module_id, 'Historical rows retain their original module association.');
 });
 
 test('active chat-only and legacy text-only references protect a module until the final file is removed', async () => {
@@ -96,7 +96,7 @@ test('active chat-only and legacy text-only references protect a module until th
   await remove(chat.id);
   assert.ok(await moduleRow(library.module_id), 'Canonical legacy text without a FK also counts.');
   await remove(legacy.id);
-  assert.equal(await moduleRow(library.module_id), undefined);
+  assert.ok(await moduleRow(library.module_id));
 });
 
 test('pruning is confined to the exact faculty, program and semester', async () => {
@@ -105,7 +105,7 @@ test('pruning is confined to the exact faculty, program and semester', async () 
     await resource(name, {}, { ...scope, filiereId: 'arabic_studies' }),
     await resource(name, {}, { facultyId: 'feg', filiereId: 'economics', semester: 1 })];
   await remove(target.id);
-  assert.equal(await moduleRow(target.module_id), undefined);
+  assert.ok(await moduleRow(target.module_id));
   for (const other of others) {
     assert.ok(await moduleRow(other.module_id));
     assert.deepEqual(await resourceRow(other.id), other);
@@ -118,7 +118,7 @@ test('report moderation uses the same cleanup and preserves the resolved report 
     VALUES('flaa',3,'resource',?,'inappropriate','Original moderation evidence','2026-10-26') RETURNING *`).get(target.id);
   const result = await request(`/admin/reports/${report.id}/remove-target`, { method: 'POST', body: { note: 'Reviewed fixture' } });
   assert.equal(result.status, 200, JSON.stringify(result.data));
-  assert.equal(await moduleRow(target.module_id), undefined);
+  assert.ok(await moduleRow(target.module_id));
   assert.equal((await resourceRow(target.id)).module, target.module);
   const resolved = await env.db.prepare('SELECT * FROM reports WHERE id=?').get(report.id);
   assert.equal(resolved.status, 'resolved');
@@ -126,7 +126,7 @@ test('report moderation uses the same cleanup and preserves the resolved report 
   assert.equal(resolved.details, report.details);
 });
 
-test('catalog GET hides historical orphans without writing, while retaining never-used and active chat modules', async () => {
+test('catalog GET preserves historical orphans, never-used modules and active chat modules without writing', async () => {
   const historic = await resource(label());
   await env.db.prepare('UPDATE resources SET removed=1,module_id=NULL WHERE id=?').run(historic.id);
   const neverUsed = await resolveModule(env.db, { ...scope, name: label() });
@@ -135,7 +135,7 @@ test('catalog GET hides historical orphans without writing, while retaining neve
   const result = await request('/modules?semester=1');
   assert.equal(result.status, 200, JSON.stringify(result.data));
   const ids = result.data.modules.map(item => item.id);
-  assert.ok(!ids.includes(historic.module_id));
+  assert.ok(ids.includes(historic.module_id));
   assert.ok(ids.includes(neverUsed.id));
   assert.ok(ids.includes(chat.module_id));
   assert.deepEqual(await resourceRow(historic.id), before);
@@ -147,7 +147,7 @@ test('an enclosing removal failure rolls back both soft deletion and module clea
   await assert.rejects(env.db.transaction(async db => {
     await lockResourceModule(db, target);
     await db.prepare('UPDATE resources SET removed=1 WHERE id=?').run(target.id);
-    assert.equal(await pruneRemovedResourceModule(db, target), true);
+    assert.equal(await pruneRemovedResourceModule(db, target), false);
     throw new Error('Intentional later removal failure');
   }), /Intentional later removal failure/);
   assert.deepEqual(await resourceRow(target.id), target);

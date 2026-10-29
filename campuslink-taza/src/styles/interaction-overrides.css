@@ -133,7 +133,7 @@ html[data-low-data="true"] *,html[data-low-data="true"] *::before,html[data-low-
   border-color: var(--line);
   color: var(--accentDeep);
 }
-:root[data-theme="light"] .document-card:hover {
+:root[data-theme="light"] .document-card:not(.document-card-library):hover {
   border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
   box-shadow: 0 5px 16px #4c392118;
 }

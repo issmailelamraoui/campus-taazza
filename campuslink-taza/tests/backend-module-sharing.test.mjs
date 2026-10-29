@@ -25,7 +25,7 @@ integration('sharing an existing module persists its canonical reference and per
   assert.equal(result.status, 201, JSON.stringify(result.data));
   const message = result.data.message;
   assert.equal(message.content, 'J’ai ajouté ce module PDF aujourd’hui.');
-  assert.deepEqual(message.shared_module, { resource_id: resource.id, faculty_id: 'fsa', filiere_id: 'mathematics', semester: 1, module: resource.module, accessible: true });
+  assert.deepEqual(message.shared_module, { resource_id: resource.id, module_id:resource.module_id, faculty_id: 'fsa', filiere_id: 'mathematics', semester: 1, module: resource.module, accessible: true });
   assert.deepEqual(message.attachments, []);
   assert.deepEqual(await env.db.prepare('SELECT * FROM resources WHERE id=?').get(resource.id), before);
   assert.equal(env.storage.putCount, puts);
@@ -99,4 +99,13 @@ integration('a shared module remains available while any correctly scoped docume
   const snapshot = (await env.request(path)).data.message.shared_module;
   assert.equal(snapshot.accessible, false); assert.equal(snapshot.module, first.module);
   assert.equal((await env.request(path)).data.message.content, posted.data.message.content);
+});
+integration('shared canonical module references never follow another module ID with an equal legacy label',async()=>{
+  const first=await env.addResource({module:'Canonical share identity A'}),second=await env.addResource({module:'Canonical share identity B'});
+  await env.db.prepare('UPDATE resources SET module=? WHERE id=?').run(first.module,second.id);
+  const posted=await share(first);assert.equal(posted.status,201);assert.equal(posted.data.message.shared_module.module_id,first.module_id);
+  await env.db.prepare('UPDATE resources SET removed=1 WHERE id=?').run(first.id);
+  const snapshot=(await env.request('/messages/'+posted.data.message.id)).data.message.shared_module;assert.equal(snapshot.accessible,false);assert.equal(snapshot.module_id,first.module_id);
+  await env.db.prepare('UPDATE resources SET module_id=?,module=? WHERE id=?').run(second.module_id,second.module,first.id);
+  const reassigned=(await env.request('/messages/'+posted.data.message.id)).data.message.shared_module;assert.equal(reassigned.accessible,false);assert.equal(reassigned.module_id,null,'A changed anchor cannot retarget an old discussion to another canonical module.');
 });

@@ -7,7 +7,7 @@ import { normalizeModule } from './resources.js';
 // previous semester must never populate the current semester's selector.
 export function useLibraryModules(resources, userId, facultyId, filiereId, semester) {
   const key = JSON.stringify([userId, facultyId, filiereId, semester]);
-  const membership = useMemo(() => JSON.stringify(resources.map(item => [String(item.id), normalizeModule(item.module)]).sort((a, b) => a[0].localeCompare(b[0]))), [resources]);
+  const membership = useMemo(() => JSON.stringify(resources.map(item => [String(item.id), item.moduleId ?? item.module_id, normalizeModule(item.module)]).sort((a, b) => a[0].localeCompare(b[0]))), [resources]);
   const [request, setRequest] = useState({ key: '', status: 'idle', entries: [] });
   const [revision, setRevision] = useState(0);
   const ready = Boolean(userId && facultyId && filiereId);
@@ -39,4 +39,30 @@ export function useLibraryModules(resources, userId, facultyId, filiereId, semes
   const folders = useMemo(() => mergeLibraryModuleFolders(resources, current.entries, { facultyId, filiereId, semester }),
     [resources, current.entries, facultyId, filiereId, semester]);
   return { folders, status: current.status, retry: () => setRevision(value => value + 1) };
+}
+
+// The server applies academic visibility before returning module contents.
+// Clear the previous reply immediately on navigation so it cannot cross scopes.
+export function useLibraryModuleResources(moduleId, userId, facultyId, filiereId, semester, membership) {
+  const key = JSON.stringify([moduleId, userId, facultyId, filiereId, semester]);
+  const [request, setRequest] = useState({ key: '', status: 'idle', resources: [] });
+  const [revision, setRevision] = useState(0);
+  useEffect(() => {
+    const changed = event => { if (!event.detail?.presence && !event.detail?.discussionReads) setRevision(value => value + 1); };
+    window.addEventListener('campus-live-update', changed);
+    return () => window.removeEventListener('campus-live-update', changed);
+  }, []);
+  useEffect(() => {
+    if (!moduleId || !userId) return;
+    const controller = new AbortController(); let active = true;
+    setRequest({ key, status: 'loading', resources: [] });
+    api(`/library/modules/${encodeURIComponent(moduleId)}`, { signal: controller.signal }).then(async data => {
+      if (!Array.isArray(data.resources)) throw new Error('Invalid module resources');
+      const { normalizeResource } = await import('./backend.js');
+      if (active) setRequest({ key, status: 'ready', resources: data.resources.map(normalizeResource) });
+    }).catch(error => { if (active && error.name !== 'AbortError') setRequest({ key, status: 'error', resources: [] }); });
+    return () => { active = false; controller.abort(); };
+  }, [key, moduleId, userId, membership, revision]);
+  const current = request.key === key ? request : { status: moduleId ? 'loading' : 'idle', resources: [] };
+  return { ...current, retry: () => setRevision(value => value + 1) };
 }

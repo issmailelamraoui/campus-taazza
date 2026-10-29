@@ -8,7 +8,7 @@ import './module-share.css';
 
 export function moduleReference(resource) {
   return resource ? { resourceId: String(resource.id), facultyId: resource.facultyId, filiereId: resource.filiereId,
-    semester: Number(resource.semester), module: resource.module || '', accessible: true } : null;
+    semester: Number(resource.semester), moduleId: resource.moduleId ?? resource.module_id ?? null, module: resource.module || '', accessible: true } : null;
 }
 
 export function SharedModuleReference({ reference, draft = false }) {
@@ -23,7 +23,7 @@ export function SharedModuleReference({ reference, draft = false }) {
     {!draft && (accessible ? <ArrowUpRight size={16} aria-hidden="true" /> : <LockKeyhole size={16} aria-hidden="true" />)}
   </>;
   if (draft || !accessible) return <div className={`community-shared-module${accessible ? '' : ' is-unavailable'}`}>{content}</div>;
-  return <Link className="community-shared-module" to={`/app/library?${new URLSearchParams({ semester: String(reference.semester), module: reference.module || '' })}`}>{content}</Link>;
+  return <Link className="community-shared-module" to={`/app/library?${new URLSearchParams({ semester: String(reference.semester), module: reference.moduleId != null ? `id:${reference.moduleId}` : reference.module || '' })}`}>{content}</Link>;
 }
 
 export function ModuleShareDialog({ resource, onClose }) {

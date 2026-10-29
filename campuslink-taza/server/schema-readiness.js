@@ -22,7 +22,7 @@ const requiredSchema = {
   faculties: 'id', filieres: 'id faculty_id', semesters: 'id',
   users: 'id auth_user_id session_version account_status registered_at reviewed_at reviewed_by bio current_academic_year password_change_required password_reset_operation_id password_reset_expires_at',
   password_reset_operations: 'operation_id actor_id target_user_id auth_user_id status request_salt request_hash expires_at',
-  modules: 'id faculty_id filiere_id semester name',
+  modules: 'id faculty_id filiere_id semester name catalog_status catalog_key curriculum_source verified_by verified_at',
   messages: 'id client_id',
   resources: 'id object_key sha256 version relative_path part_number teacher_name library_visible academic_year academic_years',
   resource_versions: 'id resource_id version object_key sha256',
