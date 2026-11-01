@@ -8,5 +8,3 @@ test-results/
 !.env.example
 
 /public/labs-runtime/
-
-/public/pdfjs-assets/
