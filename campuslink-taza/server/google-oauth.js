@@ -54,7 +54,22 @@ export function installGoogleOAuthRoutes(app,{db,auth,sessionPolicy,config,appOr
   }
   const destination=user=>user?.account_status!=='approved'?'/account-review':user.must_change_password||user.password_change_required?'/change-password':!user.faculty_id||!user.filiere_id?'/onboarding':'/app';
   const linkDestination=user=>destination(user)==='/app'?'/app/profile':destination(user);
-  function redirect(req,res,path){res.set('Referrer-Policy','no-referrer');res.redirect(303,new URL(path,publicOrigin||'http://localhost:5173').href);}
+  function redirect(req, res, path) {
+  if (!publicOrigin) {
+    throw new Error('Missing APP_ORIGIN for OAuth redirect');
+  }
+
+  const destination = new URL(path, publicOrigin).href;
+
+  console.log('[OAUTH REDIRECT DEBUG]', {
+    publicOrigin,
+    path,
+    destination
+  });
+
+  res.set('Referrer-Policy', 'no-referrer');
+  res.redirect(303, destination);
+}
   function clearAttempt(req,res){res.clearCookie(ATTEMPT_COOKIE,cookieOptions(req));}
   async function completionIdentity(req) {
     requireEnabled();
