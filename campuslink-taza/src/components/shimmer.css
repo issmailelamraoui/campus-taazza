@@ -1,0 +1,392 @@
+/* ==========================================================================
+   CampusLink Taza - Shimmer & Skeleton Loading System
+   Works seamlessly across Dark and Light themes with full RTL support.
+   ========================================================================== */
+
+:root,
+:root[data-theme="dark"] {
+  --shimmer-base: #23211d;
+  --shimmer-glow: #38342d;
+  --shimmer-card: #1c1b18;
+  --shimmer-border: #332f2a;
+  --shimmer-subtle: #292723;
+}
+
+:root[data-theme="light"] {
+  --shimmer-base: #e6dfd3;
+  --shimmer-glow: #faf7f0;
+  --shimmer-card: #fdfbf7;
+  --shimmer-border: #ded5c6;
+  --shimmer-subtle: #eee7db;
+}
+
+@keyframes shimmerWave {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+/* Base shimmer element classes */
+.shimmer-block,
+.shimmer-line,
+.shimmer-circle,
+.shimmer-badge,
+.shimmer-btn,
+.shimmer-chip {
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(
+    90deg,
+    var(--shimmer-base) 0%,
+    var(--shimmer-glow) 50%,
+    var(--shimmer-base) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmerWave 1.8s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  border-radius: var(--radius-sm, 7px);
+}
+
+[dir="rtl"] .shimmer-block,
+[dir="rtl"] .shimmer-line,
+[dir="rtl"] .shimmer-circle,
+[dir="rtl"] .shimmer-badge,
+[dir="rtl"] .shimmer-btn,
+[dir="rtl"] .shimmer-chip {
+  animation-direction: reverse;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shimmer-block,
+  .shimmer-line,
+  .shimmer-circle,
+  .shimmer-badge,
+  .shimmer-btn,
+  .shimmer-chip {
+    animation: none;
+    background: var(--shimmer-base);
+  }
+}
+
+.shimmer-circle {
+  border-radius: 50% !important;
+  flex-shrink: 0;
+}
+
+.shimmer-line {
+  height: 14px;
+  border-radius: 7px;
+}
+
+.shimmer-badge {
+  height: 20px;
+  border-radius: 10px;
+  display: inline-block;
+}
+
+.shimmer-chip {
+  height: 28px;
+  border-radius: 14px;
+  display: inline-block;
+}
+
+.shimmer-btn {
+  height: 34px;
+  border-radius: var(--radius-sm, 7px);
+}
+
+/* Skeleton Container Cards */
+.shimmer-card {
+  border: 1px solid var(--shimmer-border);
+  background: var(--shimmer-card);
+  border-radius: var(--radius, 12px);
+  padding: 16px;
+  box-sizing: border-box;
+}
+
+/* Document Card Skeleton */
+.shimmer-document-card {
+  border: 1px solid var(--shimmer-border);
+  background: var(--shimmer-card);
+  border-radius: var(--radius, 12px);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-height: 180px;
+  box-sizing: border-box;
+}
+
+.shimmer-doc-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.shimmer-doc-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 9px !important;
+  flex-shrink: 0;
+}
+
+.shimmer-doc-title-lines {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.shimmer-doc-badges {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+
+.shimmer-doc-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-top: 12px;
+  margin-top: auto;
+  border-top: 1px solid var(--shimmer-border);
+}
+
+/* Grid for cards */
+.shimmer-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 16px;
+  width: 100%;
+}
+
+@media (max-width: 600px) {
+  .shimmer-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Announcement Card Skeleton */
+.shimmer-announcement-card {
+  border: 1px solid var(--shimmer-border);
+  background: var(--shimmer-card);
+  border-radius: var(--radius, 12px);
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* Campus Forum/Groups/Market Card Skeleton */
+.shimmer-campus-card {
+  border: 1px solid var(--shimmer-border);
+  background: var(--shimmer-card);
+  border-radius: var(--radius, 12px);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* Table Skeleton */
+.shimmer-table-card {
+  border: 1px solid var(--shimmer-border);
+  background: var(--shimmer-card);
+  border-radius: var(--radius, 12px);
+  overflow: hidden;
+  width: 100%;
+  margin: 14px 0;
+}
+
+.shimmer-table-header {
+  display: flex;
+  gap: 14px;
+  padding: 12px 16px;
+  background: var(--shimmer-subtle);
+  border-bottom: 1px solid var(--shimmer-border);
+  align-items: center;
+}
+
+.shimmer-table-row {
+  display: flex;
+  gap: 14px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--shimmer-border);
+  align-items: center;
+}
+
+.shimmer-table-row:last-child {
+  border-bottom: none;
+}
+
+/* Reader Skeleton */
+.shimmer-reader-container {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-height: 480px;
+  background: var(--canvas);
+  border-radius: var(--radius, 12px);
+  overflow: hidden;
+  border: 1px solid var(--shimmer-border);
+}
+
+.shimmer-reader-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--shimmer-border);
+}
+
+.shimmer-reader-canvas {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 24px 16px;
+  overflow-y: auto;
+  background: var(--shimmer-subtle);
+}
+
+.shimmer-reader-page {
+  width: 100%;
+  max-width: 680px;
+  min-height: 720px;
+  background: var(--shimmer-card);
+  border: 1px solid var(--shimmer-border);
+  border-radius: 8px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+  padding: 40px;
+  box-sizing: border-box;
+}
+
+/* Spreadsheet Skeleton */
+.shimmer-spreadsheet-wrap {
+  border: 1px solid var(--shimmer-border);
+  border-radius: var(--radius, 12px);
+  background: var(--surface);
+  overflow: hidden;
+  margin: 12px 0;
+  width: 100%;
+}
+
+.shimmer-spreadsheet-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--shimmer-border);
+}
+
+.shimmer-spreadsheet-grid {
+  display: flex;
+  flex-direction: column;
+  overflow-x: auto;
+}
+
+.shimmer-spreadsheet-row {
+  display: flex;
+  border-bottom: 1px solid var(--shimmer-border);
+}
+
+.shimmer-spreadsheet-row:last-child {
+  border-bottom: none;
+}
+
+.shimmer-spreadsheet-header {
+  background: var(--shimmer-subtle);
+  font-weight: 600;
+}
+
+.shimmer-spreadsheet-cell-index {
+  width: 44px;
+  min-width: 44px;
+  padding: 8px;
+  text-align: center;
+  font-size: 11px;
+  color: var(--muted);
+  border-right: 1px solid var(--shimmer-border);
+  background: var(--shimmer-subtle);
+}
+
+.shimmer-spreadsheet-col-header,
+.shimmer-spreadsheet-cell {
+  flex: 1;
+  min-width: 110px;
+  padding: 8px 12px;
+  border-right: 1px solid var(--shimmer-border);
+  display: flex;
+  align-items: center;
+}
+
+/* Page Skeleton View */
+.shimmer-page-layout {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  width: 100%;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 16px 0;
+}
+
+.shimmer-page-header {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.shimmer-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+/* Full Page Shell Skeleton */
+.shimmer-session-screen {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  background: var(--canvas);
+}
+
+.shimmer-session-nav {
+  height: 60px;
+  border-bottom: 1px solid var(--shimmer-border);
+  display: flex;
+  align-items: center;
+  padding: 0 24px;
+  gap: 20px;
+  background: var(--sidebar);
+}
+
+.shimmer-session-main {
+  flex: 1;
+  max-width: 1100px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 32px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.shimmer-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 16px;
+  background: var(--shimmer-card);
+  border: 1px solid var(--shimmer-border);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 13px;
+  margin-bottom: 8px;
+}

@@ -60,9 +60,9 @@ function useAction(refresh) {
  }
  return { action, busy };
 }
-function Loading({ error, onRetry }) {
+function Loading({ error, onRetry, kind = "forum" }) {
  const { tr } = useApp();
- return error ? <div className="notice campus-error" role="alert"><span>{error}</span>{onRetry && <Button icon={RefreshCw} onClick={onRetry}>{tr('Réessayer', 'Retry', 'أعد المحاولة')}</Button>}</div> : <PageLoading label={tr('Chargement…', 'Loading…', 'جارٍ التحميل…')}/>;
+ return error ? <div className="notice campus-error" role="alert"><span>{error}</span>{onRetry && <Button icon={RefreshCw} onClick={onRetry}>{tr('Réessayer', 'Retry', 'أعد المحاولة')}</Button>}</div> : <PageLoading kind={kind} label={tr('Chargement…', 'Loading…', 'جارٍ التحميل…')}/>;
 }
 function CampusStatus({ status }) {
  const { tr } = useApp();

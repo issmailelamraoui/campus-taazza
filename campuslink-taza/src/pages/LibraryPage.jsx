@@ -1,4 +1,5 @@
 import LibraryReport from '../components/LibraryReport';
+import { DocumentGridSkeleton } from '../components/Shimmer';
 import { Select } from "../components/Select";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -684,6 +685,14 @@ export default function LibraryPage() {
             </label>
             {moduleCatalogueState}
             <div className="library-modules" aria-label={t("module")}>
+              {moduleStatus === "loading" && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '8px 0', width: '100%' }}>
+                  <div className="shimmer-line" style={{ width: '85%', height: 38, borderRadius: 8 }} />
+                  <div className="shimmer-line" style={{ width: '70%', height: 38, borderRadius: 8 }} />
+                  <div className="shimmer-line" style={{ width: '92%', height: 38, borderRadius: 8 }} />
+                  <div className="shimmer-line" style={{ width: '60%', height: 38, borderRadius: 8 }} />
+                </div>
+              )}
               {!moduleQuery && (semesterFolders.length > 0 || semesterResources.length > 0) && <button
                 type="button"
                 className={`module-choice ${module === null ? "selected" : ""}`}
@@ -920,7 +929,9 @@ export default function LibraryPage() {
         {folder.split("/").filter(Boolean).map((name, index, segments) => <React.Fragment key={index}><span aria-hidden="true">/</span><button type="button" dir="auto" aria-current={index === segments.length - 1 ? "page" : undefined} onClick={event => openFolder(segments.slice(0, index + 1).join("/"), folderOwner, category, event)}>{name}</button></React.Fragment>)}
         {folder && <Button variant="ghost" icon={ArrowLeft} className="library-parent-folder" onClick={event => openFolder(folder.split("/").slice(0, -1).join("/"), folderOwner, category, event)}>{tr("Dossier parent", "Parent folder", "المجلد الأب")}</Button>}
       </nav>}
-      {!showDocumentResults && (folders.length > 0 || moduleStatus === "loading" || moduleStatus === "error") ? null : visible.length > 0 && (module === null || directory.folders.length > 0 || directoryDocuments.length > 0) ? (
+      {!showDocumentResults && (folders.length > 0 || moduleStatus === "loading" || moduleStatus === "error") ? (
+        moduleStatus === "loading" ? <DocumentGridSkeleton count={4} /> : null
+      ) : visible.length > 0 && (module === null || directory.folders.length > 0 || directoryDocuments.length > 0) ? (
         !showDocumentResults ? null : (
           <>
             {module !== null && (!query.trim() || folder) && directory.folders.length > 0 && <section className="library-uploaded-folders" aria-label={tr("Dossiers partagés", "Shared folders", "المجلدات المشتركة")}>

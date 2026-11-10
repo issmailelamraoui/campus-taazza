@@ -33,7 +33,7 @@ export default function BrowserFilePreview({item,url,onLoaded}){
  return <div className="browser-file-preview">
   {!supported||!url?<EmptyState icon={FileText} title={title} description={tr('Ouvrez ou téléchargez ce fichier avec une application compatible.','Open or download this file with a compatible application.','افتح هذا الملف أو نزّله باستعمال تطبيق متوافق.')}/>:
    error?<EmptyState icon={FileText} title={tr('Aperçu indisponible','Preview unavailable','المعاينة غير متاحة')} description={error} action={<Button icon={RotateCcw} onClick={()=>setAttempt(value=>value+1)}>{tr('Réessayer','Retry','إعادة المحاولة')}</Button>}/>:
-   !frameURL?<PageLoading label={tr('Ouverture du fichier…','Opening file…','جارٍ فتح الملف…')}/>:
+   !frameURL?<PageLoading kind="reader" label={tr('Ouverture du fichier…','Opening file…','جارٍ فتح الملف…')}/>:
    <iframe key={`${frameURL}:${attempt}`} className="native-document-frame" title={title} src={frameURL} sandbox={text?'':undefined} onLoad={onLoaded} onError={()=>setError(tr('Ouvrez le fichier dans un nouvel onglet pour réessayer.','Open the file in a new tab to retry.','افتح الملف في تبويب جديد لإعادة المحاولة.'))}/>
   }
  </div>;

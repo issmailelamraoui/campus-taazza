@@ -167,7 +167,15 @@ export default function CampusLabs() {
     <Tabs value={tab} onChange={setTab} items={[{ id: 'code', label: tr('Code', 'Code', 'البرمجة') }, { id: 'graphs', label: tr('Graphiques', 'Graphs', 'الرسوم البيانية') }]} />
     <div className="labs-layout" hidden={tab !== 'code'}>
       <section className="card labs-workspace">
-        {sessionsLoading && <p className="muted labs-sessions-loading" role="status">{tr('Chargement de vos sessions privées…', 'Loading your private sessions…', 'جارٍ تحميل جلساتك الخاصة…')}</p>}
+        {sessionsLoading && (
+          <div className="labs-sessions-shimmer" role="status" aria-busy="true">
+            <p className="muted labs-sessions-loading">{tr('Chargement de vos sessions privées…', 'Loading your private sessions…', 'جارٍ تحميل جلساتك الخاصة…')}</p>
+            <div className="labs-session-list" aria-hidden="true" style={{ marginBottom: 16 }}>
+              <div className="shimmer-card" style={{ height: 46 }} />
+              <div className="shimmer-card" style={{ height: 46 }} />
+            </div>
+          </div>
+        )}
         {sessionsError && <div className="labs-alert is-error labs-sessions-error" role="alert"><p>{tr('Sessions privées indisponibles : ', 'Private sessions unavailable: ', 'الجلسات الخاصة غير متوفرة: ')}{sessionsError}</p><Button icon={RefreshCw} disabled={sessionsLoading || busy} onClick={() => setSessionsRevision(value => value + 1)}>{sessionsLoading ? tr('Chargement…', 'Loading…', 'جارٍ التحميل…') : tr('Réessayer le chargement des sessions', 'Retry loading sessions', 'إعادة تحميل الجلسات')}</Button></div>}
         <div className="labs-toolbar">
           <Field label={tr('Langage', 'Language', 'اللغة')}><Select className="input" value={language} disabled={busy} onChange={event => { setLanguage(event.target.value); setSource(starter(event.target.value)); setVoluntaryXp(false); newSession(); setOutput([]); setExecution(null); }}>{Object.entries(LANGUAGE_LABELS).map(([id, label]) => <option key={id} value={id}>{label}</option>)}</Select></Field>

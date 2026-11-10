@@ -6,6 +6,7 @@ import { useApp } from '../context';
 import { FACULTIES } from '../data/mock';
 import { getFiliere, getFilieres } from '../data/studies';
 import { Button, EmptyState, Field, Modal, PageHeader } from '../components/ui';
+import { TableSkeleton } from '../components/Shimmer';
 import { Select } from '../components/Select';
 import './admin.css';
 
@@ -86,7 +87,7 @@ export default function PermissionsPage() {
 
   return <div className="permissions-page" aria-busy={loading || busy}>
     <PageHeader eyebrow={tr('AUTORISATIONS', 'AUTHORIZATION', 'التفويضات')} title={tr('Nominations et permissions', 'Appointments and permissions', 'التعيينات والصلاحيات')} description={tr('Attribuez séparément les droits par faculté, filière ou pour toutes les facultés. Les nominations protégées sont réservées au propriétaire.', 'Assign separate permissions by faculty, programme or across all faculties. Protected appointments are managed by the owner.', 'امنح صلاحيات منفصلة لكل كلية أو مسلك أو جميع الكليات. يدير المالك التعيينات المحمية.')} />
-    {error ? <div className="admin-server-error"><p role="alert">{error}</p><Button onClick={() => setRevision(value => value + 1)}>{tr('Réessayer', 'Retry', 'إعادة المحاولة')}</Button></div> : loading ? <p className="admin-loading-status" role="status">{tr('Chargement des permissions…', 'Loading permissions…', 'جارٍ تحميل الصلاحيات…')}</p> : <>
+    {error ? <div className="admin-server-error"><p role="alert">{error}</p><Button onClick={() => setRevision(value => value + 1)}>{tr('Réessayer', 'Retry', 'إعادة المحاولة')}</Button></div> : loading ? <div className="admin-loading-wrap"><p className="admin-loading-status" role="status">{tr('Chargement des permissions…', 'Loading permissions…', 'جارٍ تحميل الصلاحيات…')}</p><TableSkeleton rows={4} /></div> : <>
       <form className="card permissions-form" onSubmit={grant}>
         <div className="permissions-fields">
           <Field label={tr('Compte', 'Account', 'الحساب')} hint={tr('Comptes approuvés et actifs uniquement.', 'Approved, active accounts only.', 'الحسابات المقبولة والمفعّلة فقط.')}><Select required disabled={busy || !eligibleUsers.length} value={student ? target : ''} onChange={event => { setTarget(event.target.value); setScope(''); setFiliere(''); setActionError(''); }}><option value="">{eligibleUsers.length ? tr('Choisissez un compte', 'Choose an account', 'اختر حسابًا') : tr('Aucun compte éligible', 'No eligible accounts', 'لا توجد حسابات مؤهلة')}</option>{eligibleUsers.map(account => <option key={account.id} value={account.id}>{account.name} · @{account.username} · {FACULTIES.find(faculty => faculty.id === account.faculty_id)?.code || account.faculty_id}</option>)}</Select></Field>

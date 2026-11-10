@@ -67,7 +67,15 @@ export default function DocumentRelations({ resource, page = 1, version = resour
       <p className="muted">{tr('Des mots communs suggèrent une page de cours. Vérifiez le contenu : les numéros d’exercices et de parties ne déterminent aucun lien.','Shared words suggest a course page. Check the content: exercise and part numbers do not establish a relationship.','تقترح الكلمات المشتركة صفحة درس. تحقق من المحتوى: أرقام التمارين والأجزاء لا تحدد العلاقة.')}</p>
       {!online ? <p role="status">{tr('Les relations sont consultables en ligne.','Relationships are available online.','العلاقات متاحة عبر الإنترنت.')}</p> : !currentVersion ? <p role="status">{tr('Ouvrez la version actuelle pour proposer un lien.','Open the current version to propose a link.','افتح النسخة الحالية لاقتراح رابط.')}</p> : <>
         <div className="document-relations-tools"><PDFIndexControl key={`${resource.id}:${version}`} resourceId={resource.id} version={version}/><Button icon={RefreshCw} disabled={loading || busy} onClick={() => refresh()}>{tr('Actualiser les liens','Refresh relationships','تحديث العلاقات')}</Button></div>
-        {loading && <p role="status">{tr('Recherche des pages liées…','Finding related pages…','البحث عن الصفحات المرتبطة…')}</p>}
+        {loading && (
+          <div style={{ padding: '12px 0' }} role="status" aria-busy="true">
+            <p>{tr('Recherche des pages liées…','Finding related pages…','البحث عن الصفحات المرتبطة…')}</p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 10 }} aria-hidden="true">
+              <div className="shimmer-card" style={{ height: 60 }} />
+              <div className="shimmer-card" style={{ height: 60 }} />
+            </div>
+          </div>
+        )}
         {data?.state === 'not_indexed' && <p>{tr('Préparez ce PDF et les cours du module pour comparer leur texte.','Prepare this PDF and the module’s courses to compare their text.','أعد هذا الملف ودروس الوحدة لمقارنة نصوصها.')}</p>}
         {data?.state === 'unknown' && <p>{tr('Aucun lien fiable proposé pour cette page. Vous pouvez proposer une relation manuelle, y compris pour une page numérisée.','No reliable relationship suggested for this page. You can propose a manual link, including for a scanned page.','لم تُقترح علاقة موثوقة لهذه الصفحة. يمكنك اقتراح رابط يدوي، بما في ذلك صفحة ممسوحة.')}</p>}
         {!!data?.suggestions?.length && <div className="document-relation-suggestions"><h4>{tr('Passages possibles à vérifier','Possible passages to check','مقاطع محتملة للتحقق')} · p. {page}</h4>{data.suggestions.map(item => <article className="document-relation-card" key={`${item.exercise.page}:${item.course.resourceId}:${item.course.page}`}>

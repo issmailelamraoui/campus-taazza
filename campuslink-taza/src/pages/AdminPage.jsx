@@ -1,4 +1,5 @@
 import CopyValue from '../components/CopyValue';
+import { TableSkeleton } from '../components/Shimmer';
 import { Select } from '../components/Select';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
@@ -341,7 +342,10 @@ export default function AdminPage() {
     <div className="admin-demo-notice"><ShieldCheck size={17} /><p><strong>{formatRole(role)}.</strong> {isGlobal ? tr('Gestion de tous les établissements.', 'Managing all faculties.', 'إدارة جميع الكليات.') : tr('Gestion limitée aux permissions et établissements attribués.', 'Management limited to your assigned permissions and faculties.', 'الإدارة محصورة في كليتك.')} {tr('Les modifications sont enregistrées sur le serveur.', 'Changes are saved on the server.', 'يتم حفظ التغييرات على الخادم.')}</p></div>
     {adminError && !modal && <div className="admin-server-error" role="alert"><p>{adminError}</p><Button disabled={Boolean(busy) || loading} onClick={() => { setLoading(true); load({ extras: true }).then(() => setAdminError('')).catch(error => setAdminError(error.message)).finally(() => setLoading(false)); }}>{loading ? tr('Chargement…', 'Loading…', 'جارٍ التحميل…') : tr('Réessayer', 'Retry', 'إعادة المحاولة')}</Button></div>}
     {busy && <p className="admin-loading-status" role="status"><LoaderCircle size={14} className="admin-pending-icon" /> {tr('Enregistrement…', 'Saving…', 'جارٍ الحفظ…')}</p>}
-    {loading && <p className="admin-loading-status" role="status">{tr('Chargement des données…', 'Loading data…', 'جارٍ تحميل البيانات…')}</p>}
+    {loading && <>
+      <p className="admin-loading-status" role="status">{tr('Chargement des données…', 'Loading data…', 'جارٍ تحميل البيانات…')}</p>
+      <TableSkeleton rows={5} />
+    </>}
     <Tabs items={tabItems} value={tab} onChange={changeTab} />
 
     {tab === 'overview' && <div className="admin-overview">

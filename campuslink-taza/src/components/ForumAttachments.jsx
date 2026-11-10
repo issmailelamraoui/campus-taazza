@@ -76,7 +76,12 @@ export default function ForumAttachments({questionId}){
 
  return<section className="forum-attachments" aria-label={tr('Pièces jointes de la question','Question attachments','مرفقات السؤال')}>
   <div className="forum-attachments-heading"><h3><Paperclip size={17}/>{tr('Pièces jointes','Attachments','المرفقات')}{data&&` (${items.length})`}</h3><Button icon={RefreshCw} variant="ghost" disabled={busy||loading||halted.current} onClick={()=>refresh()}>{tr('Actualiser les fichiers','Refresh files','تحديث الملفات')}</Button></div>
-  {loading&&!data&&<p role="status">{tr('Chargement des fichiers…','Loading files…','تحميل الملفات…')}</p>}
+  {loading&&!data&&(
+   <div style={{display:'flex',gap:8,padding:'8px 0'}} role="status" aria-busy="true">
+    <div className="shimmer-block" style={{width:160,height:36,borderRadius:8}}/>
+    <div className="shimmer-block" style={{width:140,height:36,borderRadius:8}}/>
+   </div>
+  )}
   {data&&!items.length&&<p className="muted">{tr('Aucune pièce jointe.','No attachments.','لا توجد مرفقات.')}</p>}
   {!!items.length&&<ul className="forum-attachment-list">{items.map(item=><li key={item.id}>
    <div className="forum-attachment-row"><span className="forum-attachment-name"><strong dir="auto">{item.filename}</strong><small>{sizeLabel(Number(item.size||0))}</small></span><a className="btn btn-secondary" href={item.url+(item.url.includes('?')?'&':'?')+'download=1'} download aria-label={tr(`Télécharger ${item.filename}`,`Download ${item.filename}`,`تنزيل ${item.filename}`)}><Download size={15}/>{tr('Télécharger','Download','تنزيل')}</a>

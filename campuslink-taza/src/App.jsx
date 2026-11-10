@@ -4,6 +4,7 @@ import {Navigate,Route,Routes,useLocation} from 'react-router-dom';
 import NotificationCenter from './components/NotificationCenter';
 import {useApp} from './context';
 import PageLoading from './components/PageLoading';
+import {SessionStatusSkeleton} from './components/Shimmer';
 import {accountDestination,requiresPasswordChange} from './lib/backend';
 import {documentOpenRequest} from './lib/document-open';
 const AppShell=React.lazy(()=>import('./components/AppShell'));
@@ -30,7 +31,7 @@ const SavedPage=studentPage('SavedPage');
 const ProfilePage=studentPage('ProfilePage');
 import './styles/interaction-overrides.css';
 
-function SessionStatus(){return <main className="public-page" style={{minHeight:'100dvh',display:'grid',placeItems:'center',padding:24}}><ConnectionStatus initial/></main>;}
+function SessionStatus(){return <SessionStatusSkeleton><ConnectionStatus initial/></SessionStatusSkeleton>;}
 function Protected(){
  const {user,selection,loading,connectionError}=useApp();
  if(loading||(!user&&connectionError))return <SessionStatus/>;

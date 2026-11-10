@@ -29,7 +29,7 @@ export default function NativeDocumentPreview({item,initialPage}){
    {source&&<a className="btn btn-secondary reader-external-open" href={source} target="_blank" rel="noopener" title={externalLabel}><ArrowUpRight size={17}/><span>{externalLabel}</span></a>}
   </div>
   {error?<EmptyState icon={FileText} title={tr('Aperçu indisponible','Preview unavailable','المعاينة غير متاحة')} description={error} action={<Button icon={RotateCcw} onClick={()=>setAttempt(value=>value+1)}>{tr('Réessayer','Retry','إعادة المحاولة')}</Button>}/>:
-   !resource?<PageLoading label={tr('Ouverture du fichier…','Opening file…','جارٍ فتح الملف…')}/>:
+   !resource?<PageLoading kind="reader" label={tr('Ouverture du fichier…','Opening file…','جارٍ فتح الملف…')}/>:
    <BrowserFilePreview item={current} url={source} onLoaded={()=>notificationDestinationViewed?.('resource',String(item.id))}/>
   }
  </Modal>;

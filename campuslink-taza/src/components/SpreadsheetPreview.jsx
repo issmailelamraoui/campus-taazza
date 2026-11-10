@@ -1,6 +1,7 @@
 import React,{useEffect,useRef,useState} from 'react';
 import {useApp} from '../context';
 import {Button,EmptyState} from './ui';
+import {SpreadsheetSkeleton} from './Shimmer';
 import {Select} from './Select';
 import {FileSpreadsheet,Search} from 'lucide-react';
 import {columnLabel,fetchSpreadsheet} from '../lib/spreadsheets.js';
@@ -11,7 +12,12 @@ export default function SpreadsheetPreview({url,signal,onReady,onError}){
  useEffect(()=>{let live=true;const controller=new AbortController(),abort=()=>controller.abort();signal?.addEventListener('abort',abort,{once:true});if(signal?.aborted)abort();const timeout=setTimeout(abort,20000);setWorkbook(null);setError('');setSheetIndex(0);fetchSpreadsheet(url,{signal:controller.signal}).then(value=>{if(live&&!controller.signal.aborted)setWorkbook(value);}).catch(error=>{if(!live||signal?.aborted)return;const message=error.name==='AbortError'?tr('La lecture du classeur a expiré. Réessayez ou téléchargez l’original.','Spreadsheet loading timed out. Retry or download the original.','انتهت مهلة تحميل الجدول. أعد المحاولة أو نزّل الأصل.'):error.message;setError(message);errorCallback.current?.(message);}).finally(()=>clearTimeout(timeout));return()=>{live=false;controller.abort();clearTimeout(timeout);signal?.removeEventListener('abort',abort);};},[url,signal]);
  useEffect(()=>{if(workbook&&!signal?.aborted)readyCallback.current?.({sheets:workbook.sheets.length,rows:workbook.sheets[0].rows.length,textAvailable:true});},[workbook]);
  if(error)return<EmptyState icon={FileSpreadsheet} title={tr('Aperçu du classeur indisponible','Spreadsheet preview unavailable','معاينة الجدول غير متوفرة')} description={error}/>;
- if(!workbook)return<p className="spreadsheet-loading" role="status">{tr('Lecture sécurisée du classeur…','Reading spreadsheet securely…','قراءة الجدول بأمان…')}</p>;
+ if(!workbook)return (
+  <div className="spreadsheet-preview" role="status" aria-busy="true">
+   <p className="spreadsheet-loading" style={{padding:'20px 0 10px'}}>{tr('Lecture sécurisée du classeur…','Reading spreadsheet securely…','قراءة الجدول بأمان…')}</p>
+   <SpreadsheetSkeleton />
+  </div>
+ );
  const sheet=workbook.sheets[sheetIndex],term=query.trim().toLocaleLowerCase(),rows=sheet.rows.map((cells,index)=>({cells,index})).filter(row=>!term||(filterColumn==='all'?row.cells.some(value=>value.toLocaleLowerCase().includes(term)):(row.cells[Number(filterColumn)]||'').toLocaleLowerCase().includes(term)));
  function jump(){const row=tableRef.current?.querySelector(`[data-sheet-row="${Number(rowNumber)-1}"]`),cell=row?.querySelector(`[data-sheet-column="${column}"]`);if(cell){cell.scrollIntoView({block:'center',inline:'center'});cell.focus({preventScroll:true});setMessage('');}else setMessage(tr('Cette ligne est vide ou exclue par le filtre.','This row is empty or excluded by the filter.','هذا الصف فارغ أو مستبعد بالتصفية.'));}
  return<div className="spreadsheet-preview" dir={language==='ar'?'rtl':'ltr'}><div className="spreadsheet-toolbar"><label>{tr('Feuille','Sheet','الورقة')}<Select aria-label={tr('Feuille','Sheet','الورقة')} value={String(sheetIndex)} onChange={event=>{setSheetIndex(Number(event.target.value));setQuery('');setFilterColumn('all');setRowNumber(1);setColumn(0);setMessage('');}}>{workbook.sheets.map((value,index)=><option value={index} key={value.id}>{value.name}</option>)}</Select></label><label className="spreadsheet-search"><Search size={15}/><input type="search" value={query} onChange={event=>setQuery(event.target.value)} placeholder={tr('Rechercher / filtrer les lignes','Search / filter rows','البحث / تصفية الصفوف')} aria-label={tr('Rechercher dans la feuille','Search sheet','البحث في الورقة')}/></label><label>{tr('Dans','In','في')}<Select aria-label={tr('Dans','In','في')} value={filterColumn} onChange={event=>setFilterColumn(event.target.value)}><option value="all">{tr('Toutes les colonnes','All columns','كل الأعمدة')}</option>{Array.from({length:sheet.columns},(_,index)=><option value={index} key={index}>{columnLabel(index)}</option>)}</Select></label></div>

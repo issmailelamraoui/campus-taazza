@@ -35,7 +35,25 @@ export default function XPPage(){
  return <div className="xp-page">
   <PageHeader title={tr('Campus XP','Campus XP','نقاط الفضاء الجامعي')} description={tr('Vos activités et vos fichiers partagés font progresser votre niveau. Consultez les points, les badges et leur historique.','Your activities and shared files build your level. See your points, badges and history.','تساهم أنشطتك وملفاتك المشتركة في تقدم مستواك. تابع النقاط والشارات وسجلها.')} actions={<Button onClick={()=>setRevision(value=>value+1)}>{tr('Actualiser','Refresh','تحديث')}</Button>}/>
   {error&&<p className="notice" role="alert">{error}</p>}
-  {!data&&!error&&<p className="campus-loading" role="status">{tr('Chargement…','Loading…','جارٍ التحميل…')}</p>}
+  {!data&&!error&&<div className="xp-loading-skeleton" role="status" aria-busy="true">
+   <div className="xp-breakdown" aria-hidden="true">
+    <div className="xp-total"><div className="shimmer-line" style={{width:60,height:28,margin:'0 auto'}}/></div>
+    <div><div className="shimmer-line" style={{width:40,height:20,margin:'0 auto 6px'}}/><div className="shimmer-line" style={{width:55,height:12,margin:'0 auto'}}/></div>
+    <div><div className="shimmer-line" style={{width:40,height:20,margin:'0 auto 6px'}}/><div className="shimmer-line" style={{width:55,height:12,margin:'0 auto'}}/></div>
+    <div><div className="shimmer-line" style={{width:40,height:20,margin:'0 auto 6px'}}/><div className="shimmer-line" style={{width:55,height:12,margin:'0 auto'}}/></div>
+    <div><div className="shimmer-line" style={{width:40,height:20,margin:'0 auto 6px'}}/><div className="shimmer-line" style={{width:55,height:12,margin:'0 auto'}}/></div>
+   </div>
+   <div className="card" style={{padding:20,margin:'20px 0'}} aria-hidden="true">
+    <div className="shimmer-line" style={{width:'30%',height:20,marginBottom:12}}/>
+    <div className="shimmer-line" style={{width:'100%',height:14,borderRadius:7,marginBottom:14}}/>
+    <div className="shimmer-line" style={{width:'45%',height:12}}/>
+   </div>
+   <div className="campus-cards" aria-hidden="true">
+    <div className="shimmer-card" style={{height:90}}/>
+    <div className="shimmer-card" style={{height:90}}/>
+    <div className="shimmer-card" style={{height:90}}/>
+   </div>
+  </div>}
   {data&&<>
    <div className="xp-breakdown"><div className="xp-total" data-testid="xp-total"><strong aria-live="polite">{data.xp}</strong>XP</div>{Object.entries(labels).map(([key,label])=><div key={key}><strong>{data.breakdown[key]||0}</strong>{label}</div>)}</div>
    {level&&<section className="xp-level" data-total-xp={level.xp} aria-label={tr('Mon niveau','My level','مستواي')}>
