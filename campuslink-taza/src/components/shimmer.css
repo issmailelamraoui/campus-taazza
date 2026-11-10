@@ -158,8 +158,8 @@
 /* Grid for cards */
 .shimmer-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 16px;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr));
+  gap: 14px;
   width: 100%;
 }
 
@@ -221,6 +221,37 @@
 .shimmer-table-row:last-child {
   border-bottom: none;
 }
+
+.shimmer-table-header > *,
+.shimmer-table-row > * { min-width: 0; }
+
+.shimmer-generic-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
+  gap: 16px;
+  width: 100%;
+}
+
+.shimmer-generic-card {
+  min-width: 0;
+  min-height: 154px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 16px;
+  border: 1px solid var(--shimmer-border);
+  border-radius: var(--radius, 12px);
+  background: var(--shimmer-card);
+}
+
+.shimmer-generic-card-heading,
+.shimmer-generic-card-footer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.shimmer-generic-card-footer { justify-content: space-between; margin-top: auto; }
 
 /* Reader Skeleton */
 .shimmer-reader-container {
@@ -376,6 +407,17 @@
   display: flex;
   flex-direction: column;
   gap: 24px;
+}
+
+@media (max-width: 600px) {
+  .shimmer-grid,
+  .shimmer-generic-grid { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  .shimmer-table-card { overflow-x: auto; }
+  .shimmer-table-header,
+  .shimmer-table-row { min-width: 560px; }
+  .shimmer-reader-page { min-height: 520px; padding: 24px 18px; }
+  .shimmer-session-main { padding: 22px 16px; }
+  .shimmer-session-nav { padding-inline: 16px; }
 }
 
 .shimmer-status-pill {

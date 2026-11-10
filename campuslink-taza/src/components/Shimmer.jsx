@@ -159,32 +159,24 @@ export function CampusGridSkeleton({ count = 4 }) {
  * Table Skeleton (for Admin, Permissions, Spreadsheets)
  */
 export function TableSkeleton({ rows = 5, cols = 4 }) {
+  const columnWidths = Array.from({ length: cols }, (_, index) => index === 0 ? 30 : Math.floor(70 / Math.max(1, cols - 1)));
   return (
     <div className="shimmer-table-card" role="status" aria-label="Loading table…">
       <div className="shimmer-table-header">
-        <Shimmer variant="line" height={15} width="30%" />
-        <Shimmer variant="line" height={15} width="22%" />
-        <Shimmer variant="line" height={15} width="25%" />
-        <Shimmer variant="line" height={15} width="15%" />
+        {columnWidths.map((width, index) => <Shimmer key={index} variant="line" height={15} width={`${width}%`} />)}
       </div>
       {Array.from({ length: rows }).map((_, r) => (
         <div className="shimmer-table-row" key={r}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, width: '30%' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, width: `${columnWidths[0]}%` }}>
             <Shimmer variant="circle" width={30} height={30} />
             <div style={{ flex: 1 }}>
               <Shimmer variant="line" height={14} width="85%" style={{ marginBottom: 5 }} />
               <Shimmer variant="line" height={11} width="50%" />
             </div>
           </div>
-          <div style={{ width: '22%' }}>
-            <Shimmer variant="badge" width={80} height={20} />
-          </div>
-          <div style={{ width: '25%' }}>
-            <Shimmer variant="line" height={13} width="70%" />
-          </div>
-          <div style={{ width: '15%' }}>
-            <Shimmer variant="btn" width={70} height={26} />
-          </div>
+          {columnWidths.slice(1).map((width, index) => <div key={index} style={{ width: `${width}%` }}>
+            {index === columnWidths.length - 2 ? <Shimmer variant="btn" width={70} height={26} /> : <Shimmer variant={index === 0 ? 'badge' : 'line'} height={index === 0 ? 20 : 13} width={index === 0 ? 80 : '70%'} />}
+          </div>)}
         </div>
       ))}
     </div>
@@ -311,7 +303,13 @@ export function PageSkeleton({ count = 6, label }) {
         <Shimmer variant="chip" width={100} height={34} />
         <Shimmer variant="chip" width={80} height={34} />
       </div>
-      <DocumentGridSkeleton count={count} />
+      <div className="shimmer-generic-grid">
+        {Array.from({ length: count }).map((_, index) => <article className="shimmer-generic-card" key={index}>
+          <div className="shimmer-generic-card-heading"><Shimmer variant="circle" width={34} height={34} /><Shimmer variant="line" width="48%" height={16} /></div>
+          <ShimmerText lines={2 + (index % 2)} lineHeight={13} gap={10} lastLineWidth="72%" />
+          <div className="shimmer-generic-card-footer"><Shimmer variant="badge" width={74} /><Shimmer variant="btn" width={86} height={30} /></div>
+        </article>)}
+      </div>
     </div>
   );
 }
