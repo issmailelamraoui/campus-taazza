@@ -41,13 +41,8 @@ export async function uploadInChunks(
 ) {
   const file = body.get("file"),
     fields = [...body.entries()].filter(([key]) => key !== "file");
-  console.log("[UPLOAD DEBUG]", {
-    file,
-    isFile: file instanceof File,
-    name: file?.name,
-    size: file?.size,
-    fields: [...body.keys()],
-  });
+  if (!file || typeof file.slice !== "function" || !Number.isSafeInteger(file.size) || !file.size)
+    throw new Error("Le fichier sélectionné est introuvable ou vide.");
   const signature = JSON.stringify([
     generation,
     path,

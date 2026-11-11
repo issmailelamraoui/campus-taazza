@@ -1,7 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { chunkUploadFile, uploadInChunks } from '../src/lib/upload-transport.js';
+import { api } from '../src/api.js';
 import { UPLOAD_CHUNK_BYTES, UPLOAD_CHUNK_THRESHOLD } from '../shared/upload-transport.js';
+import express from 'express';
+import multer from 'multer';
 
 const abortError = () => new DOMException('Fixture upload cancelled.', 'AbortError');
 const tick = () => new Promise(resolve => setTimeout(resolve, 0));
@@ -48,7 +51,7 @@ function mockUploadServer({ partFailure, loseCompleteResponse = false, terminalF
         if (blockParts) await blockParts({ part, signal: options.signal });
         const status = partFailure?.({ part, attempt, session });
         if (status) return Response.json({ error: 'Synthetic interrupted piece.' }, { status });
-        session.parts.set(part, options.body.size);
+        session.parts.set(part, Buffer.from(await options.body.arrayBuffer()));
         return Response.json({ ok: true });
       } finally { active--; }
     }
@@ -70,6 +73,40 @@ async function withFetch(server, action) {
   const original = globalThis.fetch; globalThis.fetch = server.fetch;
   try { return await action(); } finally { globalThis.fetch = original; }
 }
+
+async function assertStoredBytes(server, file) {
+  const session = [...server.sessions.values()][0];
+  const reconstructed = Buffer.concat([...session.parts.entries()].sort(([a], [b]) => a - b).map(([, bytes]) => bytes));
+  assert.deepEqual(reconstructed, Buffer.from(await file.arrayBuffer()));
+  assert.equal(reconstructed.length, file.size);
+}
+
+test('ordinary multipart uploads retain the selected File and let fetch generate a Multer boundary', async t => {
+  const app = express();
+  const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 1024, files: 1 } });
+  let received;
+  app.post('/api/uploads', upload.single('file'), (req, res) => {
+    received = { field: req.file?.fieldname, name: req.file?.originalname, size: req.file?.size, buffer: req.file?.buffer };
+    res.json({ ok: true });
+  });
+  const server = await new Promise(resolve => {
+    const value = app.listen(0, '127.0.0.1', () => resolve(value));
+  });
+  t.after(() => new Promise(resolve => server.close(resolve)));
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (url, options) => originalFetch(new URL(url, `http://127.0.0.1:${server.address().port}`), options);
+  t.after(() => { globalThis.fetch = originalFetch; });
+
+  const file = new File([Buffer.from('actual selected file bytes')], 'selected.txt', { type: 'text/plain' });
+  const body = new FormData(); body.set('file', file); body.set('title', 'selected file');
+  assert.equal(body.get('file'), file);
+  const result = await api('/uploads', { method: 'POST', body, headers: { 'Content-Type': 'multipart/form-data' } });
+  assert.deepEqual(result, { ok: true });
+  assert.equal(received.field, 'file');
+  assert.equal(received.name, file.name);
+  assert.equal(received.size, file.size);
+  assert.deepEqual(received.buffer, Buffer.from(await file.arrayBuffer()));
+});
 
 test('only supported large multipart file uploads use the chunk transport', () => {
   const small = uploadBody(UPLOAD_CHUNK_THRESHOLD), large = uploadBody(UPLOAD_CHUNK_THRESHOLD + 1);
@@ -93,6 +130,7 @@ test('files use exact 2 MiB pieces, at most two concurrent requests, original me
     const session = [...server.sessions.values()][0];
     assert.deepEqual(session.metadata.file, { name: file.name, type: file.type, size: file.size });
     assert.deepEqual(session.metadata.fields, [['module', 'Probabilités et Statistiques'], ['relative_path', 'S1/Éléments/' + file.name]]);
+    await assertStoredBytes(server, file);
   });
 });
 
@@ -103,6 +141,7 @@ test('a transient failed piece retries in place without restarting the file or d
     assert.equal(server.sessions.size, 1); assert.equal(server.completions, 1);
     assert.equal(server.attempts.get('session-1:1'), 2); assert.equal(server.attempts.get('session-1:2'), 1);
     assert.ok(server.maximum <= 2);
+    await assertStoredBytes(server, body.get('file'));
   });
 });
 
@@ -115,6 +154,7 @@ test('a lost final response consults the durable receipt and a successful same-f
     assert.equal((await uploadInChunks('/uploads', body, options)).status, 201);
     assert.equal(server.sessions.size, creates); assert.equal(server.calls.filter(call => call.method === 'PUT').length, puts);
     assert.equal(server.completions, 1);
+    await assertStoredBytes(server, body.get('file'));
     assert.ok(server.calls.some(call => call.url === '/api/upload-sessions/session-1' && call.method === 'GET'));
   });
 });
@@ -134,6 +174,7 @@ test('an explicit same-file retry resumes only missing pieces after an interrupt
     assert.equal((await uploadInChunks('/uploads', body, options)).status, 201);
     assert.equal(server.sessions.size, 1); assert.equal(server.attempts.get('session-1:1'), 1);
     assert.equal(server.attempts.get('session-1:2'), 2); assert.equal(server.completions, 1);
+    await assertStoredBytes(server, body.get('file'));
   });
 });
 

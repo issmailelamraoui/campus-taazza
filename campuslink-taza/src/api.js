@@ -23,7 +23,8 @@ export async function api(path, options = {}) {
   signal?.addEventListener('abort', abort, { once: true });
   const multipart = body instanceof FormData;
   const headers = new Headers(rest.headers);
-  if (body !== undefined && !multipart && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
+  if (multipart) headers.delete('Content-Type');
+  else if (body !== undefined && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
   const timer = setTimeout(() => { timedOut = true; abort(); }, timeout);
   const activityKind = ['POST', 'PATCH', 'DELETE', 'PUT'].includes(String(rest.method || 'GET').toUpperCase()) ? 'writes' : 'reads';
   updateActivity(activityKind, 1);

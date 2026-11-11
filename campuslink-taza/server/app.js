@@ -2624,15 +2624,9 @@ export async function createApp({
           req.body.faculty_id !== req.user.faculty_id
         )
           throw problem(403, "Le dépôt appartient à une autre faculté.");
-        console.log("========== UPLOAD DIAGNOSTIC ==========");
-        console.log("Method:", req.method);
-        console.log("Content-Type:", req.headers["content-type"]);
-        console.log("File exists:", !!req.file);
-        console.log("File name:", req.file?.originalname);
-        console.log("File size:", req.file?.size);
-        console.log("Body fields:", Object.keys(req.body || {}));
-        console.log("=======================================");
         if (!req.file?.size) throw problem(400, "Sélectionnez un fichier.");
+        if (!req.file.buffer?.length || req.file.size !== req.file.buffer.length)
+          throw problem(400, "Le fichier reçu est incomplet. Renvoyez-le.");
         const category = req.body.category;
         const channel = req.body.channel || "general";
         const libraryVisible = uploadBoolean(req.body.library_visible, true);
@@ -5032,6 +5026,8 @@ export async function createApp({
         )
           throw problem(403, "Cette ressource dépasse vos permissions.");
         if (!req.file?.size) throw problem(400, "Sélectionnez un fichier.");
+        if (!req.file.buffer?.length || req.file.size !== req.file.buffer.length)
+          throw problem(400, "Le fichier reçu est incomplet. Renvoyez-le.");
         const filename = basename(req.file.originalname)
           .replace(/[\u0000-\u001f]/g, "")
           .slice(0, 180);
