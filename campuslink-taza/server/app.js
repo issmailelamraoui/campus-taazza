@@ -73,6 +73,7 @@ import {
   supplementScopeMatches,
 } from "./resource-supplements.js";
 import { installForumAttachmentRoutes } from "./forum-attachments.js";
+import { requestBodyForValidation } from "./request-body.js";
 import {
   installPasswordRecovery,
   basicResetEligibility,
@@ -322,12 +323,11 @@ export async function createApp({
     };
 
     app.use("/api", async (req, res, next) => {
-      req.body ??= {};
+      const body = requestBodyForValidation(req);
       if (
-        req.body.faculty_id !== undefined &&
-        req.body.faculty_id !== null &&
-        (typeof req.body.faculty_id !== "string" ||
-          req.body.faculty_id.length > 30)
+        body?.faculty_id !== undefined &&
+        body.faculty_id !== null &&
+        (typeof body.faculty_id !== "string" || body.faculty_id.length > 30)
       )
         return next(problem(400, "Faculté invalide."));
       res.set("Cache-Control", "no-store");
